@@ -89,7 +89,7 @@ Portfolio_Project/
 Prérequis : **Git** et **Python 3** (aucun autre outil, aucune installation de paquet).
 
 ```bash
-git clone https://github.com/<votre-utilisateur>/plan-patrimoine.git && cd plan-patrimoine
+git clone https://github.com/briceperrout/Portfolio.git && cd Portfolio
 python3 serveur.py 8080
 ```
 
