@@ -1,0 +1,63 @@
+# ── macOS ────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# ── Secrets & environnement ──────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ── Python ───────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# ── Node (outillage éventuel, hors runtime) ──────────
+node_modules/
+npm-debug.log*
+package-lock.json
+
+# ── Éditeurs & IDE ───────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Claude Code (config locale) ──────────────────────
+.claude/settings.local.json
+.claude/worktrees/
+
+# ── Exports & sauvegardes personnels des utilisateurs ─
+# Les JSON de sauvegarde (profil, scénarios) ne doivent jamais être versionnés.
+# Seule la donnée de référence DVF est conservée.
+*.json
+!prix-m2.json
+!.claude/launch.json
+plan-patrimoine-*.csv
+plan-patrimoine-*.html
+bilan-*.html
+sauvegarde-*
+*.backup
+*.bak
+
+# ── Journaux & temporaires ───────────────────────────
+*.log
+*.tmp
+.cache/
+dist/
+build/
+
+# ── Documents de travail non destinés au dépôt public ─
+Prompt/
+dossier sans titre/

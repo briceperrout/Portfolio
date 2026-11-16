@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Plan Patrimoine</title>
+<meta name="description" content="Simulateur patrimonial, fiscal, immobilier et retraite pour les épargnants français. Local-first : vos données restent dans votre navigateur.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap">
+<style>
+/* Layout : outil à deux vues (simulation / réglages du plan), formulaire à gauche, résultats à droite ; une colonne sur téléphone. */
+:root {
+  --bg: #f4f6f5; --surface: #fcfdfc; --fg: #121715; --muted: #5a635f; --faint: #8a928e;
+  --line: #dde3e0; --accent: #1d5c48; --accent-ink: #ffffff; --accent-soft: #e2eee9;
+  --warn: #8a5a00; --warn-soft: #fbf0d9; --act: #1d4f8a; --act-soft: #e3ecf7;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6;
+  --font-display: "Manrope", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1312; --surface: #181d1b; --fg: #edf1ef; --muted: #a5aea9; --faint: #7d8681;
+  --line: #2b3330; --accent: #6cc4a1; --accent-ink: #0c1a14; --accent-soft: #1d2d27;
+  --warn: #f0c060; --warn-soft: #2e2615; --act: #8db8ec; --act-soft: #1a2636;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f1312; --surface: #181d1b; --fg: #edf1ef; --muted: #a5aea9; --faint: #7d8681;
+  --line: #2b3330; --accent: #6cc4a1; --accent-ink: #0c1a14; --accent-soft: #1d2d27;
+  --warn: #f0c060; --warn-soft: #2e2615; --act: #8db8ec; --act-soft: #1a2636;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+/* Impression (Cmd + P / Ctrl + P) : la vue ouverte seulement, sans navigation ni boutons, en clair */
+@media print {
+  :root:root:root { color-scheme: light;
+    --bg: #ffffff; --surface: #ffffff; --fg: #121715; --muted: #4a524e; --faint: #7a827e;
+    --line: #d5dbd8; --accent: #1d5c48; --accent-ink: #ffffff; --accent-soft: #e2eee9;
+    --warn: #8a5a00; --warn-soft: #fbf0d9; --act: #1d4f8a; --act-soft: #e3ecf7;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6; }
+  @page { margin: 12mm; }
+  body { background: #fff; font-size: 10.5pt; }
+  .wrap { max-width: none; padding: 0; }
+  nav.onglets, header.top .ligne-actions, .barre-actions, .etape, button, .bouton, .ligne-actions button, #btn-discret, #btn-theme { display: none !important; }
+  .panneau, .tuile, table, figure, svg { break-inside: avoid; }
+  .panneau { box-shadow: none !important; border: 1px solid var(--line); }
+  input, select, textarea { border: 0 !important; background: none !important; box-shadow: none !important; appearance: none; -webkit-appearance: none; }
+  a { color: inherit; text-decoration: none; }
+  .table-wrap { overflow: visible !important; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); line-height: 1.45; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 20px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; }
+h2 { font-size: 1.05rem; font-weight: 700; }
+h3 { font-size: 0.95rem; font-weight: 700; }
+.num, td.m, input[type=number] { font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.small { font-size: 0.85rem; }
+
+header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; }
+.sous-titre { color: var(--muted); margin: 4px 0 0; max-width: 60ch; }
+.statut { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; padding: 6px 10px;
+  border-radius: 999px; background: var(--accent-soft); color: var(--fg); }
+.statut::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.statut.sale { background: var(--warn-soft); }
+.statut.sale::before { background: var(--warn); }
+
+nav.onglets { display: flex; gap: 4px; overflow-x: auto; margin: 20px 0 16px; border-bottom: 1px solid var(--line); }
+nav.onglets a { padding: 10px 14px; color: var(--muted); text-decoration: none; font-weight: 600;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; }
+nav.onglets a[aria-current="page"] { color: var(--fg); border-color: var(--accent); }
+nav.onglets a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, .seg:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.grille { display: grid; grid-template-columns: minmax(0, 330px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 860px) { .grille { grid-template-columns: minmax(0, 1fr); } }
+.panneau { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; min-width: 0; }
+.pile { display: grid; gap: 16px; min-width: 0; }
+
+/* Formulaires */
+.champs { display: grid; gap: 10px; }
+.champ { display: grid; grid-template-columns: minmax(0, 1fr) 128px; align-items: center; gap: 8px; }
+.champ label { font-size: 0.9rem; }
+.saisie { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.saisie input { width: 100%; min-width: 0; border: 0; background: transparent; color: var(--fg); padding: 7px 8px;
+  font: inherit; text-align: right; }
+.saisie span { padding-right: 8px; color: var(--faint); font-size: 0.8rem; white-space: nowrap; }
+.saisie input:disabled { color: var(--muted); }
+.saisie.auto { border-color: var(--accent); background: var(--accent-soft); }
+.champ:has(.saisie.auto) label::after { content: " · calculé"; color: var(--accent); font-size: 0.8rem; }
+.bandeau { padding: 10px 14px; border-radius: var(--r); background: var(--act-soft); color: var(--fg); font-size: 0.9rem; }
+.bandeau b { font-weight: 600; }
+#reglages input:disabled, #reglages select:disabled { color: var(--fg); opacity: 1; }
+.coche { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 600; margin-top: 6px; }
+.coche input { width: 16px; height: 16px; accent-color: var(--accent); }
+fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 10px; }
+fieldset + fieldset { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+legend { font-family: var(--font-display); font-weight: 700; padding: 0; margin-bottom: 8px; }
+.total-capital { display: flex; justify-content: space-between; align-items: baseline; padding-top: 8px; border-top: 1px dashed var(--line); }
+.total-capital b { font-family: var(--font-display); font-size: 1.1rem; }
+.ecart-plus { color: var(--act); }
+.ecart-moins { color: var(--warn); }
+.statut-compte { font-size: 0.82rem; color: var(--muted); }
+.tuiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.tuiles.quatre { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 900px) { .tuiles.quatre { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .tuiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.tuile { background: var(--bg); border-radius: 8px; padding: 10px 12px; display: grid; gap: 2px; }
+.tuile span { font-size: 0.78rem; color: var(--muted); }
+.tuile b { font-family: var(--font-display); font-size: 1.15rem; }
+.graphe { width: 100%; height: auto; display: block; }
+.graphe text { fill: var(--muted); font-size: 11px; font-family: var(--font-body); }
+.graphe .grille-l { stroke: var(--line); stroke-width: 1; }
+.graphe .axe { stroke: var(--faint); stroke-width: 1; }
+.legende-g { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.85rem; margin-top: 6px; }
+.trait { display: inline-block; width: 16px; height: 2px; vertical-align: middle; margin-right: 6px; }
+.proches { display: grid; gap: 8px; padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.ligne-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ligne-actions input.texte { flex: 1 1 140px; }
+.champ-texte { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+input.texte { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); padding: 7px 8px; font: inherit; width: 100%; min-width: 0; }
+select { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); padding: 6px 8px; font: inherit; width: 100%; min-width: 0; }
+input[type=month] { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); padding: 6px 8px; font: inherit; width: 100%; min-width: 0; }
+
+/* Allocation */
+.chiffres { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 4px 0 14px; }
+.chiffres div { display: grid; }
+.chiffres b { font-family: var(--font-display); font-size: 1.25rem; }
+.chiffres span { font-size: 0.8rem; color: var(--muted); }
+.barre { display: flex; gap: 2px; height: 30px; margin-bottom: 12px; position: relative; }
+.seg { height: 100%; min-width: 3px; border-radius: 4px; cursor: default; }
+.bulle { position: fixed; z-index: 20; pointer-events: none; background: var(--surface); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 0.85rem; box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  white-space: pre-line; max-width: min(360px, calc(100vw - 32px)); }
+.pastille { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th { text-align: left; font-weight: 600; color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.m, th.m { text-align: right; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+ol.etapes { margin: 10px 0 0; padding-left: 20px; color: var(--muted); font-size: 0.85rem; display: grid; gap: 4px; }
+.deux { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1050px) { .deux { grid-template-columns: minmax(0, 1fr); } }
+.note { color: var(--muted); font-size: 0.82rem; }
+
+/* Consignes */
+ul.consignes { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+ul.consignes li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: start; }
+.niveau { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 7px; border-radius: 6px; white-space: nowrap; }
+.niveau.action { background: var(--act-soft); color: var(--act); }
+.niveau.info { background: var(--accent-soft); color: var(--accent); }
+.niveau.alerte { background: var(--warn-soft); color: var(--warn); }
+.fiche { grid-column: 2; font-size: 0.8rem; color: var(--faint); }
+
+/* Réglages */
+.reglages { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+@media (max-width: 960px) { .reglages { grid-template-columns: minmax(0, 1fr); } }
+.groupe h2 { margin-bottom: 4px; }
+.groupe .aide { color: var(--muted); font-size: 0.85rem; margin: 0 0 12px; }
+.groupe table input { width: 100%; min-width: 64px; }
+.groupe td { padding: 4px; }
+.barre-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+button { font: inherit; font-weight: 600; border-radius: 8px; padding: 8px 14px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
+button.principal { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.lien { border: 0; background: none; padding: 4px 6px; color: var(--muted); font-weight: 500; }
+button:disabled { opacity: 0.5; cursor: default; }
+.apercu { margin-bottom: 16px; }
+.groupe.large { grid-column: 1 / -1; }
+.groupe td:first-child .saisie input { min-width: 84px; }
+.legende { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.85rem; }
+.legende span { white-space: nowrap; }
+.info-droits { font-size: 0.85rem; color: var(--muted); }
+.erreur { color: var(--warn); background: var(--warn-soft); padding: 10px 12px; border-radius: 8px; }
+/* Fiches */
+.lien-fiche { color: var(--accent); font-weight: 600; text-decoration: none; }
+.lien-fiche:hover { text-decoration: underline; }
+td .lien-fiche { color: inherit; font-weight: inherit; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.cartes { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.carte { display: grid; gap: 6px; align-content: start; padding: 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); color: var(--fg); text-decoration: none; }
+.carte:hover, .carte:focus-visible { border-color: var(--accent); outline: none; }
+.carte-guide { grid-column: 1 / -1; background: var(--accent-soft); border-color: transparent; }
+.carte-guide .etiquette { justify-self: start; }
+.carte p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.fiche-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; max-width: 760px; }
+.fiche-detail > * { min-width: 0; }
+.fiche-detail h3 { margin-bottom: 8px; }
+.titre-fiche { font-size: 1.5rem; }
+.accroche { font-size: 1.05rem; margin: -8px 0 0; }
+.retour { color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+.encart { background: var(--accent-soft); border-color: transparent; }
+.essentiel { display: grid; gap: 0; margin: 0; border-top: 1px solid var(--line); }
+.essentiel div { display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr); gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.essentiel dt { font-weight: 600; }
+.essentiel dd { margin: 0; }
+@media (max-width: 560px) { .essentiel div { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+ul.points, ol.points { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 70ch; }
+.tableau-fiche td { font-size: 0.88rem; }
+.tableau-fiche td.fort { font-weight: 600; }
+.tableau-fiche th { white-space: nowrap; }
+.barre-recap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border-radius: var(--r); background: var(--accent-soft); }
+.barre-recap span:first-child { flex: 1 1 220px; }
+/* Calendrier */
+h3.annee { font-size: 0.85rem; color: var(--muted); letter-spacing: 0.04em; margin: 12px 0 4px; }
+ul.echeances { list-style: none; margin: 0; padding: 0; display: grid; }
+ul.echeances li { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 4px 14px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+ul.echeances li:last-child { border-bottom: 0; }
+@media (max-width: 560px) { ul.echeances li { grid-template-columns: minmax(0, 1fr); } }
+.quand { color: var(--muted); font-size: 0.88rem; }
+.etiquette { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 6px; border-radius: 5px; background: var(--bg); color: var(--muted); }
+.etiquette.action { background: var(--act-soft); color: var(--act); }
+.etiquette.fiscal { background: var(--warn-soft); color: var(--warn); }
+.etiquette.projet { background: var(--accent-soft); color: var(--accent); }
+.qui { font-size: 0.8rem; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.vigilance { border-left: 3px solid var(--warn); padding-left: 12px; }
+.note a { color: var(--muted); }
+
+/* Pages en étapes */
+.etape { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin: 0 0 16px; }
+.etape p { margin: 0; color: var(--muted); max-width: 75ch; }
+.etape p b { color: var(--fg); }
+.colonnes-profil { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .colonnes-profil { grid-template-columns: minmax(0, 1fr); } }
+#profil .proches { border-bottom: 1px solid var(--line); margin-bottom: 16px; padding-bottom: 16px; }
+#profil .proches .champ { max-width: 520px; }
+.suite { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; margin-top: 16px; }
+.suite b { font-family: var(--font-display); font-size: 1.1rem; margin-left: 6px; }
+a.bouton { display: inline-block; font-weight: 600; border-radius: 8px; padding: 8px 14px; text-decoration: none;
+  border: 1px solid var(--line); background: var(--surface); color: var(--fg); white-space: nowrap; }
+a.bouton.principal { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+a.bouton:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.entete-res { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+.entete-res .qui-res { display: grid; gap: 2px; }
+.entete-res .qui-res b { font-family: var(--font-display); font-size: 1.05rem; }
+.grille-res { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); gap: 16px; align-items: start; }
+@media (max-width: 980px) { .grille-res { grid-template-columns: minmax(0, 1fr); } }
+.compte-titre { display: flex; align-items: baseline; gap: 8px; }
+.compteur { font-size: 0.78rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--bg); color: var(--muted); }
+ol.a-faire { list-style: none; counter-reset: af; margin: 12px 0 0; padding: 0; display: grid; gap: 12px; }
+ol.a-faire li { counter-increment: af; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 2px 10px; align-items: start; }
+ol.a-faire li::before { content: counter(af); width: 24px; height: 24px; border-radius: 50%; background: var(--act-soft); color: var(--act);
+  font-weight: 700; font-size: 0.8rem; display: grid; place-items: center; }
+ol.a-faire .fiche, ul.infos .fiche { grid-column: 2; }
+ul.infos { list-style: none; margin: 12px 0 0; padding: 0; display: grid; }
+ul.infos li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 2px 10px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+ul.infos li:last-child { border-bottom: 0; padding-bottom: 0; }
+ul.infos li::before { content: "i"; width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 0.75rem; display: grid; place-items: center; font-family: var(--font-display); margin-top: 1px; }
+.panneau.attention { border-left: 3px solid var(--warn); }
+.note.attention { color: var(--fg); background: var(--warn-soft); border-left: 3px solid var(--warn); padding: 6px 10px; border-radius: 6px; }
+.panneau.attention ul.infos li::before { content: "!"; background: var(--warn-soft); color: var(--warn); }
+.panneau.attention h2 { color: var(--warn); }
+a.terme { color: inherit; text-decoration: underline dotted; text-decoration-color: var(--faint); text-underline-offset: 3px; }
+a.terme:hover, a.terme:focus-visible { color: var(--accent); text-decoration-color: var(--accent); }
+a.aide-lien { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; font-size: 0.7rem; font-weight: 700;
+  border: 1px solid var(--line); background: var(--bg); color: var(--muted); text-decoration: none; margin-left: 6px; vertical-align: 1px; }
+a.aide-lien:hover, a.aide-lien:focus-visible { border-color: var(--accent); color: var(--accent); }
+.estimateur { display: grid; gap: 10px; padding: 10px 12px; border-radius: 8px; background: var(--bg); }
+.estimateur .titre-est { font-size: 0.85rem; font-weight: 600; margin: 0; }
+.estimateur .resultat-est { font-size: 0.88rem; margin: 0; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.estimateur .resultat-est b { font-family: var(--font-display); font-size: 1.05rem; }
+.combo { position: relative; }
+.suggestions { position: absolute; z-index: 20; left: 0; right: 0; top: 100%; margin: 2px 0 0; padding: 4px 0; list-style: none; max-height: 260px; overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.12); }
+.suggestions li { padding: 6px 10px; font-size: 0.9rem; cursor: pointer; }
+.suggestions li[aria-selected="true"], .suggestions li[data-code]:hover { background: var(--accent-soft); }
+.estimateur .resultat-est .ligne-est { flex-basis: 100%; margin-top: 4px; }
+.conseil { font-size: 0.85rem; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); margin: 0; }
+.conseil.attention { background: var(--warn-soft); }
+.conseil:empty { display: none; }
+/* Trajectoire par tranches */
+.mini-barre { display: flex; gap: 2px; height: 14px; min-width: 140px; }
+.mini-barre span { height: 100%; border-radius: 3px; min-width: 2px; }
+td.bascules { font-size: 0.82rem; color: var(--muted); min-width: 200px; }
+td.bascules div + div { margin-top: 3px; }
+ul.bascules { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+ul.bascules li { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; font-size: 0.9rem; }
+ul.bascules li b.quand { font-family: var(--font-display); }
+.test-age { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 14px 0 6px; padding: 10px 12px; border-radius: 8px; background: var(--bg); }
+.test-age .saisie { width: 110px; }
+.verdict { padding: 10px 12px; border-radius: 8px; font-size: 0.9rem; margin: 8px 0 0; }
+.verdict.ok { background: var(--accent-soft); }
+.verdict.ko { background: var(--warn-soft); border-left: 3px solid var(--warn); }
+tr.ligne-choisie td { background: var(--act-soft); }
+tr.ligne-ideale td:first-child { font-weight: 700; }
+.lien-video { font-weight: 600; color: var(--act); text-decoration: none; }
+.lien-video:hover { text-decoration: underline; }
+ul.objectifs { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+ul.objectifs li { display: grid; grid-template-columns: minmax(0, 1fr) 120px 52px 90px; gap: 10px; align-items: center; font-size: 0.92rem; }
+@media (max-width: 640px) { ul.objectifs li { grid-template-columns: minmax(0, 1fr) 60px; } ul.objectifs li .jauge { grid-column: 1 / -1; grid-row: 2; } ul.objectifs li .small { grid-column: 2; } }
+.sous-bloc { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 4px; }
+.sous-bloc h3 { font-size: 0.9rem; }
+.jauge { display: block; height: 8px; border-radius: 4px; background: var(--bg); overflow: hidden; }
+ul.endettement { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.endet-tete { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 0.9rem; font-weight: 600; }
+.endet-etat { font-size: 0.78rem; font-weight: 600; margin-left: 6px; padding: 1px 6px; border-radius: 999px; }
+.endet-etat.ok { background: var(--accent-soft); color: var(--accent); }
+.endet-etat.ko { background: var(--warn-soft); color: var(--warn); }
+.endet-barre { position: relative; height: 8px; border-radius: 4px; background: var(--bg); margin: 6px 0 4px; box-shadow: inset 0 0 0 1px var(--line); }
+.endet-barre span { display: block; height: 100%; border-radius: 4px; }
+.endet-barre span.ok { background: var(--accent); }
+.endet-barre span.ko { background: var(--warn); }
+.endet-barre i { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--fg); border-radius: 1px; }
+.jauge span { display: block; height: 100%; border-radius: 4px; }
+/* Suivi */
+ol.mode { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 4px; max-width: 75ch; }
+.saisie-releve td { vertical-align: middle; }
+.saisie-releve .saisie { max-width: 150px; margin-left: auto; }
+.mode-test { display: inline-flex; gap: 6px; align-items: center; font-size: 0.85rem; padding: 4px 10px; border-radius: 999px; background: var(--act-soft); color: var(--act); font-weight: 600; }
+@media (prefers-reduced-motion: no-preference) { .seg { transition: flex-grow .25s ease; } }
+/* Épargne idéale */
+.ideal-tete { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; }
+.ideal-tete h2 { font-family: var(--font-display); font-size: 1.45rem; margin: 0 0 6px; }
+.ideal-tete p { margin: 0; color: var(--muted); }
+.score { text-align: center; min-width: 130px; }
+.score b { display: block; font-family: var(--font-display); font-size: 2rem; line-height: 1.1; color: var(--accent); }
+.score span { font-size: 0.8rem; color: var(--muted); }
+.score .jauge { margin-top: 6px; }
+.etape-ideale { display: grid; gap: 10px; }
+.etape-ideale > h3 { display: flex; align-items: baseline; gap: 10px; margin: 18px 0 0; font-family: var(--font-display); font-size: 1.1rem; }
+.etape-ideale > h3 .num { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 0.85rem; flex: none; }
+.etape-ideale > p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+.produits { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); gap: 12px; }
+.produit { display: grid; gap: 8px; align-content: start; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; min-width: 0; }
+.produit.fait { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.produit .tete { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.produit h4 { margin: 0; font-size: 1.02rem; }
+.produit h4 a { color: inherit; }
+.produit .pourquoi { margin: 0; font-size: 0.9rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.chips li { font-size: 0.78rem; padding: 3px 8px; border-radius: 999px; background: var(--bg); color: var(--fg); }
+.pour-toi { display: flex; gap: 8px; align-items: flex-start; border-top: 1px solid var(--line); padding-top: 8px; font-size: 0.88rem; }
+.etat-pt { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 7px; border-radius: 6px; white-space: nowrap; flex: none; }
+.etat-pt.fait { background: var(--accent-soft); color: var(--accent); }
+.etat-pt.afaire { background: var(--act-soft); color: var(--act); }
+.etat-pt.verifier { background: var(--warn-soft); color: var(--warn); }
+.etat-pt.non, .etat-pt.plustard { background: var(--bg); color: var(--muted); }
+.table-perdu td.m { font-weight: 600; }
+@media (max-width: 560px) { .ideal-tete { grid-template-columns: 1fr; } .score { text-align: left; } }
+.num-top { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 0.8rem; margin-right: 4px; vertical-align: 1px; }
+ul.arguments { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 0.88rem; }
+ul.arguments li { padding-left: 20px; position: relative; }
+ul.arguments.pour li::before { content: "+"; position: absolute; left: 4px; font-weight: 700; color: var(--accent); }
+ul.arguments.contre li::before { content: "−"; position: absolute; left: 4px; font-weight: 700; color: var(--warn); }
+.bandeau-frais { background: var(--warn-soft); border: 1px solid transparent; border-left: 4px solid var(--warn); }
+.bandeau-frais h3 { margin: 0 0 4px; color: var(--warn); }
+.bandeau-frais table { background: transparent; }
+.bandeau-frais p { margin: 0 0 8px; }
+.evenement { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) 70px minmax(0, 1.2fr) 70px auto; gap: 6px; align-items: end; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.evenement label { font-size: 0.72rem; color: var(--muted); display: block; margin-bottom: 2px; }
+.evenement input, .evenement select { width: 100%; }
+.evenement input[type="number"], textarea { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); padding: 7px 8px; font: inherit; min-width: 0; }
+.evenement input:disabled { color: var(--muted); }
+@media (max-width: 640px) { .evenement { grid-template-columns: 1fr 1fr; } .evenement .ev-suppr { grid-column: 1 / -1; justify-self: start; } }
+html.discret input[type="number"]:not(:focus) { filter: blur(6px); }
+html.discret .num { letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Plan Patrimoine</h1>
+      <p class="sous-titre">Répartition cible d'un portefeuille selon le capital, l'âge et les projets, calculée uniquement à partir de mon plan.</p>
+    </div>
+    <div class="ligne-actions"><button type="button" class="lien" id="btn-discret" aria-pressed="false" title="Masquer les montants en euros (les pourcentages restent visibles). Raccourci : Alt + H (⌥ + H sur Mac)" aria-keyshortcuts="Alt+H">👁 Masquer les montants</button><button type="button" class="lien" id="btn-theme" title="Passer en mode clair ou sombre">🌙 Mode sombre</button><a class="lien-fiche" href="#fiche-mode-emploi">Mode d'emploi</a><span id="statut" class="statut">Plan par défaut</span></div>
+  </header>
+
+  <nav class="onglets" aria-label="Vues">
+    <a href="#mon-profil" id="lien-profil">1. Mon profil</a>
+    <a href="#reequilibrage" id="lien-reequilibrage">2. Rééquilibrage</a>
+    <a href="#trajectoire" id="lien-trajectoire">3. Trajectoire</a>
+    <a href="#retraite" id="lien-retraite">4. Retraite</a>
+    <a href="#epargne-ideale" id="lien-ideale">Épargne idéale</a>
+    <a href="#suivi" id="lien-suivi">Suivi</a>
+    <a href="#fiches" id="lien-fiches">Fiches</a>
+    <a href="#mon-plan" id="lien-plan">Mon plan</a>
+  </nav>
+
+  <!-- ===================== 1. MON PROFIL ===================== -->
+  <section id="vue-profil">
+    <div class="etape"><p><b>Étape 1 sur 4.</b> Décris ta situation d'aujourd'hui. Les résultats se mettent à jour à chaque saisie, dans « Rééquilibrage » et « Trajectoire ».</p></div>
+    <form id="profil" autocomplete="off">
+      <div class="panneau proches">
+        <div class="champ"><label for="sel-profil"><b>Profil</b></label><select id="sel-profil"><option value="exemple:exemple">Exemple</option></select></div>
+        <div id="actions-proches"></div>
+        <p class="note" id="etat-profil" style="margin:0"></p>
+      </div>
+      <div class="colonnes-profil">
+        <div class="pile">
+          <div class="panneau"><fieldset>
+            <legend>Toi</legend>
+            <div class="champ"><label for="p-age">Âge</label><div class="saisie"><input id="p-age" type="number" min="18" max="120" step="1" data-p="age"><span>ans</span></div></div>
+            <div class="champ"><label for="p-situation">Situation familiale</label><select id="p-situation" data-p="foyer.situation"><option value="seul">Seul(e)</option><option value="marie">En couple, marié(e) ou pacsé(e)</option><option value="concubin">En couple, sans être mariés ni pacsés (concubinage)</option></select></div>
+            <p class="note" id="aide-situation" style="margin:-4px 0 0"></p>
+            <div class="champ"><label for="p-risque">Profil de risque</label><select id="p-risque" data-p="profilRisque"></select></div>
+            <p class="note" id="aide-risque" style="margin:-4px 0 0"></p>
+            <p class="conseil" id="conseil-risque"></p>
+            <div class="champ"><label for="p-statut-pro">Situation professionnelle</label><select id="p-statut-pro" data-p="statutPro"><option value="">À préciser</option><option value="stable">CDI, fonctionnaire</option><option value="precaire">CDD, intérim</option><option value="independant">Indépendant</option><option value="etudiant">Étudiant</option><option value="retraite">Retraité</option></select></div>
+            <div class="champ"><label for="p-pays">Résidence fiscale</label><select id="p-pays" data-p="pays"></select></div>
+            <div class="champ" id="ligne-impot-pays"><label for="p-impot-pays">Impôt sur les gains dans ce pays</label><div class="saisie"><input id="p-impot-pays" type="number" min="0" max="60" step="0.5" data-p="impotGainsPays" placeholder="25"><span>%</span></div></div>
+          </fieldset></div>
+          <div class="panneau"><fieldset>
+            <legend>Ton budget</legend>
+            <p class="note" style="margin:0">Salaire = épargne + dépenses : remplis deux des trois montants, le troisième se calcule.</p>
+            <div class="champ"><label for="p-salaire" data-terme="net après impôt">Salaire net après impôt (versé sur ton compte)</label><div class="saisie" data-budget="salaireNetMensuel"><input id="p-salaire" type="number" min="0" step="100" data-p="salaireNetMensuel"><span>€/mois</span></div></div>
+            <div class="champ"><label for="p-epargne">Épargne</label><div class="saisie" data-budget="epargneMensuelle"><input id="p-epargne" type="number" min="0" step="50" data-p="epargneMensuelle"><span>€/mois</span></div></div>
+            <div class="champ"><label for="p-depenses">Dépenses (loyer et crédits compris)</label><div class="saisie" data-budget="depensesMensuelles"><input id="p-depenses" type="number" min="0" step="50" data-p="depensesMensuelles"><span>€/mois</span></div></div>
+            <div class="champ"><label for="p-credits">Dont mensualités de crédits en cours (auto, conso…)</label><div class="saisie"><input id="p-credits" type="number" min="0" step="50" data-p="creditsMensuels"><span>€/mois</span></div></div>
+            <div id="bloc-budget-conjoint" class="champs sous-bloc">
+              <h3 id="titre-budget-conjoint">Ton conjoint</h3>
+              <div class="champ"><label for="c-salaire">Son salaire net après impôt</label><div class="saisie" data-budget-c="salaireNetMensuel"><input id="c-salaire" type="number" min="0" step="100" data-p="conjoint.salaireNetMensuel"><span>€/mois</span></div></div>
+              <div class="champ ligne-concubin"><label for="c-epargne">Son épargne</label><div class="saisie" data-budget-c="epargneMensuelle"><input id="c-epargne" type="number" min="0" step="50" data-p="conjoint.epargneMensuelle"><span>€/mois</span></div></div>
+              <div class="champ ligne-concubin"><label for="c-depenses">Ses dépenses (sa part du loyer et des crédits comprise)</label><div class="saisie" data-budget-c="depensesMensuelles"><input id="c-depenses" type="number" min="0" step="50" data-p="conjoint.depensesMensuelles"><span>€/mois</span></div></div>
+              <div class="champ ligne-concubin"><label for="p-vue">Calculer ton patrimoine</label><select id="p-vue" data-p="foyer.vue"><option value="moi">Pour toi seul(e) : ton épargne et tes placements</option><option value="foyer">Pour le couple : épargnes et placements des deux</option></select></div>
+              <p class="note" id="aide-budget-conjoint" style="margin:0"></p>
+            </div>
+            <div class="champ"><label for="p-carriere">Évolution de ta carrière</label><select id="p-carriere" data-p="carriere"></select></div>
+            <p class="note" id="aide-carriere" style="margin:-4px 0 0"></p>
+            <div class="champ"><label for="p-salaire10">Ton salaire net après impôt espéré dans 10 ans (facultatif)</label><div class="saisie"><input id="p-salaire10" type="number" min="0" step="100" data-p="salaireDans10Ans" placeholder="estimé"><span>€/mois</span></div></div>
+            <p class="note" id="aide-salaire10" style="margin:-4px 0 0"></p>
+          </fieldset></div>
+          <div class="panneau"><fieldset>
+            <legend>Ton logement</legend>
+            <label class="coche"><input id="p-proprio" type="checkbox" data-p="proprietaire"> Déjà propriétaire d'un logement</label>
+            <div id="bloc-logement" class="champs">
+              <div class="champ"><label for="lg-usage">Ce logement est</label><select id="lg-usage" data-p="logement.usage"><option value="rp">Ma résidence principale</option><option value="secondaire">Une résidence secondaire</option><option value="loue">Un bien que je loue</option><option value="autre">Autre</option></select></div>
+              <div class="champ"><label for="lg-origine">Obtenu par</label><select id="lg-origine" data-p="logement.origine"><option value="achat">Achat</option><option value="heritage">Héritage</option><option value="donation">Donation</option></select></div>
+              <div class="champ"><label for="lg-part">Part que tu possèdes (100 % si tu es seul propriétaire)</label><div class="saisie"><input id="lg-part" type="number" min="1" max="100" step="5" data-p="logement.part" placeholder="100"><span>%</span></div></div>
+              <div class="estimateur" data-base="logement"></div>
+              <div class="champ"><label for="lg-valeur">Valeur du logement entier aujourd'hui</label><div class="saisie"><input id="lg-valeur" type="number" min="0" step="5000" data-p="logement.valeur"><span>€</span></div></div>
+              <div class="champ"><label for="lg-credit">Crédit restant à rembourser (ta part)</label><div class="saisie"><input id="lg-credit" type="number" min="0" step="1000" data-p="logement.creditRestant"><span>€</span></div></div>
+              <div class="champ"><label for="lg-fin">Fin de ce crédit</label><div class="saisie"><input id="lg-fin" type="number" min="2026" max="2075" step="1" data-p="logement.finCredit" placeholder="année"><span>en</span></div></div>
+              <div class="champ"><label for="lg-mens">Mensualité de ce crédit (ta part)</label><div class="saisie"><input id="lg-mens" type="number" min="0" step="10" data-p="logement.mensualite" placeholder="0"><span>€/mois</span></div></div>
+              <div id="bloc-locatif" class="champs">
+                <div class="champ"><label for="lg-loyer">Loyer encaissé (logement entier, hors charges)</label><div class="saisie"><input id="lg-loyer" type="number" min="0" step="50" data-p="logement.loyerPercu" placeholder="0"><span>€/mois</span></div></div>
+                <div class="champ"><label for="lg-charges">Charges payées par toi : taxe foncière, copropriété, assurance, gestion (logement entier)</label><div class="saisie"><input id="lg-charges" type="number" min="0" step="100" data-p="logement.chargesAn" placeholder="0"><span>€/an</span></div></div>
+                <div class="champ"><label for="lg-regime">Régime fiscal<a class="aide-lien" href="#fiche-regimes-locatifs" data-bulle="Régimes fiscaux de la location : micro-foncier, réel, LMNP… lequel choisir" aria-label="Fiche : quel régime fiscal choisir">?</a></label><select id="lg-regime" data-p="logement.regime"><option value="micro">Location vide, micro-foncier (abattement 30 %)</option><option value="reel">Location vide, régime réel (charges déduites)</option><option value="lmnp-micro">Meublé (LMNP), micro-BIC (abattement 50 %)</option><option value="lmnp-reel">Meublé (LMNP), régime réel (amortissement)</option></select></div>
+                <p class="note" id="note-locatif" style="margin:0"></p>
+              </div>
+              <label class="coche" id="ligne-vendre"><input id="lg-vendre" type="checkbox" data-p="logement.vendrePourAchat"> Le revendre pour financer ma nouvelle résidence principale</label>
+              <p class="note" id="note-logement" style="margin:0"></p>
+            </div>
+            <div class="champ" id="ligne-loyer"><label for="p-loyer">Loyer payé</label><div class="saisie"><input id="p-loyer" type="number" min="0" step="50" data-p="loyerMensuel"><span>€/mois</span></div></div>
+          </fieldset></div>
+          <div class="panneau"><fieldset>
+            <legend>Tes impôts</legend>
+            <div class="champ"><label for="p-tmi" data-terme="TMI">Tranche d'imposition (TMI)</label><select id="p-tmi" data-p="tmi"><option value="">À préciser</option><option value="0">0 %</option><option value="11">11 %</option><option value="30">30 %</option><option value="41">41 %</option><option value="45">45 %</option></select></div>
+            <p class="note" id="aide-tmi" style="margin:-4px 0 0"></p>
+            <div class="champ"><label for="p-plafond-per" data-terme="PER">Plafond PER (avis d'impôt, facultatif)</label><div class="saisie"><input id="p-plafond-per" type="number" min="0" step="100" data-p="plafondPER" placeholder="estimé"><span>€/an</span></div></div>
+            <p class="note" id="aide-plafond-per" style="margin:-4px 0 0"></p>
+            <label class="coche"><input id="p-refus-per" type="checkbox" data-p="refusPER"> Je ne veux pas de PER (argent bloqué jusqu'à la retraite)</label>
+            <p class="note" id="aide-per" style="margin:-4px 0 0"></p>
+            <label class="coche" id="ligne-lep"><input id="p-lep" type="checkbox" data-p="eligibleLEP"> Éligible au LEP (revenus modestes)</label>
+            <p class="note" id="aide-lep" style="margin:-4px 0 0"></p>
+          </fieldset></div>
+          <div class="panneau"><fieldset>
+            <legend>Ton employeur</legend>
+            <div class="champ"><label for="ab-acces" data-terme="épargne salariale">Ton entreprise propose-t-elle une épargne salariale ?</label><select id="ab-acces" data-p="abondement.acces"><option value="?">Je ne sais pas encore</option><option value="non">Non, ou je ne suis pas salarié</option><option value="pee">Oui, un PEE</option><option value="per">Oui, un PER d'entreprise (PERECO, ex-PERCO)</option><option value="les2">Oui, les deux</option></select></div>
+            <p class="note" id="aide-acces" style="margin:-4px 0 0"></p>
+            <div class="champ"><label for="ab-exemple">Tester le barème d'une grande entreprise</label><select id="ab-exemple"></select></div>
+            <p class="note" style="margin:-4px 0 0">Pour te projeter, par exemple avant de postuler. <a class="lien-fiche" href="#fiche-epargne-salariale">Tous les exemples</a></p>
+            <div id="bloc-es" class="champs">
+            <label class="coche" data-terme="abondement"><input id="ab-actif" type="checkbox" data-p="abondement.actif"> Mon employeur abonde mes versements</label>
+            <div class="champ" id="ligne-ab-plan"><label for="ab-plan">Sur quel plan</label><select id="ab-plan" data-p="abondement.plan"><option value="pereco">PER d'entreprise (PERECO, ex-PERCO)</option><option value="pee">PEE (plan d'épargne entreprise)</option></select></div>
+            <div class="champ"><label for="ab-taux">Taux d'abondement (100 % = 1 € ajouté pour 1 € versé)</label><div class="saisie"><input id="ab-taux" type="number" min="0" max="300" step="10" data-p="abondement.taux" placeholder="100"><span>%</span></div></div>
+            <div class="champ"><label for="ab-plafond">Abondement maximum par an (règlement du plan)</label><div class="saisie"><input id="ab-plafond" type="number" min="0" step="100" data-p="abondement.plafond" placeholder="légal"><span>€/an</span></div></div>
+            <p class="note" id="aide-abondement" style="margin:0"></p>
+            <div class="champ"><label for="ab-inter" data-terme="intéressement">Intéressement + participation reçus par an (en moyenne)</label><div class="saisie"><input id="ab-inter" type="number" min="0" step="100" data-p="abondement.interessement" placeholder="0"><span>€/an</span></div></div>
+            <label class="coche"><input id="ab-placer" type="checkbox" data-p="abondement.placer"> Je les place sur le plan (plutôt que de les recevoir)</label>
+            <label class="coche"><input id="ab-sur-inter" type="checkbox" data-p="abondement.surInteressement"> L'abondement s'applique aussi à l'intéressement placé</label>
+            <p class="note" id="aide-interessement" style="margin:-4px 0 0"></p>
+            </div>
+          </fieldset></div>
+          <div class="panneau"><fieldset>
+            <legend>Foyer</legend>
+            <div class="champ"><label for="p-enfants">Enfants à charge</label><input id="p-enfants" type="number" min="0" max="15" step="1" data-p="enfants" placeholder="0"></div>
+            <p class="note" style="margin:-4px 0 0">Chaque enfant ajoute une demi-part d'impôt (une part entière à partir du 3e), avantage plafonné à 1 807 € par demi-part, et relève le seuil du LEP. Les dépenses liées (études…) se prévoient dans « Événements de vie ».</p>
+            <div id="bloc-conjoint" class="champs">
+              <div class="champ"><label for="c-prenom">Prénom du conjoint</label><input id="c-prenom" type="text" class="texte" maxlength="40" data-p="conjoint.prenom"></div>
+              <div class="champ"><label for="c-age">Âge du conjoint</label><div class="saisie"><input id="c-age" type="number" min="18" max="120" step="1" data-p="conjoint.age"><span>ans</span></div></div>
+              <label class="coche"><input id="c-pea" type="checkbox" data-p="conjoint.pea.ouvert"> PEA du conjoint déjà ouvert</label>
+              <div class="champ"><label for="c-pea-date">Son PEA ouvert en</label><input id="c-pea-date" type="month" data-p="conjoint.pea.dateOuverture"></div>
+              <div class="champ"><label for="c-pea-etab">Son PEA chez</label><select id="c-pea-etab" data-p="conjoint.pea.etablissement"></select></div>
+              <div class="champ"><label for="c-pea-vers">Total versé sur son PEA</label><div class="saisie"><input id="c-pea-vers" type="number" min="0" step="500" data-p="conjoint.pea.versements"><span>€</span></div></div>
+              <p class="note" id="note-conjoint" style="margin:0"></p>
+            </div>
+          </fieldset></div>
+          <div class="panneau"><fieldset>
+            <legend>Tester une situation future</legend>
+            <label class="coche"><input id="p-futur" type="checkbox" data-p="futur.actif"> Simuler à un âge futur</label>
+            <div class="champ"><label for="p-futur-age">À l'âge de</label><div class="saisie"><input id="p-futur-age" type="number" min="18" max="120" step="1" data-p="futur.age"><span>ans</span></div></div>
+            <div class="champ"><label for="p-futur-cap">Capital à cet âge</label><div class="saisie"><input id="p-futur-cap" type="number" min="0" step="1000" data-p="futur.capital" placeholder="estimé"><span>€</span></div></div>
+            <div class="champ"><label for="p-futur-sal">Salaire net à cet âge</label><div class="saisie"><input id="p-futur-sal" type="number" min="0" step="100" data-p="futur.salaire" placeholder="estimé"><span>€/mois</span></div></div>
+            <div class="champ"><label for="p-futur-ep">Épargne à cet âge</label><div class="saisie"><input id="p-futur-ep" type="number" min="0" step="50" data-p="futur.epargne" placeholder="estimé"><span>€/mois</span></div></div>
+            <p class="note" style="margin:0">Laisse « estimé » pour partir de ta situation actuelle en suivant le plan (scénario central), ou indique tes propres chiffres. Le reste du formulaire décrit toujours ta situation d'aujourd'hui.</p>
+          </fieldset></div>
+        </div>
+        <div class="pile">
+          <div class="panneau"><fieldset>
+            <legend>Placements actuels</legend>
+            <p class="note" style="margin:0">Le solde de chaque compte aujourd'hui (dans l'appli de ta banque). Le « ? » ouvre la fiche du compte.</p>
+            <div class="champs" id="placements"></div>
+            <div class="total-capital"><span>Capital total</span><b class="num" id="total-capital">0 €</b></div>
+          </fieldset></div>
+          <div class="panneau"><fieldset>
+            <legend>Ouverture des contrats</legend>
+            <label class="coche" data-terme="PEA"><input id="p-pea" type="checkbox" data-p="pea.ouvert"> PEA déjà ouvert</label>
+            <div class="champ"><label for="p-pea-date">PEA ouvert en</label><input id="p-pea-date" type="month" data-p="pea.dateOuverture"></div>
+            <div class="champ"><label for="p-pea-etab">PEA chez</label><select id="p-pea-etab" data-p="pea.etablissement"></select></div>
+            <div class="champ"><label for="p-pea-vers" data-terme="plafond de versements">Total versé sur le PEA</label><div class="saisie"><input id="p-pea-vers" type="number" min="0" step="500" data-p="pea.versements"><span>€</span></div></div>
+            <label class="coche" data-terme="assurance-vie"><input id="p-av" type="checkbox" data-p="assuranceVie.ouverte"> Assurance-vie déjà ouverte</label>
+            <div class="champ"><label for="p-av-type">Type d'assurance-vie</label><select id="p-av-type" data-p="assuranceVie.type"></select></div>
+            <div class="champ"><label for="p-av-date">Assurance-vie ouverte en</label><input id="p-av-date" type="month" data-p="assuranceVie.dateOuverture"></div>
+          </fieldset></div>
+          <div class="panneau"><fieldset>
+            <legend>Argent versé et frais réels</legend>
+            <p class="note" style="margin:0">Facultatif. L'argent versé (ton prix de revient) permet de calculer l'impôt sur tes vrais gains à la sortie ; tes frais réels sont retirés du rendement dans Trajectoire et Retraite. Tu les trouves sur ton relevé annuel.</p>
+            <div class="champ"><label for="v-av">Total versé sur l'assurance-vie</label><div class="saisie"><input id="v-av" type="number" min="0" step="500" data-p="verses.assuranceVie" placeholder="inconnu"><span>€</span></div></div>
+            <div class="champ"><label for="v-cto">Total versé sur le compte-titres</label><div class="saisie"><input id="v-cto" type="number" min="0" step="500" data-p="verses.cto" placeholder="inconnu"><span>€</span></div></div>
+            <div class="champ"><label for="v-crypto">Total investi en bitcoin (plateforme + cold wallet)</label><div class="saisie"><input id="v-crypto" type="number" min="0" step="100" data-p="verses.crypto" placeholder="inconnu"><span>€</span></div></div>
+            <div class="champ"><label for="f-av" data-terme="frais de gestion">Frais par an de ton assurance-vie (contrat + supports)</label><div class="saisie"><input id="f-av" type="number" min="0" max="5" step="0.05" data-p="frais.assuranceVie" placeholder="0,7"><span>%</span></div></div>
+            <div class="champ"><label for="f-per">Frais par an de ton PER (contrat + supports)</label><div class="saisie"><input id="f-per" type="number" min="0" max="5" step="0.05" data-p="frais.per" placeholder="0,7"><span>%</span></div></div>
+            <div class="champ"><label for="f-bourse" data-terme="frais courants">Frais des fonds sur ton PEA et ton compte-titres</label><div class="saisie"><input id="f-bourse" type="number" min="0" max="5" step="0.05" data-p="frais.bourse" placeholder="0,2"><span>%</span></div></div>
+            <p class="note" id="aide-frais" style="margin:0"></p>
+          </fieldset></div>
+          <div class="panneau"><fieldset>
+            <legend>Projet d'achat de la résidence principale</legend>
+            <label class="coche"><input id="p-rp" type="checkbox" data-p="projetRP.actif"> Projet d'achat</label>
+            <div class="estimateur" data-base="projetRP"></div>
+            <div class="champ"><label for="p-rp-prix">Prix du bien</label><div class="saisie"><input id="p-rp-prix" type="number" min="0" step="5000" data-p="projetRP.prix"><span>€</span></div></div>
+            <div class="champ"><label for="p-rp-type">Type</label><select id="p-rp-type" data-p="projetRP.type"><option value="ancien">Ancien</option><option value="neuf">Neuf</option></select></div>
+            <label class="coche"><input id="p-rp-imp" type="checkbox" data-p="projetRP.imperatif"> Achat impératif à une date fixée</label>
+            <div class="champ"><label for="p-rp-h">Achat dans</label><div class="saisie"><input id="p-rp-h" type="number" min="0" max="30" step="1" data-p="projetRP.horizonAnnees"><span>ans</span></div></div>
+            <div class="champ"><label for="p-rp-aide" data-terme="apport">Aide de la famille pour l'apport (don, prêt familial)</label><div class="saisie"><input id="p-rp-aide" type="number" min="0" step="1000" data-p="projetRP.aideFamiliale"><span>€</span></div></div>
+            <p class="note" style="margin:0">L'âge idéal d'achat et l'apport nécessaire s'affichent dans « Trajectoire ».</p>
+          </fieldset></div>
+          <div class="panneau"><fieldset>
+            <legend>Projet d'investissement locatif</legend>
+            <label class="coche"><input id="pl-actif" type="checkbox" data-p="projetLocatif.actif"> Je pense acheter un bien à louer, à crédit</label>
+            <div id="bloc-projet-locatif" class="champs">
+              <div class="estimateur" data-base="projetLocatif"></div>
+              <div class="champ"><label for="pl-age">À ton âge</label><div class="saisie"><input id="pl-age" type="number" min="18" max="80" step="1" data-p="projetLocatif.age" placeholder="35"><span>ans</span></div></div>
+              <div class="champ"><label for="pl-prix">Prix du bien</label><div class="saisie"><input id="pl-prix" type="number" min="0" step="5000" data-p="projetLocatif.prix" placeholder="150000"><span>€</span></div></div>
+              <div class="champ"><label for="pl-type">Type</label><select id="pl-type" data-p="projetLocatif.type"><option value="ancien">Ancien (frais de notaire 8 %)</option><option value="neuf">Neuf (frais de notaire 2,5 %)</option></select></div>
+              <div class="champ"><label for="pl-travaux">Travaux et meubles</label><div class="saisie"><input id="pl-travaux" type="number" min="0" step="1000" data-p="projetLocatif.travaux" placeholder="0"><span>€</span></div></div>
+              <div class="champ"><label for="pl-apport" data-terme="apport">Apport (pris sur tes placements)</label><div class="saisie"><input id="pl-apport" type="number" min="0" step="1000" data-p="projetLocatif.apport" placeholder="20000"><span>€</span></div></div>
+              <div class="champ"><label for="pl-duree">Durée du crédit</label><div class="saisie"><input id="pl-duree" type="number" min="5" max="30" step="1" data-p="projetLocatif.duree" placeholder="20"><span>ans</span></div></div>
+              <div class="champ"><label for="pl-loyer">Loyer espéré (hors charges)</label><div class="saisie"><input id="pl-loyer" type="number" min="0" step="10" data-p="projetLocatif.loyer" placeholder="650"><span>€/mois</span></div></div>
+              <div class="champ"><label for="pl-charges">Charges à ta charge : taxe foncière, copropriété, assurance, gestion</label><div class="saisie"><input id="pl-charges" type="number" min="0" step="100" data-p="projetLocatif.charges" placeholder="1500"><span>€/an</span></div></div>
+              <div class="champ"><label for="pl-vacance">Vacance locative (mois sans locataire par an)</label><div class="saisie"><input id="pl-vacance" type="number" min="0" max="6" step="0.5" data-p="projetLocatif.vacance" placeholder="1"><span>mois</span></div></div>
+              <div class="champ"><label for="pl-regime">Régime fiscal<a class="aide-lien" href="#fiche-regimes-locatifs" data-bulle="Régimes fiscaux de la location : micro-foncier, réel, LMNP… lequel choisir" aria-label="Fiche : quel régime fiscal choisir">?</a></label><select id="pl-regime" data-p="projetLocatif.regime"><option value="micro">Location vide, micro-foncier</option><option value="reel">Location vide, régime réel</option><option value="lmnp-micro">Meublé (LMNP), micro-BIC</option><option value="lmnp-reel">Meublé (LMNP), régime réel (amortissement)</option></select></div>
+              <p class="note" id="note-projet-locatif" style="margin:0"></p>
+            </div>
+          </fieldset></div>
+          <div class="panneau"><fieldset>
+            <legend>Ton taux d'endettement (règle des banques)</legend>
+            <div id="jauge-endettement"></div>
+          </fieldset></div>
+          <div class="panneau"><fieldset>
+            <legend>Ta retraite</legend>
+            <p class="note" style="margin:0">Ces hypothèses servent dès maintenant dans Trajectoire et Retraite : à la retraite, le plan se verse ce revenu sur tes placements.</p>
+            <div class="champ"><label for="r0-revenu" data-terme="retraite par capitalisation">Retraite convenable (après impôt, en euros d'aujourd'hui)</label><div class="saisie"><input id="r0-revenu" type="number" min="0" step="100" data-p="retraite.revenu" placeholder="2000"><span>€/mois</span></div></div>
+            <div class="champ"><label for="r0-age">Âge où tu veux arrêter de travailler</label><div class="saisie"><input id="r0-age" type="number" min="18" max="64" step="1" data-p="retraite.ageDepart" placeholder="64"><span>ans</span></div></div>
+            <div class="champ"><label for="r0-mode">Retraite publique (Sécurité sociale et complémentaire)</label><select id="r0-mode" data-p="retraite.modePension"><option value="auto">Estimée automatiquement (suit l'âge où tu arrêtes)</option><option value="manuel">Montant que j'indique (relevé info-retraite.fr)</option><option value="zero">Ne pas la compter (prudence)</option></select></div>
+            <div class="champ"><label for="r0-pension">Retraite publique comptée (après impôt)</label><div class="saisie"><input id="r0-pension" type="number" min="0" step="10" data-p="retraite.pension" placeholder="0"><span>€/mois</span></div></div>
+            <label class="coche"><input id="r0-loyers" type="checkbox" data-p="retraite.compterLoyers"> Compter les loyers de mes biens loués dans mes revenus à la retraite</label>
+            <label class="coche"><input id="r0-or" type="checkbox" data-p="retraite.vendreOr"> Vendre aussi mon or physique pour financer ma retraite (déconseillé)</label>
+            <p class="note" id="aide-retraite0" style="margin:0"></p>
+          </fieldset></div>
+          <div class="panneau"><fieldset>
+            <legend>Événements de vie</legend>
+            <p class="note" style="margin:0">Les rentrées et les grosses dépenses prévues, en euros d'aujourd'hui. Elles s'ajoutent (ou se retirent) de tes placements dans Trajectoire et Retraite, à l'âge indiqué.</p>
+            <div id="liste-evenements"></div>
+            <div class="ligne-actions" id="ajout-evenements">
+              <button type="button" class="lien" data-ajout-ev="heritage">+ Héritage ou donation</button>
+              <button type="button" class="lien" data-ajout-ev="etudes">+ Études d'un enfant</button>
+              <button type="button" class="lien" data-ajout-ev="voiture">+ Voiture</button>
+              <button type="button" class="lien" data-ajout-ev="travaux">+ Travaux</button>
+              <button type="button" class="lien" data-ajout-ev="sabbatique">+ Année sabbatique</button>
+              <button type="button" class="lien" data-ajout-ev="autre">+ Autre</button>
+            </div>
+          </fieldset></div>
+        </div>
+      </div>
+      <div class="panneau suite">
+        <span>Capital total <b class="num" id="total-capital-bas">0 €</b></span>
+        <a class="bouton principal" href="#reequilibrage">Étape 2 : voir mon rééquilibrage →</a>
+      </div>
+      <div class="panneau" id="bloc-donnees">
+        <h2 style="margin:0 0 4px;font-size:1.05rem">Tes données</h2>
+        <p class="note" style="margin:0 0 8px">Sauvegarde ton profil, tes relevés de suivi et tes scénarios dans un fichier (.json), pour les garder, changer de navigateur ou les transférer. Le fichier ne contient que des montants et des dates.</p>
+        <div class="ligne-actions"><button type="button" id="btn-export-json">Exporter mes données (.json)</button><button type="button" id="btn-import-json">Importer un fichier…</button><input type="file" id="fichier-import" accept="application/json,.json" hidden></div>
+        <div id="msg-donnees" class="small" style="margin-top:8px"></div>
+      </div>
+    </form>
+  </section>
+
+  <!-- ===================== 2. RÉÉQUILIBRAGE ===================== -->
+  <section id="vue-reequilibrage" hidden><div class="pile" id="resultats"></div></section>
+
+  <!-- ===================== 3. TRAJECTOIRE ===================== -->
+  <section id="vue-trajectoire" hidden>
+    <div class="etape"><p><b>Étape 3 sur 4.</b> Quand acheter ta résidence principale, et comment ton patrimoine peut évoluer d'ici 70 ans, en suivant le plan.</p><a class="bouton" href="#reequilibrage">← Rééquilibrage</a></div>
+    <div class="pile" id="achat-trajectoire" style="margin-bottom:16px"></div>
+    <div class="barre-actions">
+      <label class="coche"><input type="checkbox" id="t-reel"> En euros d'aujourd'hui (inflation déduite)</label>
+      <label class="coche"><input type="checkbox" id="t-achat" checked> Inclure l'achat de la résidence</label>
+    </div>
+    <div class="pile" id="trajectoire"></div>
+    <div class="etape" style="margin-top:16px"><a class="bouton" href="#reequilibrage">← Rééquilibrage</a><a class="bouton principal" href="#retraite">Étape 4 : ta retraite →</a></div>
+  </section>
+
+  <!-- ===================== 4. RETRAITE ===================== -->
+  <section id="vue-retraite" hidden>
+    <div class="etape"><p><b>Étape 4 sur 4.</b> Ta retraite par capitalisation : à partir de 64 ans, tu te verses chaque mois un revenu pris sur tes placements, sans compter sur la retraite publique. Combien peux-tu te verser, combien de temps l'argent dure-t-il, et que restera-t-il à transmettre ?</p><a class="bouton" href="#trajectoire">← Trajectoire</a></div>
+    <div class="pile" id="retraite"></div>
+  </section>
+
+  <!-- ===================== SUIVI ===================== -->
+  <section id="vue-ideale" hidden><div class="pile" id="ideale"></div></section>
+
+  <section id="vue-suivi" hidden><div class="pile" id="suivi"></div></section>
+
+  <!-- ===================== FICHES ===================== -->
+  <section id="vue-fiches" hidden><div id="fiches"></div></section>
+
+  <!-- ===================== MON PLAN ===================== -->
+  <section id="vue-plan" hidden>
+    <div class="barre-actions">
+      <button type="button" class="principal" id="btn-enregistrer">Enregistrer le plan</button>
+      <button type="button" id="btn-annuler">Annuler les modifications</button>
+      <span id="zone-defaut"><button type="button" class="lien" id="btn-defaut">Revenir au plan par défaut</button></span>
+      <span class="info-droits" id="info-droits"></span>
+    </div>
+    <div class="panneau apercu" id="apercu"></div>
+    <div class="reglages" id="reglages"></div>
+  </section>
+</div>
+<div class="bulle" id="bulle" hidden></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
