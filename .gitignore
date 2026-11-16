@@ -44,6 +44,7 @@ package-lock.json
 # Seule la donnée de référence DVF est conservée.
 *.json
 !prix-m2.json
+!manifest.json
 !.claude/launch.json
 plan-patrimoine-*.csv
 plan-patrimoine-*.html

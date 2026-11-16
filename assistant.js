@@ -722,7 +722,7 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
   if (!racine) return;
   const el = { bouton: $("assistant-bouton"), panneau: $("assistant-panneau"), badge: $("assistant-badge"), fil: $("assistant-fil"), suggestions: $("assistant-suggestions"),
     form: $("assistant-form"), saisie: $("assistant-saisie"), reglagesBtn: $("assistant-reglages-btn"), reglages: $("assistant-reglages"), consentement: $("assistant-consentement"),
-    fermer: $("assistant-fermer"), copier: $("assistant-copier"), effacer: $("assistant-effacer"), envoyer: $("assistant-envoyer") };
+    fermer: $("assistant-fermer"), copier: $("assistant-copier"), effacer: $("assistant-effacer"), envoyer: $("assistant-envoyer"), horsLigne: $("assistant-horsligne") };
 
   // `epoque` change quand le fil est effacé ou qu'un autre profil est chargé : une réponse en retard est alors abandonnée.
   const etat = { reglages: lireReglages(), serveur: { connu: false, joignable: false, actif: false, modele: "" }, fil: [], occupe: false, controleur: null, epoque: 0 };
@@ -730,6 +730,8 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
 
   const ctx = () => { try { return getContexte(); } catch { return {}; } };
   const cloudAutorise = () => etat.reglages.mode === "auto";
+  /** Hors-ligne (PWA) : l'envoi vers /api/chat est suspendu, le moteur local continue de répondre. */
+  const horsLigne = () => navigator.onLine === false;
 
   // -- historique persistant : une clé par profil actif (chat-hist:<col>:<id>)
   const cleHistorique = () => { let c = "exemple:exemple"; try { c = String(getCleProfil()); } catch { /* clé par défaut */ } return `chat-hist:${c}`; };
@@ -746,7 +748,8 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
   // -- état du moteur
   function majBadge(detail = "") {
     let texte = "Mode local", titre = "Réponses calculées dans ton navigateur, sans réseau.";
-    if (cloudAutorise() && etat.serveur.joignable && etat.serveur.actif) { texte = `OpenAI ${etat.serveur.modele}`; titre = "Profil anonymisé + question envoyés à OpenAI via ton serveur."; }
+    if (horsLigne()) { titre = "Hors ligne : l'IA en ligne est suspendue, les réponses sont calculées dans ton navigateur."; detail = "hors ligne"; }
+    else if (cloudAutorise() && etat.serveur.joignable && etat.serveur.actif) { texte = `OpenAI ${etat.serveur.modele}`; titre = "Profil anonymisé + question envoyés à OpenAI via ton serveur."; }
     else if (cloudAutorise() && etat.serveur.connu && !etat.serveur.joignable) titre = "Serveur injoignable : repli local.";
     else if (cloudAutorise() && etat.serveur.joignable && !etat.serveur.actif) titre = "Clé OpenAI absente côté serveur (fichier .env) : repli local.";
     el.badge.textContent = detail ? `${texte} · ${detail}` : texte;
@@ -772,6 +775,13 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
     ecrireReglages(etat.reglages);
     majBadge();
     majConsentement();
+  }
+
+  /** Bandeau « hors ligne » du chat et badge ; au retour du réseau, on revérifie le serveur. */
+  function majReseauChat() {
+    if (el.horsLigne) el.horsLigne.hidden = !horsLigne();
+    majBadge();
+    if (!horsLigne() && cloudAutorise() && !el.panneau.hidden) verifierServeur();
   }
 
   // -- rendu
@@ -903,7 +913,9 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
     const contexte = ctx();
     let note = "";
     try {
-      if (cloudAutorise() && !(etat.serveur.connu && etat.serveur.joignable && !etat.serveur.actif)) {
+      if (cloudAutorise() && horsLigne()) {
+        note = "hors ligne : l'IA en ligne reprendra avec la connexion"; // aucun appel /api/chat : repli local direct
+      } else if (cloudAutorise() && !(etat.serveur.connu && etat.serveur.joignable && !etat.serveur.actif)) {
         const controleur = new AbortController();
         etat.controleur = controleur;
         const delai = setTimeout(() => controleur.abort(), 45000);
@@ -1027,7 +1039,11 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
     if (maintenant !== discret) { discret = maintenant; if (!maintenant) rendreFil(); }
   }).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
 
+  window.addEventListener("online", majReseauChat);
+  window.addEventListener("offline", majReseauChat);
+
   chargerHistorique();
   majBadge();
   majConsentement();
+  majReseauChat();
 }

@@ -54,6 +54,9 @@ L'application est pensée selon trois principes :
 Portfolio_Project/
 ├── index.html            # Structure, onglets, styles (clair/sombre) et point d'entrée
 ├── favicon.svg           # Icône de l'application
+├── manifest.json         # Manifeste PWA (nom, couleurs, icônes)
+├── service-worker.js     # Cache hors-ligne (SWR), /api/* jamais intercepté
+├── icons/                # Icônes PWA (SVG, 192/512, maskable, apple-touch)
 ├── app.js                # UI : état global, événements, rendu DOM, exports, mode discrétion
 │
 ├── moteur.js             # Cœur de calcul : capacité d'épargne, prêts, PTZ, enveloppes
@@ -104,6 +107,12 @@ Ouvrez ensuite **<http://localhost:8080>** dans votre navigateur.
 Le bouton **💬 Une question ?** ouvre un assistant qui répond à partir des fiches et de votre plan. Sans configuration, il fonctionne en **mode local** : aucune donnée ne quitte le navigateur.
 
 Pour activer les réponses OpenAI : copiez `.env.example` vers `.env` (ignoré par Git), renseignez `OPENAI_API_KEY`, relancez `python3 serveur.py`, puis acceptez l'envoi anonymisé dans le panneau de l'assistant. La clé reste côté serveur ; elle n'est jamais envoyée au navigateur. En production, `worker.js` joue le même rôle (secrets Cloudflare). Si le serveur ou la clé manque, l'assistant retombe automatiquement sur le mode local.
+
+### Installation (PWA) et hors-ligne
+
+Servie en HTTPS (Cloudflare Pages) ou sur `localhost`, l'application est installable : Dock (Safari/Chrome sur macOS), écran d'accueil (iOS : Partager → « Sur l'écran d'accueil »), Android et Windows. Après la première visite, les simulateurs, graphiques et fiches fonctionnent **sans réseau** ; seul l'assistant IA en ligne est suspendu (un bandeau l'indique et l'assistant répond alors en mode local). `prix-m2.json` est mis en cache à la première estimation immobilière.
+
+> **À chaque déploiement** qui modifie un fichier du shell (HTML, JS, icônes), incrémentez `CACHE_VERSION` dans `service-worker.js` : l'ancien cache est purgé à l'activation.
 
 ## Confidentialité
 

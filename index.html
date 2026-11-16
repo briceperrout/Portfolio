@@ -6,6 +6,14 @@
 <title>Plan Patrimoine</title>
 <meta name="description" content="Simulateur patrimonial, fiscal, immobilier et retraite pour les épargnants français. Local-first : vos données restent dans votre navigateur.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1d5c48" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1312" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Patrimoine">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap">
@@ -411,6 +419,12 @@ html.discret .num { letter-spacing: 0.05em; }
 .assistant-pied .assistant-btn { font-size: 0.72rem; padding: 4px 8px; }
 @media (max-width: 640px) { .assistant-panneau { right: 0; bottom: 0; width: 100vw; height: min(80vh, 600px); border-radius: 14px 14px 0 0; } }
 @media print { .assistant { display: none !important; } }
+/* Hors-ligne (PWA) : pastille discrète dans l'en-tête + bandeau dans le chat. Les simulateurs restent actifs, seule l'IA en ligne est suspendue. */
+.indicateur-horsligne { display: inline-flex; align-items: center; gap: 5px; font-size: 0.76rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--warn); background: var(--warn-soft); color: var(--warn); white-space: nowrap; }
+.indicateur-horsligne::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.assistant-horsligne { padding: 8px 12px; border-bottom: 1px solid var(--warn); background: var(--warn-soft); color: var(--fg); font-size: 0.8rem; line-height: 1.35; }
+.assistant-horsligne b { color: var(--warn); }
+@media print { .indicateur-horsligne { display: none !important; } }
 </style>
 </head>
 <body>
@@ -420,7 +434,7 @@ html.discret .num { letter-spacing: 0.05em; }
       <h1>Plan Patrimoine</h1>
       <p class="sous-titre">Répartition cible d'un portefeuille selon le capital, l'âge et les projets, calculée uniquement à partir de mon plan.</p>
     </div>
-    <div class="ligne-actions"><button type="button" class="lien" id="btn-discret" aria-pressed="false" title="Masquer les montants en euros (les pourcentages restent visibles). Raccourci : Alt + H (⌥ + H sur Mac)" aria-keyshortcuts="Alt+H">👁 Masquer les montants</button><button type="button" class="lien" id="btn-theme" title="Passer en mode clair ou sombre">🌙 Mode sombre</button><a class="lien-fiche" href="#fiche-mode-emploi">Mode d'emploi</a><span id="statut" class="statut">Plan par défaut</span></div>
+    <div class="ligne-actions"><button type="button" class="lien" id="btn-discret" aria-pressed="false" title="Masquer les montants en euros (les pourcentages restent visibles). Raccourci : Alt + H (⌥ + H sur Mac)" aria-keyshortcuts="Alt+H">👁 Masquer les montants</button><button type="button" class="lien" id="btn-theme" title="Passer en mode clair ou sombre">🌙 Mode sombre</button><a class="lien-fiche" href="#fiche-mode-emploi">Mode d'emploi</a><span id="indicateur-horsligne" class="indicateur-horsligne" role="status" title="Pas de connexion : les simulateurs et graphiques restent 100 % actifs, seul l'assistant IA en ligne est suspendu." hidden>Hors ligne</span><span id="statut" class="statut">Plan par défaut</span></div>
   </header>
 
   <nav class="onglets" aria-label="Vues">
@@ -717,6 +731,9 @@ html.discret .num { letter-spacing: 0.05em; }
         <button type="button" class="assistant-icone" id="assistant-fermer" title="Fermer (Échap)" aria-label="Fermer l'assistant">✕</button>
       </div>
     </header>
+    <div class="assistant-horsligne" id="assistant-horsligne" role="status" aria-live="polite" hidden>
+      <b>Hors ligne.</b> L'IA en ligne est suspendue jusqu'au retour de la connexion : l'assistant répond en mode local, avec des calculs faits dans ton navigateur. Tes simulateurs restent actifs.
+    </div>
     <div class="assistant-reglages" id="assistant-reglages" hidden>
       <label><input type="radio" name="assistant-mode" value="auto"> Automatique : OpenAI si le serveur le permet, sinon local</label>
       <label><input type="radio" name="assistant-mode" value="local" checked> Local uniquement : rien ne quitte ton navigateur</label>

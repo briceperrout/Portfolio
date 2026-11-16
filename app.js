@@ -3667,6 +3667,25 @@ $("#btn-partager").addEventListener("click", async () => {
   }
 });
 
+// ---------------------------------------------------------------- PWA : service worker et état du réseau
+// Les calculs sont 100 % locaux : hors-ligne, seule l'IA en ligne est suspendue (assistant.js gère son propre bandeau).
+function majReseau() {
+  const horsLigne = navigator.onLine === false;
+  document.documentElement.dataset.reseau = horsLigne ? "hors-ligne" : "en-ligne";
+  const pastille = $("#indicateur-horsligne");
+  if (pastille) pastille.hidden = !horsLigne;
+}
+window.addEventListener("online", majReseau);
+window.addEventListener("offline", majReseau);
+majReseau();
+
+// Service worker : HTTPS ou localhost uniquement (contrainte du navigateur). Un échec d'enregistrement n'est jamais bloquant.
+if ("serviceWorker" in navigator && (location.protocol === "https:" || ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname))) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("service-worker.js").catch((e) => console.warn("PWA : service worker non enregistré", e));
+  });
+}
+
 // ---------------------------------------------------------------- démarrage
 rendreChampsPlacements();
 remplirProfil();
