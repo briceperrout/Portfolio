@@ -2,6 +2,7 @@
 //  RÉCAPITULATIF — un document HTML autonome et imprimable par profil :
 //  plan d'action, répartition, comptes, achat, trajectoire, échéances
 //  et mémo des placements concernés.
+//  Contient aussi le codec du « lien magique » (profil ↔ texte URL-safe), pur et testable.
 // =====================================================================
 import { eur, pct } from "./moteur.js";
 
@@ -152,4 +153,64 @@ export function genererRecapHTML({ plan, nom, profil, res, proj, echeances, fich
 
   <p class="note pied">Simulation fondée sur les règles et les hypothèses du plan (rendements moyens, fiscalité ${e(plan.fiscalite?.verifieeLe ?? "")}) : les résultats sont indicatifs. Taux, plafonds et fiscalité évoluent ; les revérifier avant d'agir.</p>
 </div></body></html>`;
+}
+
+// ---------------------------------------------------------------- partage d'un profil par lien
+// #mon-profil?p=<code> : le profil (sans prénom ni nom d'établissement) est réduit à ce qui diffère
+// d'un profil vide, puis encodé en JSON → UTF-8 → Base64 URL-safe. Le décodage traite le code comme
+// une entrée non fiable : taille bornée, structure et types vérifiés, clés dangereuses écartées.
+const CLES_INTERDITES = new Set(["__proto__", "constructor", "prototype"]);
+export const MAX_CODE_PARTAGE = 12000;
+const ETAB_GENERIQUES = new Set(["Banque traditionnelle", "Autre courtier en ligne"]);
+
+function diff(base, p) {
+  if (p === undefined) return undefined;
+  const objet = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
+  if (objet(base) && objet(p)) {
+    const r = {};
+    for (const k of Object.keys(p)) { const d = diff(base[k], p[k]); if (d !== undefined) r[k] = d; }
+    return Object.keys(r).length ? r : undefined;
+  }
+  return JSON.stringify(base) === JSON.stringify(p) ? undefined : p;
+}
+function assainir(v, profondeur = 0) {
+  if (v === null || typeof v === "boolean") return v;
+  if (typeof v === "number") return Number.isFinite(v) && Math.abs(v) <= 1e12 ? v : null;
+  if (typeof v === "string") return v.replace(/[<>"&\u0000-\u001f]/g, " ").slice(0, 160);
+  if (profondeur > 6) return undefined;
+  if (Array.isArray(v)) return v.slice(0, 60).map((x) => assainir(x, profondeur + 1)).filter((x) => x !== undefined);
+  if (typeof v === "object") {
+    const r = {};
+    let n = 0;
+    for (const [k, x] of Object.entries(v)) {
+      if (CLES_INTERDITES.has(k) || !/^[A-Za-z_][\w-]{0,40}$/.test(k) || ++n > 80) continue;
+      const a = assainir(x, profondeur + 1);
+      if (a !== undefined) r[k] = a;
+    }
+    return r;
+  }
+  return undefined;
+}
+/** Profil → code Base64 URL-safe. `base` : profil vide de référence (seules les différences sont gardées). */
+export function encoderProfilPartage(profil, base = {}) {
+  const p = JSON.parse(JSON.stringify(profil));
+  // Ni prénom ni nom d'établissement (Trade Republic, Boursorama…) ; les catégories génériques restent : elles changent les frais calculés.
+  const sansNom = (pea) => { if (pea && !ETAB_GENERIQUES.has(pea.etablissement)) pea.etablissement = ""; };
+  if (p.conjoint) { p.conjoint.prenom = ""; sansNom(p.conjoint.pea); }
+  sansNom(p.pea);
+  let bin = "";
+  for (const o of new TextEncoder().encode(JSON.stringify(diff(base, p) ?? {}))) bin += String.fromCharCode(o);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+/** Code → objet assaini (à fusionner avec le profil vide), ou null si le code est invalide ou vide. */
+export function decoderProfilPartage(code) {
+  if (typeof code !== "string" || !code || code.length > MAX_CODE_PARTAGE || !/^[A-Za-z0-9_-]+$/.test(code)) return null;
+  try {
+    const bin = atob(code.replace(/-/g, "+").replace(/_/g, "/"));
+    const json = new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+    const o = JSON.parse(json);
+    if (!o || typeof o !== "object" || Array.isArray(o)) return null;
+    const propre = assainir(o);
+    return Object.keys(propre).length ? propre : null;
+  } catch { return null; }
 }

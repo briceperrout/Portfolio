@@ -4,7 +4,7 @@ import { projetLocatifDe, analyseLocatif } from "./locatif.js";
 import { projeter, projeterCentral, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, CRISES, simulerCrise, fluxLocatif } from "./projection.js";
 import { SCENARIOS_FISCAUX, NEUTRE, optionFiscale, comparerTaux } from "./evolution-fiscale.js";
 import { echeancesProfil, echeancesGenerales, versCSV } from "./calendrier.js";
-import { genererRecapHTML } from "./recap.js";
+import { genererRecapHTML, encoderProfilPartage, decoderProfilPartage } from "./recap.js";
 import { FICHES as CONTENU_FICHES, VERIFIE_LE } from "./fiches.js";
 import { LEXIQUE, lierTermes } from "./lexique.js";
 import { DEPARTEMENTS, chargerPrix, prixCharges, estimer, estimerLoyer, libelleCommune, chercherCommunes, codeCommune } from "./immobilier.js";
@@ -35,6 +35,8 @@ const memo = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) {
     try {
+      // Scénario partagé ou simulation What-If en cours : le brouillon enregistré du profil n'est jamais écrasé
+      if (k === "profil-v2" && horsSauvegarde()) return;
       localStorage.setItem(k, JSON.stringify(v));
       // Le brouillon du formulaire est rattaché au profil sélectionné : il ne se mélange pas avec un autre profil
       if (k === "profil-v2") localStorage.setItem("profil-v2-de", JSON.stringify(cleProfilCourant()));
@@ -42,7 +44,12 @@ const memo = {
   },
 };
 // Profil sélectionné (« col:id »), lu dans ce navigateur : utilisable avant le chargement des profils des proches
-function cleProfilCourant() { const c = memo.get("profil-courant") ?? { col: "exemple", id: "exemple" }; return `${c.col}:${c.id}`; }
+function cleProfilCourant() {
+  try { if (etat.partage) return "partage:lien"; } catch { /* état pas encore créé */ }
+  const c = memo.get("profil-courant") ?? { col: "exemple", id: "exemple" }; return `${c.col}:${c.id}`;
+}
+// Vrai tant que le profil affiché n'est pas celui qui est enregistré : scénario ouvert par un lien, ou simulation What-If
+function horsSauvegarde() { try { return !!(etat.partage || etat.simulation); } catch { return false; } }
 const echapper = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const keur = (v) => `${Math.round(v / 1000).toLocaleString("fr-FR")} k€`;
 
@@ -84,13 +91,25 @@ const PROFIL_VIDE = {
 };
 const COURANT_INITIAL = memo.get("profil-courant") ?? { col: "exemple", id: "exemple" };
 
+// Lien magique : « #mon-profil?p=<code> » (voir recap.js). Retourne { code, profil } ou null si absent ou invalide.
+function lireProfilPartage(hash = location.hash) {
+  const i = hash.indexOf("?");
+  if (i < 0) return null;
+  const code = new URLSearchParams(hash.slice(i + 1)).get("p");
+  const brut = decoderProfilPartage(code);
+  return brut ? { code, profil: completerProfil(fusion(PROFIL_VIDE, brut)) } : null;
+}
+const PARTAGE_INITIAL = lireProfilPartage();
+
 const etat = {
+  partage: PARTAGE_INITIAL?.code ?? null, // code du scénario ouvert par un lien (non enregistré), sinon null
+  simulation: null,                       // { base } pendant une simulation What-If (non enregistrée)
   reference: clone(PLAN),     // dernier plan enregistré (ou défaut)
   brouillon: clone(PLAN),     // plan en cours d'édition, appliqué en direct
   source: "defaut",           // defaut | partage | local
   majLe: null,
   // Brouillon repris seulement s'il appartient au profil sélectionné (anciens brouillons sans étiquette : repris comme avant)
-  profil: completerProfil(fusion(COURANT_INITIAL.col === "exemple" ? PROFIL_EXEMPLE : PROFIL_VIDE,
+  profil: PARTAGE_INITIAL?.profil ?? completerProfil(fusion(COURANT_INITIAL.col === "exemple" ? PROFIL_EXEMPLE : PROFIL_VIDE,
     (() => { const de = memo.get("profil-v2-de"); return de == null || de === `${COURANT_INITIAL.col}:${COURANT_INITIAL.id}` ? memo.get("profil-v2") : null; })())),
   db: null,
   peutEnregistrer: false,
@@ -1406,9 +1425,10 @@ function comparerPERPEA(tmi, tret, n = 20) {
 // ---------------------------------------------------------------- export / import des données (.json)
 let importEnAttente = null;
 async function exporterDonnees() {
-  const { suivi } = suiviCourant();
-  const nom = docCourant()?.nom ?? (proches.courant.col === "exemple" ? "exemple" : "profil");
-  const data = { app: "plan-patrimoine", format: 2, exporteLe: new Date().toISOString(), nom, profil: clone(etat.profil), suivi: suivi ? clone(suivi) : null, scenarios: scenariosGardes() };
+  // Scénario partagé : on n'exporte que lui, jamais les relevés ni les scénarios du profil enregistré
+  const { suivi } = etat.partage ? { suivi: null } : suiviCourant();
+  const nom = etat.partage ? "scenario-partage" : docCourant()?.nom ?? (proches.courant.col === "exemple" ? "exemple" : "profil");
+  const data = { app: "plan-patrimoine", format: 2, exporteLe: new Date().toISOString(), nom, profil: clone(etat.profil), suivi: suivi ? clone(suivi) : null, scenarios: etat.partage ? [] : scenariosGardes() };
   const d = new Date(), fichier = `plan-patrimoine-${slug(nom)}-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}.json`;
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   try {
@@ -1422,6 +1442,7 @@ $("#btn-import-json").addEventListener("click", () => $("#fichier-import").click
 $("#fichier-import").addEventListener("change", async (e) => {
   const f = e.target.files?.[0]; e.target.value = "";
   if (!f) return;
+  if (etat.partage || etat.simulation) retourMonProfil(); // l'import vise toujours le profil enregistré, pas un scénario temporaire
   try {
     const data = JSON.parse(await f.text());
     if (data?.app !== "plan-patrimoine" || !data.profil || typeof data.profil !== "object") throw new Error("ce fichier ne vient pas de Plan Patrimoine");
@@ -2147,7 +2168,7 @@ const proches = {
 };
 const cle = (c) => `${c.col}:${c.id}`;
 const docCourant = () => (proches.courant.col === "profils" ? proches.liste : proches.courant.col === "situations" ? proches.situations : []).find((d) => d.id === proches.courant.id);
-const profilModifie = () => proches.courant.col !== "exemple" && proches.reference && JSON.stringify(etat.profil) !== JSON.stringify(proches.reference);
+const profilModifie = () => !horsSauvegarde() && proches.courant.col !== "exemple" && proches.reference && JSON.stringify(etat.profil) !== JSON.stringify(proches.reference);
 const nouvelId = () => (etat.db ? etat.db.collection("profils").doc().id : `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
 
 // Stockage : base partagée si disponible, sinon ce navigateur
@@ -2171,8 +2192,8 @@ function apresChangementListes() {
   proches.liste.sort((a, b) => (a.nom ?? "").localeCompare(b.nom ?? "", "fr"));
   proches.situations.sort((a, b) => (a.nom ?? "").localeCompare(b.nom ?? "", "fr"));
   const d = docCourant();
-  if (proches.courant.col !== "exemple" && !d && proches.pret) { choisirProfil({ col: "exemple", id: "exemple" }); return; }
-  if (d) {
+  if (proches.courant.col !== "exemple" && !d && proches.pret && !etat.partage) { choisirProfil({ col: "exemple", id: "exemple" }); return; }
+  if (d && !horsSauvegarde()) { // scénario partagé ou simulation : une mise à jour distante ne doit pas les écraser
     const distant = fusion(PROFIL_VIDE, d.profil);
     if (!proches.reference) { proches.reference = distant; if (JSON.stringify(etat.profil) !== JSON.stringify(distant) && !memo.get("profil-v2")) chargerDansFormulaire(distant); }
     else if (!profilModifie() && JSON.stringify(distant) !== JSON.stringify(proches.reference)) { proches.reference = distant; chargerDansFormulaire(distant); }
@@ -2182,12 +2203,19 @@ function apresChangementListes() {
 }
 
 function chargerDansFormulaire(p) {
+  const avait = !!etat.simulation;
+  etat.simulation = null; // un profil chargé remplace toute simulation en cours
   etat.profil = completerProfil(clone(p));
   memo.set("profil-v2", etat.profil);
   remplirProfil(); rendreResultats(); planifierTrajectoire();
+  majBandeauScenario();
+  if (avait) document.dispatchEvent(new CustomEvent("simulation:change", { detail: { active: false } }));
 }
 
 function choisirProfil(c) {
+  // Choisir un profil enregistré quitte le scénario partagé et toute simulation
+  etat.partage = null; etat.simulation = null;
+  retirerParamPartage();
   proches.courant = c; memo.set("profil-courant", c);
   brouillonReleve = null; moisReleve = null;
   proches.zone = null;
@@ -2195,10 +2223,11 @@ function choisirProfil(c) {
   else { const d = docCourant(); proches.reference = fusion(PROFIL_VIDE, d?.profil); chargerDansFormulaire(proches.reference); }
   proches.statut = "";
   rendreProches();
+  document.dispatchEvent(new CustomEvent("profil:change")); // l'assistant recharge l'historique de ce profil
 }
 
 function planifierSauvegardeProfil() {
-  if (proches.courant.col === "exemple" || proches.mode === "lecture") { rendreEtatProfil(); return; }
+  if (proches.courant.col === "exemple" || proches.mode === "lecture" || horsSauvegarde()) { rendreEtatProfil(); return; }
   proches.statut = "Modifications en cours…"; rendreEtatProfil();
   clearTimeout(proches.minuteur);
   proches.minuteur = setTimeout(sauverProfilCourant, 1200);
@@ -2221,12 +2250,16 @@ function rendreEtatProfil() {
   const el = $("#etat-profil"); if (!el) return;
   const d = docCourant();
   let t;
-  if (proches.courant.col === "exemple") t = "Profil d'exemple : rien n'est enregistré.";
+  if (etat.partage) t = "Scénario partagé : rien n'est enregistré.";
+  else if (etat.simulation) t = "Simulation What-If en cours : rien n'est enregistré.";
+  else if (proches.courant.col === "exemple") t = "Profil d'exemple : rien n'est enregistré.";
   else if (proches.statut) t = proches.statut;
   else t = d?.majLe ? `Enregistré automatiquement · mis à jour le ${new Date(d.majLe).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}` : "Enregistré automatiquement.";
-  if (proches.courant.col === "profils" && proches.mode === "partage") t += " Visible par toi seul.";
-  if (proches.courant.col === "situations" && proches.mode === "partage") t += proches.auteur ? " Situation envoyée par ce proche." : " Visible par toi et l'auteur du plan.";
-  if (proches.mode === "local" && proches.courant.col !== "exemple") t += " (dans ce navigateur uniquement)";
+  if (!etat.partage && !etat.simulation) {
+    if (proches.courant.col === "profils" && proches.mode === "partage") t += " Visible par toi seul.";
+    if (proches.courant.col === "situations" && proches.mode === "partage") t += proches.auteur ? " Situation envoyée par ce proche." : " Visible par toi et l'auteur du plan.";
+    if (proches.mode === "local" && proches.courant.col !== "exemple") t += " (dans ce navigateur uniquement)";
+  }
   el.textContent = t;
 }
 
@@ -2236,12 +2269,15 @@ function rendreProches() {
   let html = opt({ col: "exemple", id: "exemple" }, "Exemple");
   if (proches.auteur && proches.liste.length) html += `<optgroup label="Mes proches">${proches.liste.map((d) => opt({ col: "profils", id: d.id }, d.nom)).join("")}</optgroup>`;
   if (proches.situations.length) html += `<optgroup label="${proches.auteur ? "Situations envoyées par tes proches" : "Ma situation"}">${proches.situations.map((d) => opt({ col: "situations", id: d.id }, d.nom)).join("")}</optgroup>`;
+  if (etat.partage) html = `<option value="partage:lien">🔗 Scénario partagé</option>` + html;
   sel.innerHTML = html;
-  sel.value = cle(proches.courant);
+  sel.value = etat.partage ? "partage:lien" : cle(proches.courant);
 
   const z = $("#actions-proches");
   const d = docCourant();
-  if (proches.zone?.type === "nom") {
+  if (etat.partage) {
+    z.innerHTML = ""; // renommer, supprimer, créer : ces actions visent le profil enregistré, pas le scénario partagé
+  } else if (proches.zone?.type === "nom") {
     z.innerHTML = `<label for="nom-profil" class="small">${proches.zone.libelle}</label>
       <div class="ligne-actions"><input id="nom-profil" class="texte" type="text" maxlength="60" value="${echapper(proches.zone.valeur ?? "")}" placeholder="Prénom">
       <button type="button" class="principal" id="nom-ok">${proches.zone.bouton}</button><button type="button" class="lien" id="nom-annuler">Annuler</button></div>`;
@@ -2261,6 +2297,7 @@ function rendreProches() {
 
 $("#sel-profil").addEventListener("change", (e) => {
   const [col, ...reste] = e.target.value.split(":");
+  if (col === "partage") return; // option d'affichage du scénario partagé : rien à charger
   if (profilModifie()) sauverProfilCourant();
   choisirProfil({ col, id: reste.join(":") });
 });
@@ -2273,7 +2310,11 @@ $("#actions-proches").addEventListener("click", async (e) => {
   else if (id === "act-supprimer") proches.zone = { type: "supprimer" };
   else if (id === "nom-annuler" || id === "suppr-non") proches.zone = null;
   else if (id === "suppr-oui" && d) {
-    try { await effacerDoc(proches.courant.col, proches.courant.id); choisirProfil({ col: "exemple", id: "exemple" }); }
+    try {
+      await effacerDoc(proches.courant.col, proches.courant.id);
+      try { localStorage.removeItem(`chat-hist:${cle(proches.courant)}`); } catch { /* stockage indisponible */ } // l'historique de l'assistant suit le profil
+      choisirProfil({ col: "exemple", id: "exemple" });
+    }
     catch (err) { proches.statut = `Suppression impossible (${err?.code ?? "erreur"}).`; proches.zone = null; }
   } else if (id === "nom-ok") { await validerNom(); return; }
   else return;
@@ -3373,7 +3414,7 @@ document.addEventListener("click", (ev) => {
 $("#ab-exemple").innerHTML = `<option value="">Choisir une entreprise…</option>${ENTREPRISES_TRIEES.filter((e) => e.profil).map((e) => `<option value="${echapper(e.nom)}">${echapper(e.nom)} : jusqu'à ${eur(e.max)} par an</option>`).join("")}`;
 $("#ab-exemple").addEventListener("change", (ev) => { const v = ev.target.value; ev.target.value = ""; if (v) appliquerEntreprise(v); });
 function rendreFiches() {
-  const id = location.hash.startsWith("#fiche-") ? location.hash.slice(7) : null;
+  const id = location.hash.startsWith("#fiche-") ? location.hash.slice(7).split("?")[0] : null;
   const f = CONTENU_FICHES.find((x) => x.id === id);
   const verifie = new Date(VERIFIE_LE + "T12:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
   if (!f) {
@@ -3404,7 +3445,8 @@ function rendreFiches() {
 // ---------------------------------------------------------------- onglets
 function rendreVue() {
   const vues = { "#epargne-ideale": "ideale", "#mon-profil": "profil", "#simulation": "profil", "#reequilibrage": "reequilibrage", "#trajectoire": "trajectoire", "#retraite": "retraite", "#suivi": "suivi", "#fiches": "fiches", "#mon-plan": "plan" };
-  const vue = location.hash.startsWith("#fiche-") ? "fiches" : vues[location.hash] ?? "profil";
+  const chemin = location.hash.split("?")[0]; // « #mon-profil?p=… » : seule la partie avant « ? » désigne l'onglet
+  const vue = chemin.startsWith("#fiche-") ? "fiches" : vues[chemin] ?? "profil";
   const avant = document.querySelector("section[id^='vue-']:not([hidden])")?.id;
   for (const v of ["profil", "reequilibrage", "trajectoire", "retraite", "ideale", "suivi", "fiches", "plan"]) {
     $(`#vue-${v}`).hidden = v !== vue;
@@ -3418,7 +3460,7 @@ function rendreVue() {
   if (vue === "ideale") rendreEpargneIdeale();
   if (avant !== `vue-${vue}` || vue === "fiches") window.scrollTo(0, 0);
 }
-window.addEventListener("hashchange", rendreVue);
+window.addEventListener("hashchange", () => { ouvrirLienPartage(); rendreVue(); });
 
 // ---------------------------------------------------------------- chargement du plan enregistré
 // Plans enregistrés avec une version plus ancienne du modèle : on garde tes
@@ -3500,12 +3542,143 @@ async function brancherStockage() {
   });
 }
 
+// ---------------------------------------------------------------- scénarios hors enregistrement
+// Deux situations où le profil affiché n'est PAS celui qui est enregistré (voir horsSauvegarde) :
+//   • scénario partagé : ouvert par un lien « #mon-profil?p=… », remplace l'affichage sans toucher aux profils enregistrés ;
+//   • simulation What-If : valeurs proposées par l'assistant, appliquées en mémoire, annulables.
+function majBandeauScenario() {
+  const b = $("#bandeau-scenario");
+  if (!b) return;
+  const partage = !!etat.partage, sim = !!etat.simulation;
+  b.hidden = !(partage || sim);
+  if (!b.hidden) {
+    $("#bandeau-texte").textContent = partage
+      ? `🔗 Scénario partagé : tu peux le modifier et le simuler, rien n'est enregistré dans tes profils.${sim ? " Une simulation What-If est en cours." : ""}`
+      : "🧪 Simulation What-If en cours : rien n'est enregistré tant que tu ne gardes pas ces valeurs.";
+    $("#bandeau-annuler").hidden = !sim;
+    $("#bandeau-garder").hidden = !(sim && !partage);
+    $("#bandeau-retour").hidden = !partage;
+  }
+  rendreEtatProfil();
+}
+const finSimulationEvt = () => document.dispatchEvent(new CustomEvent("simulation:change", { detail: { active: false } }));
+const retirerParamPartage = () => { if (/[?&]p=/.test(location.hash)) history.replaceState(null, "", `${location.pathname}${location.search}#mon-profil`); };
+
+/** Ouvre le scénario du lien courant (si présent et valide). N'écrase ni le profil enregistré ni son brouillon. */
+function ouvrirLienPartage() {
+  const l = lireProfilPartage();
+  if (!l) return false;
+  if (etat.partage === l.code) return true;
+  if (profilModifie()) sauverProfilCourant(); // modifications en attente du profil enregistré : sauvées avant de passer au scénario
+  const avait = !!etat.simulation;
+  etat.simulation = null;
+  etat.partage = l.code;
+  etat.profil = l.profil;
+  remplirProfil(); rendreResultats(); planifierTrajectoire();
+  rendreProches(); majBandeauScenario();
+  if (avait) finSimulationEvt();
+  document.dispatchEvent(new CustomEvent("profil:change"));
+  return true;
+}
+/** Quitte le scénario partagé et/ou la simulation : retour au profil enregistré (avec son brouillon). */
+function retourMonProfil() {
+  if (!etat.partage && !etat.simulation) return;
+  const avait = !!etat.simulation, c = proches.courant, d = docCourant();
+  const de = memo.get("profil-v2-de");
+  const brouillon = de == null || de === `${c.col}:${c.id}` ? memo.get("profil-v2") : null;
+  etat.partage = null; etat.simulation = null;
+  retirerParamPartage();
+  const base = c.col === "exemple" ? PROFIL_EXEMPLE : PROFIL_VIDE;
+  chargerDansFormulaire(brouillon ? fusion(base, brouillon) : c.col !== "exemple" && d ? fusion(PROFIL_VIDE, d.profil) : clone(base));
+  rendreProches();
+  if (avait) finSimulationEvt();
+  document.dispatchEvent(new CustomEvent("profil:change"));
+}
+
+/**
+ * Applique un patch validé par l'assistant (liste blanche) sur une copie du profil, puis recalcule tout.
+ * La simulation reste en mémoire : voir horsSauvegarde (aucune écriture du profil ni du brouillon).
+ */
+function appliquerSimulation(patch) {
+  try {
+    const avant = etat.resultat?.achat?.ideal?.age ?? null;
+    if (!etat.simulation) {
+      if (profilModifie()) sauverProfilCourant(); // un profil modifié à l'instant est enregistré AVANT de simuler
+      etat.simulation = { base: clone(etat.profil) };
+    }
+    const p = clone(etat.profil);
+    const ageLegalPlan = etat.brouillon.hypotheses?.ageRetraite ?? 64;
+    for (const [chemin, v] of Object.entries(patch)) ecrire(p, chemin, chemin === "retraite.ageDepart" && v >= ageLegalPlan ? null : v); // l'âge du plan = pas d'arrêt anticipé
+    etat.profil = completerProfil(p);
+    remplirProfil(); rendreResultats(); planifierTrajectoire();
+    if (!$("#vue-ideale").hidden) rendreEpargneIdeale();
+    majBandeauScenario();
+    const apres = etat.resultat?.achat?.ideal?.age ?? null;
+    const resume = apres != null && avant != null && apres !== avant ? `Âge d'achat idéal : ${avant} → ${apres} ans. Résultats et trajectoire recalculés.`
+      : apres != null && avant == null ? `Âge d'achat idéal : ${apres} ans. Résultats et trajectoire recalculés.`
+      : "Résultats, rééquilibrage et trajectoire recalculés.";
+    return { ok: true, resume };
+  } catch (err) {
+    console.error("simulation What-If", err);
+    annulerSimulation();
+    return { ok: false, erreur: "calcul impossible" };
+  }
+}
+function annulerSimulation() {
+  if (!etat.simulation) return false;
+  const base = etat.simulation.base;
+  etat.simulation = null;
+  chargerDansFormulaire(base); // remet le profil d'avant et réaffiche le bandeau
+  finSimulationEvt();
+  return true;
+}
+function garderSimulation() {
+  if (!etat.simulation || etat.partage) return;
+  etat.simulation = null;
+  memo.set("profil-v2", etat.profil);
+  majBandeauScenario();
+  planifierSauvegardeProfil();
+  finSimulationEvt();
+}
+$("#bandeau-annuler").addEventListener("click", () => annulerSimulation());
+$("#bandeau-garder").addEventListener("click", garderSimulation);
+$("#bandeau-retour").addEventListener("click", retourMonProfil);
+
+// Bouton « Partager ce profil » : lien magique copié dans le presse-papiers
+$("#btn-partager").addEventListener("click", async () => {
+  const bouton = $("#btn-partager"), msg = $("#msg-partage");
+  const url = `${location.href.split("#")[0]}#mon-profil?p=${encoderProfilPartage(etat.profil, PROFIL_VIDE)}`;
+  if (url.length > 8000) { msg.textContent = "Ce profil est trop volumineux pour tenir dans un lien : utilise plutôt l'export .json."; return; }
+  let ok = false;
+  try { await navigator.clipboard.writeText(url); ok = true; } catch {
+    const t = document.createElement("textarea");
+    t.value = url; t.style.position = "fixed"; t.style.opacity = "0";
+    document.body.appendChild(t); t.select();
+    try { ok = document.execCommand("copy"); } catch { ok = false; }
+    t.remove();
+  }
+  if (ok) {
+    bouton.textContent = "✓ Lien copié";
+    setTimeout(() => { bouton.textContent = "🔗 Partager ce profil"; }, 2200);
+    msg.textContent = "Lien copié. Il contient tes montants (revenus, placements…) mais ni prénom ni nom d'établissement : ne l'envoie qu'à des personnes de confiance. Les données restent dans l'adresse (après le #), elles ne sont envoyées à aucun serveur.";
+  } else {
+    msg.innerHTML = `Copie automatique impossible : copie ce lien à la main. <input class="texte" id="lien-partage" type="text" readonly value="${echapper(url)}" style="width:100%;margin-top:6px">`;
+    $("#lien-partage").select();
+  }
+});
+
 // ---------------------------------------------------------------- démarrage
 rendreChampsPlacements();
 remplirProfil();
 rendreReglages();
 rendreVue();
 apresChangementPlan();
+majBandeauScenario(); // lien partagé ouvert au chargement : bandeau « Scénario partagé »
 // Assistant : lit le plan, le profil et le dernier résultat à chaque question (aucun état dupliqué)
-monterAssistant({ getContexte: () => ({ plan: etat.brouillon, res: etat.resultat, profil: etat.profil }) });
+monterAssistant({
+  getContexte: () => ({ plan: etat.brouillon, res: etat.resultat, profil: etat.profil }),
+  getCleProfil: cleProfilCourant, // historique du chat : une clé par profil (chat-hist:<col>:<id>)
+  appliquerPatch: appliquerSimulation,
+  annulerSimulation,
+});
 brancherStockage();

@@ -3,8 +3,8 @@
 //  Équivalent de serveur.py : mêmes routes, mêmes règles d'anonymisation.
 //
 //    GET  /api/statut  → { actif, modele }
-//    POST /api/chat    → flux SSE normalisé { delta } … { fin, modele, masques }
-//                        (ou JSON { reponse, modele, masques } si stream = false)
+//    POST /api/chat    → flux SSE normalisé { delta } … { fin, modele, masques } si le client envoie stream: true
+//                        (sinon JSON { reponse, modele, masques } ; erreur en cours de flux : { erreur })
 //
 //  Secrets (jamais dans le code, jamais côté navigateur) :
 //    wrangler secret put OPENAI_API_KEY
@@ -88,7 +88,8 @@ function validerRequete(p) {
   });
   if (total > MAX_TOTAL_MESSAGES) throw new ErreurAPI(413, "trop_long");
   if (propres[propres.length - 1].role !== "user") throw new ErreurAPI(400, "requete_invalide");
-  return { systeme, profil, messages: propres, raisonnement: p.raisonnement === true, stream: p.stream !== false, masques };
+  // Flux SSE seulement si le client le demande (stream: true) ; sinon réponse JSON classique.
+  return { systeme, profil, messages: propres, raisonnement: p.raisonnement === true, stream: p.stream === true, masques };
 }
 
 // ---------------------------------------------------------------- OpenAI
@@ -109,7 +110,7 @@ function corpsOpenAI(d, env) {
     stream: d.stream,
   };
   if (raisonne) corps.max_completion_tokens = parseInt(env.OPENAI_MAX_COMPLETION_TOKENS, 10) || 2500;
-  else { corps.temperature = 0.2; corps.max_tokens = 650; }
+  else { corps.temperature = 0.2; corps.max_tokens = 800; } // marge pour les balises [[ACTION:…]] et [[SUGGESTION:…]]
   if (d.stream) corps.stream_options = { include_usage: true };
   return [corps, modele];
 }
@@ -163,19 +164,19 @@ async function turnstileOk(request, env) {
 // Flux OpenAI → flux normalisé { delta } / { fin, modele, masques }
 function fluxNormalise(amont, modele, masques, env) {
   const enc = new TextEncoder(), dec = new TextDecoder();
-  let tampon = "", usage = null;
+  let tampon = "", usage = null, termine = false; // « [DONE] » manquant : réponse tronquée
   const evenement = (o) => enc.encode(`data: ${JSON.stringify(o)}\n\n`);
   const traiter = (ligne, controleur) => {
     ligne = ligne.trim();
     if (!ligne.startsWith("data:")) return;
     const contenu = ligne.slice(5).trim();
-    if (contenu === "[DONE]") return;
+    if (contenu === "[DONE]") { termine = true; return; }
     let m; try { m = JSON.parse(contenu); } catch { return; }
     usage = m.usage || usage;
     const delta = m.choices?.[0]?.delta?.content;
     if (delta) controleur.enqueue(evenement({ delta }));
   };
-  return amont.pipeThrough(new TransformStream({
+  const lecteur = amont.pipeThrough(new TransformStream({
     transform(morceau, controleur) {
       tampon += dec.decode(morceau, { stream: true });
       const lignes = tampon.split("\n");
@@ -185,9 +186,23 @@ function fluxNormalise(amont, modele, masques, env) {
     flush(controleur) {
       if (tampon) traiter(tampon, controleur);
       compterTokens(usage, env);
-      controleur.enqueue(evenement({ fin: true, modele, masques }));
+      controleur.enqueue(evenement(termine ? { fin: true, modele, masques } : { fin: true, modele, masques, interrompu: true }));
     },
-  }));
+  })).getReader();
+  // Coupure côté OpenAI en plein flux : on prévient le navigateur par un événement d'erreur au lieu d'un flux tronqué.
+  return new ReadableStream({
+    async pull(controleur) {
+      try {
+        const { done, value } = await lecteur.read();
+        if (done) controleur.close(); else controleur.enqueue(value);
+      } catch {
+        compterTokens(usage, env);
+        controleur.enqueue(evenement({ erreur: "flux" }));
+        controleur.close();
+      }
+    },
+    cancel(raison) { return lecteur.cancel(raison); },
+  });
 }
 
 async function chat(request, env) {

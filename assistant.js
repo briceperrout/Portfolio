@@ -10,12 +10,19 @@
 //  en euros, de noms ni de comptes) + la question dont les montants sont masqués.
 //  Aucune clé API ne transite par le navigateur : elle vit dans serveur.py / le Worker.
 //
+//  Copilote : réponse affichée mot à mot (SSE) pendant que la saisie est verrouillée, historique
+//  gardé par profil (localStorage), simulations « What-If » proposées par des balises
+//  [[ACTION:{…}]] (boutons appliqués en mémoire seulement) et questions de suivi
+//  [[SUGGESTION:…]]. Les montants en euros de l'utilisateur ne partent jamais au cloud :
+//  ils sont remplacés par des jetons {M1}… résolus en local.
+//
 //  Fonctions pures (testables) : rechercherSections, resumerProfilPourLLM,
-//  construireRequeteCloud, repondreLocal. Le DOM n'est touché que par monterAssistant.
+//  construireRequeteCloud, repondreLocal, extraireBalises, validerPatch, detecterWhatIf,
+//  tokeniserMontants, serialiserHistorique. Le DOM n'est touché que par monterAssistant.
 // =====================================================================
 
 import { FICHES, VERIFIE_LE } from "./fiches.js";
-import { LEXIQUE } from "./lexique.js";
+import { LEXIQUE, lierTermes } from "./lexique.js";
 import { eur, pct, endettementBancaire, seuilAchatBitcoin } from "./moteur.js";
 
 // ---------------------------------------------------------------- outils texte
@@ -250,6 +257,192 @@ export function resumerProfilPourLLM(ctx) {
   return L.join("\n");
 }
 
+// ---------------------------------------------------------------- montants, actions What-If, suggestions
+// Montants en euros → jetons {M1}, {M2}… avant tout envoi au cloud ; le modèle les recopie tels quels
+// dans ses balises et le navigateur les résout en local. Aucun montant ne quitte le navigateur.
+const RE_MONTANT = /(?<![\d.,])(?:\d{1,3}(?:[\s  .]\d{3})+|\d+)(?:[.,]\d+)?[\s  ]?(?:k[\s  ]?€|k[\s  ]?euros?|€|euros?)(?![\p{L}\d_])/giu;
+
+/** « 1 500 € », « 1,5 k€ », « 380.000 euros » → nombre (null si illisible). */
+export function parserMontant(s) {
+  const k = /k/i.test(s);
+  let t = String(s).replace(/[^\d.,]/g, "");
+  if (t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
+  const n = Number(t);
+  return Number.isFinite(n) ? (k ? n * 1000 : n) : null;
+}
+/** Remplace chaque montant en euros par un jeton {Mn} ; `table` (jeton → valeur) reste dans le navigateur. */
+export function tokeniserMontants(texte, table = {}) {
+  return String(texte).replace(RE_MONTANT, (m) => {
+    const v = parserMontant(m);
+    if (v == null) return m;
+    let id = Object.keys(table).find((k) => table[k] === v);
+    if (!id) { id = `M${Object.keys(table).length + 1}`; table[id] = v; }
+    return `{${id}}`;
+  });
+}
+export function resoudreJetons(texte, table = {}) {
+  return String(texte).replace(/\{(M\d+)\}/g, (m, id) => (Object.hasOwn(table, id) ? eur(table[id]) : "un montant"));
+}
+
+// Seuls ces champs du profil peuvent être modifiés par une simulation (chemins pointés, bornes strictes).
+export const PATCH_AUTORISES = {
+  epargneMensuelle: { libelle: "épargne mensuelle", type: "eur", parMois: true, min: 0, max: 20000 },
+  depensesMensuelles: { libelle: "dépenses mensuelles", type: "eur", parMois: true, min: 0, max: 20000 },
+  salaireNetMensuel: { libelle: "salaire net mensuel", type: "eur", parMois: true, min: 0, max: 50000 },
+  creditsMensuels: { libelle: "crédits mensuels", type: "eur", parMois: true, min: 0, max: 20000 },
+  "projetRP.actif": { libelle: "projet d'achat de la résidence principale", type: "bool" },
+  "projetRP.prix": { libelle: "prix du bien", type: "eur", min: 20000, max: 5000000 },
+  "projetRP.type": { libelle: "type de bien", type: "enum", valeurs: ["ancien", "neuf"] },
+  "projetRP.horizonAnnees": { libelle: "achat dans", type: "annees", min: 0, max: 30 },
+  "retraite.ageDepart": { libelle: "arrêt de l'activité à", type: "age", min: 50, max: 75 },
+};
+function descriptionPatchs() {
+  return Object.entries(PATCH_AUTORISES).map(([c, r]) => {
+    const forme = r.type === "bool" ? "true/false" : r.type === "enum" ? r.valeurs.map((v) => `"${v}"`).join(" ou ") : `nombre entre ${r.min} et ${r.max}${r.type === "eur" ? " (euros)" : r.type === "age" ? " (âge)" : " (années)"}`;
+    return `  • ${c} : ${r.libelle}, ${forme}`;
+  }).join("\n");
+}
+function aplatir(o, prefixe = "", sortie = {}, profondeur = 0) {
+  if (o === null || typeof o !== "object" || Array.isArray(o) || profondeur > 3) return null;
+  for (const [k, v] of Object.entries(o)) {
+    const chemin = prefixe ? `${prefixe}.${k}` : k;
+    if (v !== null && typeof v === "object" && !Array.isArray(v)) { if (aplatir(v, chemin, sortie, profondeur + 1) === null) return null; }
+    else sortie[chemin] = v;
+  }
+  return sortie;
+}
+/** Patch imbriqué ou à clés pointées → patch plat validé (liste blanche + bornes), ou null si un seul champ est refusé. */
+export function validerPatch(patch) {
+  const plat = aplatir(patch);
+  if (!plat || !Object.keys(plat).length || Object.keys(plat).length > 6) return null;
+  const sortie = {};
+  for (const [chemin, v] of Object.entries(plat)) {
+    const r = Object.hasOwn(PATCH_AUTORISES, chemin) ? PATCH_AUTORISES[chemin] : null;
+    if (!r) return null;
+    if (r.type === "bool") { if (typeof v !== "boolean") return null; sortie[chemin] = v; continue; }
+    if (r.type === "enum") { if (!r.valeurs.includes(v)) return null; sortie[chemin] = v; continue; }
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+    if (!Number.isFinite(n) || n < r.min || n > r.max) return null;
+    sortie[chemin] = Math.round(n);
+  }
+  if ("projetRP.prix" in sortie && !("projetRP.actif" in sortie)) sortie["projetRP.actif"] = true;
+  return sortie;
+}
+/** Phrase lisible d'un patch validé (confirmation dans le chat). */
+export function decrirePatch(patch) {
+  return Object.entries(patch).filter(([c, v]) => !(c === "projetRP.actif" && v === true && "projetRP.prix" in patch)).map(([c, v]) => {
+    const r = PATCH_AUTORISES[c];
+    if (!r) return c;
+    if (r.type === "eur") return `${r.libelle} ${eur(v)}${r.parMois ? "/mois" : ""}`;
+    if (r.type === "bool") return `${r.libelle} : ${v ? "oui" : "non"}`;
+    if (r.type === "age") return `${r.libelle} ${v} ans`;
+    if (r.type === "annees") return `${r.libelle} ${v} an${v > 1 ? "s" : ""}`;
+    return `${r.libelle} : ${v}`;
+  }).join(" ; ");
+}
+
+const RE_BALISE = /\[\[(ACTION|SUGGESTION):([\s\S]*?)\]\]/g;
+function lireAction(corps, montants) {
+  let o;
+  try { o = JSON.parse(String(corps).trim()); } catch { return null; }
+  if (!o || typeof o !== "object" || typeof o.label !== "string") return null;
+  const resoudre = (v) => {
+    if (typeof v === "string") { const m = v.match(/^\{(M\d+)\}$/); return m ? (Object.hasOwn(montants, m[1]) ? montants[m[1]] : NaN) : v; }
+    if (v && typeof v === "object" && !Array.isArray(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, resoudre(x)]));
+    return v;
+  };
+  const patch = validerPatch(resoudre(o.patch));
+  const label = resoudreJetons(o.label, montants).replace(/\s+/g, " ").trim().slice(0, 90);
+  return patch && label ? { label, patch, etat: "libre" } : null;
+}
+/**
+ * Sépare le texte affiché des balises [[ACTION:{…}]] (2 au plus, validées) et [[SUGGESTION:…]] (2 au plus).
+ * Tolère un flux en cours : une balise encore ouverte ou un jeton partiel en fin de texte est masqué.
+ */
+export function extraireBalises(brut, montants = {}) {
+  const actions = [], suggestions = [];
+  const sans = String(brut).replace(RE_BALISE, (m, type, corps) => {
+    if (type === "SUGGESTION") {
+      const t = resoudreJetons(corps, montants).replace(/\s+/g, " ").trim();
+      if (t.length >= 3 && t.length <= 120 && suggestions.length < 2 && !suggestions.includes(t)) suggestions.push(t);
+    } else {
+      const a = lireAction(corps, montants);
+      if (a && actions.length < 2 && !actions.some((x) => JSON.stringify(x.patch) === JSON.stringify(a.patch))) actions.push(a);
+    }
+    return "";
+  });
+  const texte = resoudreJetons(sans.replace(/\[\[[\s\S]*$/, "").replace(/\[$/, "").replace(/\{M?\d*$/, ""), montants)
+    .replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return { texte, actions, suggestions };
+}
+
+// Repli déterministe : détecte les trois questions prospectives types (épargne, achat, arrêt d'activité).
+const RE_HYPOTHESE = /(?:^| )(?:et si|si je|si j|si on|imagine|imaginons|supposons|simule|simuler|simulation)(?: |$)/;
+export function detecterWhatIf(question) {
+  const n = ` ${norm(question)} `;
+  if (!RE_HYPOTHESE.test(n.trim())) return [];
+  const brut = String(question).toLowerCase();
+  const montants = [...brut.matchAll(RE_MONTANT)].map((m) => parserMontant(m[0])).filter((v) => v != null);
+  const sortie = [];
+  const ajouter = (label, patch) => { const p = validerPatch(patch); if (p && sortie.length < 2) sortie.push({ label, patch: p, etat: "libre" }); };
+  if (/ (?:achet|acquer|acquis|achat|acquisition)\w* /.test(n)) {
+    const prix = montants.find((v) => v >= 20000);
+    if (prix) ajouter(`Simuler un achat à ${eur(prix)}`, { projetRP: { actif: true, prix } });
+  }
+  if (/ (?:arret|stopp|quitt|cess|part)\w* /.test(n) && /(?:travail|retraite|activite|boulot|bosser|carriere|metier)/.test(n)) {
+    const age = [...n.matchAll(/ (\d{2}) ans /g)].map((m) => Number(m[1])).find((a) => a >= 50 && a <= 75);
+    if (age) ajouter(`Simuler un arrêt à ${age} ans`, { retraite: { ageDepart: age } });
+  }
+  if (/ (?:epargn|plac|vers|mett|invest)\w* /.test(n) && /(?:mois|mensuel)/.test(n)) {
+    let v = montants.find((x) => x <= 20000);
+    if (v == null) { const b = brut.match(/(\d[\d\s .]*\d|\d)\s*(?:\/\s*mois|par\s+mois|mensuels?)/); v = b ? parserMontant(`${b[1]} €`) : null; }
+    if (v != null && v >= 0 && v <= 20000) ajouter(`Simuler ${eur(v)}/mois d'épargne`, { epargneMensuelle: v });
+  }
+  return sortie;
+}
+
+// ---------------------------------------------------------------- historique persistant (par profil)
+const MAX_MESSAGES_HIST = 30, MAX_OCTETS_HIST = 40000;
+/** Messages du fil → objets simples (sans nœuds DOM ni fonctions), bornés en nombre et en taille. */
+export function serialiserHistorique(fil) {
+  const sortie = (fil ?? []).filter((m) => m && typeof m.texte === "string" && m.texte && (m.role === "user" || (m.role === "ia" && m.source && !m.enCours)))
+    .slice(-MAX_MESSAGES_HIST).map((m) => {
+      const o = { role: m.role, texte: m.texte.slice(0, 6000) };
+      if (m.role === "ia") {
+        o.source = m.source;
+        if (m.modele) o.modele = String(m.modele);
+        if (m.note) o.note = String(m.note);
+        if (m.actions?.length) o.actions = m.actions.map((a) => ({ label: a.label, patch: a.patch, etat: a.etat === "appliquee" ? "appliquee" : "libre" }));
+        if (m.suggestions?.length) o.suggestions = m.suggestions.slice(0, 2);
+      }
+      return o;
+    });
+  while (sortie.length > 1 && JSON.stringify(sortie).length > MAX_OCTETS_HIST) sortie.shift();
+  return sortie;
+}
+/** Relit un historique stocké (donnée non fiable) : forme vérifiée, patchs revalidés. */
+export function lireHistorique(brut) {
+  let a;
+  try { a = JSON.parse(brut); } catch { return []; }
+  if (!Array.isArray(a)) return [];
+  return a.slice(-MAX_MESSAGES_HIST).flatMap((m) => {
+    if (!m || (m.role !== "user" && m.role !== "ia") || typeof m.texte !== "string" || !m.texte) return [];
+    const o = { role: m.role, texte: m.texte.slice(0, 6000) };
+    if (m.role === "ia") {
+      o.source = ["openai", "local", "action"].includes(m.source) ? m.source : "local";
+      if (typeof m.modele === "string") o.modele = m.modele.slice(0, 60);
+      if (typeof m.note === "string") o.note = m.note.slice(0, 200);
+      o.actions = (Array.isArray(m.actions) ? m.actions : []).flatMap((x) => {
+        const patch = validerPatch(x?.patch);
+        return patch && typeof x.label === "string" ? [{ label: x.label.slice(0, 90), patch, etat: x.etat === "appliquee" ? "appliquee" : "libre" }] : [];
+      }).slice(0, 2);
+      o.suggestions = (Array.isArray(m.suggestions) ? m.suggestions : []).filter((s) => typeof s === "string" && s.length >= 3 && s.length <= 120).slice(0, 2);
+    }
+    return [o];
+  });
+}
+
 // ---------------------------------------------------------------- prompt et requête cloud
 export function memoFiscal(plan) {
   const seuil = seuilAchatBitcoin(plan);
@@ -275,7 +468,13 @@ RÈGLES STRICTES
 4. Le profil est anonymisé : tu connais des pourcentages et des ratios, pas de montants en euros. N'invente aucun montant personnel ; raisonne en % ou renvoie l'utilisateur lire ses chiffres dans l'application.
 5. Style : français, tutoiement, direct, 120 à 200 mots maximum, puces courtes, chiffres clés en **gras**. Pas d'introduction ni de conclusion creuses.
 6. Ajoute une phrase de vigilance seulement si une action est irréversible ou risquée (ex. clôture d'un PEA, vente d'or).
-7. Hors sujet (autre chose que patrimoine, fiscalité française, immobilier, retraite) : dis-le en une phrase.`;
+7. Hors sujet (autre chose que patrimoine, fiscalité française, immobilier, retraite) : dis-le en une phrase.
+8. Question prospective (« et si… ») : après ta réponse, ajoute 1 ou 2 balises d'action, chacune sur sa propre ligne, au format exact
+[[ACTION:{"label":"Simuler {M1}/mois d'épargne","patch":{"epargneMensuelle":"{M1}"}}]]
+Champs autorisés dans "patch" (aucun autre) :
+${descriptionPatchs()}
+Les montants en euros écrits par l'utilisateur sont remplacés par des jetons {M1}, {M2}… : recopie-les tels quels, entre guillemets, dans "patch" et "label". Si la valeur à simuler n'est pas donnée par l'utilisateur, n'ajoute aucune action. Sans question prospective, aucune action.
+9. Termine toujours par exactement 2 balises de questions de suivi, chacune sur sa propre ligne, après les actions : [[SUGGESTION:question courte]] (tutoiement, 80 caractères maximum, sans montant ni jeton). Les balises ne comptent pas dans les 200 mots.`;
 
 export function construirePromptSysteme(plan, sections) {
   const index = FICHES.map((f) => `- ${lien(f.id)}`).join("\n");
@@ -287,17 +486,21 @@ export function construirePromptSysteme(plan, sections) {
 
 const RE_COMPLEXE = /compar|arbitr|vaut.il mieux|plutot que|ou vendre|ou casser|simul/;
 /** Corps de la requête POST /api/chat. Les réponses locales (qui citent de vrais montants) n'en font jamais partie. */
-export function construireRequeteCloud(question, historique, ctx) {
+export function preparerRequeteCloud(question, historique, ctx) {
   const sections = rechercherSections(question, historique);
-  const avant = historique.filter((m) => m.texte && m.source !== "accueil" && m.source !== "local" && m !== historique[historique.length - 1]).slice(-6);
-  return {
+  const avant = historique.filter((m) => m.texte && m.source !== "accueil" && m.source !== "local" && m.source !== "action" && m !== historique[historique.length - 1]).slice(-6);
+  const montants = {}; // jeton → valeur : reste dans le navigateur, jamais envoyé
+  const jeton = (t) => tokeniserMontants(t, montants);
+  const requete = {
     systeme: construirePromptSysteme(ctx?.plan, sections),
     profil: resumerProfilPourLLM(ctx) || "(profil non disponible)",
-    messages: [...avant.map((m) => ({ role: m.role === "ia" ? "assistant" : "user", content: m.texte })), { role: "user", content: question }],
+    messages: [...avant.map((m) => ({ role: m.role === "ia" ? "assistant" : "user", content: jeton(m.texte) })), { role: "user", content: jeton(question) }],
     raisonnement: RE_COMPLEXE.test(norm(question)),
     stream: true,
   };
+  return { requete, montants };
 }
+export const construireRequeteCloud = (question, historique, ctx) => preparerRequeteCloud(question, historique, ctx).requete;
 
 /** Remplace les liens vers des fiches inconnues par du texte et rétablit le titre exact des fiches connues. */
 export function nettoyerCitations(texte) {
@@ -417,45 +620,71 @@ const ctxPERpossible = (ctx) => !!ctx?.res?.per?.actif || Number(ctx?.res?.profi
 // ---------------------------------------------------------------- transport cloud
 class ErreurAssistant extends Error { constructor(code) { super(code); this.code = code; } }
 
+/**
+ * POST /api/chat. Lit le flux SSE { delta } … { fin } et rappelle `surTexte(texteCumulé)` à chaque morceau.
+ * Repli : réponse JSON { reponse } (serveur sans flux) ou navigateur sans lecture en continu.
+ */
 async function appelerCloud(requete, surTexte, signal) {
   let rep;
   try {
     rep = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requete), signal });
-  } catch { throw new ErreurAssistant("reseau"); }
+  } catch (e) { throw e?.name === "AbortError" ? e : new ErreurAssistant("reseau"); }
+  const json = (rep.headers.get("Content-Type") || "").toLowerCase().includes("application/json");
   if (!rep.ok) {
     let code = `http_${rep.status}`;
     try { code = (await rep.json()).erreur || code; } catch { /* corps non JSON */ }
     throw new ErreurAssistant(code);
   }
-  const lecteur = rep.body.getReader(), dec = new TextDecoder();
-  let tampon = "", texte = "", fin = null;
+  if (json) { // mode JSON classique : tout le texte d'un coup
+    let j;
+    try { j = await rep.json(); } catch (e) { throw e?.name === "AbortError" ? e : new ErreurAssistant("flux"); }
+    if (j?.erreur) throw new ErreurAssistant(j.erreur);
+    const texte = String(j?.reponse ?? "");
+    if (!texte.trim()) throw new ErreurAssistant("vide");
+    surTexte(texte);
+    return { texte, modele: j.modele, masques: j.masques ?? 0, interrompu: false };
+  }
+  const flux = { texte: "", fin: null };
+  const traiter = (bloc) => {
+    const l = bloc.trim();
+    if (!l.startsWith("data:")) return;
+    let ev; try { ev = JSON.parse(l.slice(5)); } catch { return; }
+    if (ev.erreur) throw new ErreurAssistant(ev.erreur);
+    if (ev.delta) { flux.texte += ev.delta; surTexte(flux.texte); } else if (ev.fin) flux.fin = ev;
+  };
   try {
-    for (;;) {
-      const { done, value } = await lecteur.read();
-      if (done) break;
-      tampon += dec.decode(value, { stream: true });
-      const blocs = tampon.split("\n\n");
-      tampon = blocs.pop();
-      for (const b of blocs) {
-        const l = b.trim();
-        if (!l.startsWith("data:")) continue;
-        let ev; try { ev = JSON.parse(l.slice(5)); } catch { continue; }
-        if (ev.erreur) throw new ErreurAssistant(ev.erreur);
-        if (ev.delta) { texte += ev.delta; surTexte(texte); } else if (ev.fin) fin = ev;
+    if (rep.body?.getReader) {
+      const lecteur = rep.body.getReader(), dec = new TextDecoder();
+      let tampon = "";
+      for (;;) {
+        const { done, value } = await lecteur.read();
+        if (done) break;
+        tampon += dec.decode(value, { stream: true });
+        const blocs = tampon.split("\n\n");
+        tampon = blocs.pop();
+        blocs.forEach(traiter);
       }
-    }
-  } catch (e) { throw e instanceof ErreurAssistant ? e : new ErreurAssistant("flux"); }
-  if (!texte.trim()) throw new ErreurAssistant("vide");
-  return { texte, modele: fin?.modele, masques: fin?.masques ?? 0 };
+      traiter(tampon);
+    } else (await rep.text()).split("\n\n").forEach(traiter); // pas de lecture en continu : réponse affichée d'un coup
+  } catch (e) { throw e instanceof ErreurAssistant || e?.name === "AbortError" ? e : new ErreurAssistant("flux"); }
+  if (!flux.texte.trim()) throw new ErreurAssistant("vide");
+  return { texte: flux.texte, modele: flux.fin?.modele, masques: flux.fin?.masques ?? 0, interrompu: !flux.fin || flux.fin.interrompu === true };
 }
 
 // ---------------------------------------------------------------- Markdown minimal et sûr
-export function rendreMarkdown(src) {
+/**
+ * Markdown → HTML sûr (échappé). `termes: true` ajoute les infobulles du lexique (lierTermes) sur le texte
+ * courant, jamais à l'intérieur des liens de citation.
+ */
+export function rendreMarkdown(src, { termes = false } = {}) {
   const inline = (t) => {
-    let s = echapper(t);
-    s = s.replace(/\[([^\]]+)\]\(#fiche-([a-z0-9-]+)\)/g, (m, titre, id) => (IDS_FICHES.has(id) ? `<a class="lien-fiche" href="#fiche-${id}" data-citation>${titre}</a>` : titre));
-    s = s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
-    return s.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+    const gardes = [];
+    let s = echapper(t).replace(/[\u0001-\u0004]/g, "");
+    s = s.replace(/\[([^\]]+)\]\(#fiche-([a-z0-9-]+)\)/g, (m, titre, id) => (IDS_FICHES.has(id) ? `\u0001${gardes.push(`<a class="lien-fiche" href="#fiche-${id}" data-citation>${titre}</a>`) - 1}\u0002` : titre));
+    s = s.replace(/\*\*([^*]+)\*\*/g, "\u0003$1\u0004");
+    s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+    if (termes) s = lierTermes(s);
+    return s.replace(/\u0003/g, "<b>").replace(/\u0004/g, "</b>").replace(/\u0001(\d+)\u0002/g, (m, i) => gardes[Number(i)] ?? "");
   };
   let html = "", liste = false;
   for (const l of String(src).split("\n")) {
@@ -475,12 +704,19 @@ const MESSAGES_ERREUR = {
   no_key: "clé OpenAI absente côté serveur", reseau: "serveur injoignable", origine_refusee: "origine refusée", trop_de_requetes: "trop de requêtes, patiente une minute",
   openai_401: "clé OpenAI refusée", openai_429: "quota OpenAI atteint", vide: "réponse vide", flux: "flux interrompu", delai: "délai dépassé",
 };
+const TEXTE_WHATIF = "**Simulation What-If**\n- Voici le scénario que je peux appliquer à ton profil : un clic recalcule tes résultats et ta trajectoire.\n- Rien n'est enregistré, tu peux annuler à tout moment.";
 
 /**
  * Branche le widget sur le balisage de index.html.
- * @param {{getContexte: () => ({plan: object, res: object|undefined, profil: object})}} deps
+ * @param {object} deps
+ * @param {() => ({plan: object, res: object|undefined, profil: object})} deps.getContexte
+ * @param {() => string} [deps.getCleProfil]       clé « col:id » du profil actif (historique par profil)
+ * @param {(patch: object) => ({ok: boolean, resume?: string, erreur?: string})} [deps.appliquerPatch]  applique une simulation en mémoire
+ * @param {() => boolean} [deps.annulerSimulation]  annule la simulation en cours
+ *
+ * Événements écoutés sur `document` : « profil:change » (autre profil chargé) et « simulation:change » ({detail:{active}}).
  */
-export function monterAssistant({ getContexte }) {
+export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exemple", appliquerPatch = null, annulerSimulation = null }) {
   const $ = (id) => document.getElementById(id);
   const racine = $("assistant");
   if (!racine) return;
@@ -488,11 +724,24 @@ export function monterAssistant({ getContexte }) {
     form: $("assistant-form"), saisie: $("assistant-saisie"), reglagesBtn: $("assistant-reglages-btn"), reglages: $("assistant-reglages"), consentement: $("assistant-consentement"),
     fermer: $("assistant-fermer"), copier: $("assistant-copier"), effacer: $("assistant-effacer"), envoyer: $("assistant-envoyer") };
 
-  const etat = { reglages: lireReglages(), serveur: { connu: false, joignable: false, actif: false, modele: "" }, fil: [], occupe: false, controleur: null };
+  // `epoque` change quand le fil est effacé ou qu'un autre profil est chargé : une réponse en retard est alors abandonnée.
+  const etat = { reglages: lireReglages(), serveur: { connu: false, joignable: false, actif: false, modele: "" }, fil: [], occupe: false, controleur: null, epoque: 0 };
   const accueil = { role: "ia", source: "accueil", texte: `Bonjour ! Pose-moi une question sur tes placements, ton plan ou la fiscalité. Je cite les fiches du site (par exemple ${lien("mode-emploi")}).` };
 
   const ctx = () => { try { return getContexte(); } catch { return {}; } };
   const cloudAutorise = () => etat.reglages.mode === "auto";
+
+  // -- historique persistant : une clé par profil actif (chat-hist:<col>:<id>)
+  const cleHistorique = () => { let c = "exemple:exemple"; try { c = String(getCleProfil()); } catch { /* clé par défaut */ } return `chat-hist:${c}`; };
+  function sauverHistorique() {
+    try {
+      const s = serialiserHistorique(etat.fil);
+      if (s.length) localStorage.setItem(cleHistorique(), JSON.stringify(s)); else localStorage.removeItem(cleHistorique());
+    } catch { /* stockage indisponible ou plein */ }
+  }
+  function chargerHistorique() {
+    try { etat.fil = lireHistorique(localStorage.getItem(cleHistorique())); } catch { etat.fil = []; }
+  }
 
   // -- état du moteur
   function majBadge(detail = "") {
@@ -526,83 +775,177 @@ export function monterAssistant({ getContexte }) {
   }
 
   // -- rendu
+  const bas = () => { el.fil.scrollTop = el.fil.scrollHeight; };
+  /** Texte brut affiché pendant le flux : balises et jetons retirés, sans mise en forme. */
+  const texteFlux = (m) => extraireBalises(m.texte, m.montants ?? {}).texte || "…";
   function rendreMessage(m) {
     const d = document.createElement("div");
     d.className = `assistant-msg assistant-msg-${m.role}`;
     const corps = document.createElement("div");
     corps.className = "assistant-corps";
-    corps.innerHTML = m.role === "ia" ? rendreMarkdown(m.texte) : `<p>${echapper(m.texte)}</p>`;
+    if (m.enCours) { corps.classList.add("assistant-flux"); corps.textContent = texteFlux(m); }
+    else corps.innerHTML = m.role === "ia" ? rendreMarkdown(m.texte, { termes: true }) : `<p>${echapper(m.texte)}</p>`;
     d.appendChild(corps);
-    if (m.role === "ia" && m.source && m.source !== "accueil") {
+    if (m.role === "ia" && m.source && m.source !== "accueil" && !m.enCours) {
       const p = document.createElement("div");
       p.className = "assistant-source";
-      p.textContent = (m.source === "local" ? "Réponse locale" : `OpenAI ${m.modele ?? ""}`.trim()) + (m.note ? ` · ${m.note}` : "");
+      const base = m.source === "local" ? "Réponse locale" : m.source === "action" ? "Simulation (non enregistrée)" : `OpenAI ${m.modele ?? ""}`.trim();
+      p.textContent = base + (m.note ? ` · ${m.note}` : "");
       d.appendChild(p);
+    }
+    if (m.actions?.length && !m.enCours) {
+      const z = document.createElement("div");
+      z.className = "assistant-actions";
+      for (const a of m.actions) {
+        const b = document.createElement("button");
+        const fait = a.etat === "appliquee";
+        b.type = "button"; b.className = "assistant-action"; b.disabled = fait;
+        b.textContent = `${fait ? "✓" : "▶"} ${a.label}`;
+        b.title = `Applique cette simulation à ton profil, sans l'enregistrer : ${decrirePatch(a.patch)}`;
+        b.addEventListener("click", () => appliquer(m, a));
+        z.appendChild(b);
+      }
+      d.appendChild(z);
+    }
+    if (m.annulable) {
+      const z = document.createElement("div");
+      z.className = "assistant-actions";
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "assistant-action assistant-action-annuler"; b.textContent = "↩ Annuler la simulation";
+      b.addEventListener("click", annuler);
+      z.appendChild(b);
+      d.appendChild(z);
+    }
+    // Questions de suivi : seulement sous la dernière réponse
+    if (m.suggestions?.length && !m.enCours && m === etat.fil[etat.fil.length - 1]) {
+      const z = document.createElement("div");
+      z.className = "assistant-suivi";
+      for (const t of m.suggestions) {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "assistant-puce"; b.textContent = t; b.disabled = etat.occupe;
+        b.addEventListener("click", () => poser(t));
+        z.appendChild(b);
+      }
+      d.appendChild(z);
     }
     m.el = d;
     return d;
   }
   function rendreFil() {
     el.fil.replaceChildren(...[accueil, ...etat.fil].map(rendreMessage));
-    el.fil.scrollTop = el.fil.scrollHeight;
+    bas();
   }
-  function majMessage(m) {
+  /** Mise à jour pendant le flux : texte brut seulement (pas de reparsing Markdown à chaque morceau). */
+  function majFlux(m) {
     const corps = m.el?.querySelector(".assistant-corps");
-    if (corps) corps.innerHTML = m.role === "ia" ? rendreMarkdown(m.texte) : `<p>${echapper(m.texte)}</p>`;
-    el.fil.scrollTop = el.fil.scrollHeight;
+    if (!corps) return;
+    corps.classList.add("assistant-flux");
+    corps.textContent = texteFlux(m);
+    bas();
   }
   function rendreSuggestions() {
     el.suggestions.replaceChildren(...suggestions(ctx()).map((t) => {
       const b = document.createElement("button");
-      b.type = "button"; b.className = "assistant-puce"; b.textContent = t;
+      b.type = "button"; b.className = "assistant-puce"; b.textContent = t; b.disabled = etat.occupe;
       b.addEventListener("click", () => poser(t));
       return b;
     }));
+  }
+  /** Verrouille saisie, bouton, puces et suivis pendant une requête (anti double-clic). */
+  function verrouiller(on) {
+    el.envoyer.disabled = on;
+    el.saisie.disabled = on;
+    racine.dataset.occupe = String(on);
+    el.fil.setAttribute("aria-busy", String(on));
+    for (const b of racine.querySelectorAll(".assistant-puce")) b.disabled = on;
+  }
+
+  // -- simulations What-If
+  function appliquer(m, a) {
+    if (a.etat === "appliquee" || typeof appliquerPatch !== "function") return;
+    let r;
+    try { r = appliquerPatch(a.patch); } catch (e) { console.error("assistant (simulation)", e); r = { ok: false, erreur: "erreur interne" }; }
+    if (r?.ok) {
+      a.etat = "appliquee";
+      etat.fil.push({ role: "ia", source: "action", annulable: true, texte: `✓ **Simulation appliquée** : ${decrirePatch(a.patch)}.\n- ${r.resume ?? "Résultats et trajectoire recalculés."}\n- Rien n'est enregistré dans ton profil tant que tu ne gardes pas ces valeurs.` });
+    } else etat.fil.push({ role: "ia", source: "action", texte: `La simulation n'a pas pu être appliquée${r?.erreur ? ` (${r.erreur})` : ""}.` });
+    rendreFil();
+    sauverHistorique();
+  }
+  function annuler() {
+    let ok = false;
+    try { ok = !!annulerSimulation?.(); } catch (e) { console.error("assistant (annulation)", e); }
+    etat.fil.push({ role: "ia", source: "action", texte: ok ? "↩ **Simulation annulée** : ton profil est revenu à son état d'avant." : "Aucune simulation en cours." });
+    rendreFil();
+    sauverHistorique();
+  }
+  /** La simulation est terminée (annulée, gardée ou profil changé) : les boutons redeviennent utilisables. */
+  function simulationTerminee() {
+    for (const m of etat.fil) { m.annulable = false; for (const a of m.actions ?? []) a.etat = "libre"; }
+    rendreFil();
+    sauverHistorique();
   }
 
   // -- conversation
   async function poser(question) {
     question = question.trim();
-    if (!question || etat.occupe) return;
+    if (!question || etat.occupe) return; // ignore tout envoi tant qu'une requête est en cours
     etat.occupe = true;
-    el.envoyer.disabled = true;
+    verrouiller(true);
     el.saisie.value = "";
+    const epoque = etat.epoque;
+    const perime = () => epoque !== etat.epoque;
     const historique = [...etat.fil];
     const utilisateur = { role: "user", texte: question };
-    const reponse = { role: "ia", texte: "…", source: null };
+    const reponse = { role: "ia", texte: "…", source: null, enCours: true, montants: {} };
     etat.fil.push(utilisateur, reponse);
     rendreFil();
     const contexte = ctx();
     let note = "";
     try {
       if (cloudAutorise() && !(etat.serveur.connu && etat.serveur.joignable && !etat.serveur.actif)) {
-        etat.controleur = new AbortController();
-        const delai = setTimeout(() => etat.controleur.abort(), 45000);
+        const controleur = new AbortController();
+        etat.controleur = controleur;
+        const delai = setTimeout(() => controleur.abort(), 45000);
         try {
-          const r = await appelerCloud(construireRequeteCloud(question, [...historique, utilisateur], contexte), (t) => { reponse.texte = t; reponse.source = "openai"; majMessage(reponse); }, etat.controleur.signal);
-          reponse.texte = nettoyerCitations(r.texte);
-          Object.assign(reponse, { source: "openai", modele: r.modele, note: r.masques > 0 ? `${r.masques} donnée(s) personnelle(s) masquée(s) avant l'envoi` : "" });
-          majMessage(reponse);
+          const { requete, montants } = preparerRequeteCloud(question, [...historique, utilisateur], contexte);
+          reponse.montants = montants;
+          const r = await appelerCloud(requete, (t) => { if (perime()) return; reponse.texte = t; reponse.source = "openai"; majFlux(reponse); }, controleur.signal);
+          if (perime()) return;
+          const b = extraireBalises(r.texte, montants);
+          const secours = b.actions.length ? [] : detecterWhatIf(question); // filet de sécurité si le modèle oublie la balise
+          Object.assign(reponse, {
+            texte: nettoyerCitations(b.texte) || "Voici ce que je peux simuler pour toi.", source: "openai", modele: r.modele, enCours: false,
+            actions: [...b.actions, ...secours], suggestions: b.suggestions,
+            note: [r.interrompu ? "réponse interrompue" : "", r.masques > 0 ? `${r.masques} donnée(s) personnelle(s) masquée(s) avant l'envoi` : ""].filter(Boolean).join(" · "),
+          });
           rendreFil();
+          sauverHistorique();
           etat.serveur.connu = true; etat.serveur.joignable = true; majBadge();
           return;
         } catch (e) {
+          if (perime()) return;
           const code = e.name === "AbortError" ? "delai" : e.code ?? "reseau";
           note = `repli local : ${MESSAGES_ERREUR[code] ?? code}`;
           if (code === "no_key") etat.serveur.actif = false;
           if (code === "reseau") etat.serveur.joignable = false;
           etat.serveur.connu = true;
           majBadge(code === "reseau" ? "hors ligne" : "");
-        } finally { clearTimeout(delai); etat.controleur = null; }
+        } finally { clearTimeout(delai); if (etat.controleur === controleur) etat.controleur = null; }
       }
-      reponse.texte = repondreLocal(question, [...historique, utilisateur], contexte);
-      Object.assign(reponse, { source: "local", note });
+      if (perime()) return;
+      const wi = detecterWhatIf(question);
+      Object.assign(reponse, {
+        texte: wi.length ? TEXTE_WHATIF : repondreLocal(question, [...historique, utilisateur], contexte),
+        source: "local", note, enCours: false, montants: {}, actions: wi, suggestions: [],
+      });
       rendreFil();
+      sauverHistorique();
     } finally {
       etat.occupe = false;
-      el.envoyer.disabled = false;
+      verrouiller(false);
       rendreSuggestions();
-      el.saisie.focus();
+      if (!el.panneau.hidden) el.saisie.focus();
     }
   }
 
@@ -641,6 +984,11 @@ export function monterAssistant({ getContexte }) {
   el.bouton.addEventListener("click", () => ouvrir(el.panneau.hidden));
   el.fermer.addEventListener("click", () => ouvrir(false));
   racine.addEventListener("keydown", (e) => { if (e.key === "Escape" && !el.panneau.hidden) { e.preventDefault(); ouvrir(false); } });
+  // Un appui en dehors du widget ferme le panneau (composedPath : fiable même si le nœud cliqué est retiré du DOM entre-temps)
+  document.addEventListener("pointerdown", (e) => {
+    if (el.panneau.hidden || e.composedPath().includes(racine)) return;
+    ouvrir(false);
+  });
   el.form.addEventListener("submit", (e) => { e.preventDefault(); poser(el.saisie.value); });
   el.saisie.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); poser(el.saisie.value); } });
   el.copier.addEventListener("click", copierContexte);
@@ -650,9 +998,26 @@ export function monterAssistant({ getContexte }) {
     el.reglagesBtn.setAttribute("aria-expanded", String(ouvert));
   });
   el.reglages.addEventListener("change", (e) => { if (e.target.name === "assistant-mode") choisirMode(e.target.value); });
-  el.effacer.addEventListener("click", () => { etat.controleur?.abort(); etat.fil = []; rendreFil(); rendreSuggestions(); });
+  // « Effacer » : vide l'écran ET la clé localStorage du profil courant
+  el.effacer.addEventListener("click", () => {
+    etat.epoque++;
+    etat.controleur?.abort();
+    etat.fil = [];
+    try { localStorage.removeItem(cleHistorique()); } catch { /* stockage indisponible */ }
+    rendreFil();
+    rendreSuggestions();
+  });
   $("assistant-activer").addEventListener("click", () => choisirMode("auto"));
   $("assistant-refuser").addEventListener("click", () => choisirMode("local"));
+  // Autre profil chargé (sélecteur, lien partagé) : on abandonne la requête en cours et on recharge l'historique de ce profil.
+  document.addEventListener("profil:change", () => {
+    etat.epoque++;
+    etat.controleur?.abort();
+    chargerHistorique();
+    rendreFil();
+    rendreSuggestions();
+  });
+  document.addEventListener("simulation:change", (e) => { if (!e.detail?.active) simulationTerminee(); });
   // Citation cliquable : sur téléphone, on referme le panneau pour laisser voir la fiche.
   el.fil.addEventListener("click", (e) => { if (e.target.closest?.("a[data-citation]") && window.matchMedia("(max-width: 640px)").matches) ouvrir(false); });
   // Mode discret : l'appli masque les montants des nœuds ajoutés ; à la réaffichage, on redessine depuis le texte brut.
@@ -662,6 +1027,7 @@ export function monterAssistant({ getContexte }) {
     if (maintenant !== discret) { discret = maintenant; if (!maintenant) rendreFil(); }
   }).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
 
+  chargerHistorique();
   majBadge();
   majConsentement();
 }

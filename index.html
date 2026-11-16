@@ -44,7 +44,7 @@
   @page { margin: 12mm; }
   body { background: #fff; font-size: 10.5pt; }
   .wrap { max-width: none; padding: 0; }
-  nav.onglets, header.top .ligne-actions, .barre-actions, .etape, button, .bouton, .ligne-actions button, #btn-discret, #btn-theme { display: none !important; }
+  nav.onglets, .bandeau-scenario, header.top .ligne-actions, .barre-actions, .etape, button, .bouton, .ligne-actions button, #btn-discret, #btn-theme { display: none !important; }
   .panneau, .tuile, table, figure, svg { break-inside: avoid; }
   .panneau { box-shadow: none !important; border: 1px solid var(--line); }
   input, select, textarea { border: 0 !important; background: none !important; box-shadow: none !important; appearance: none; -webkit-appearance: none; }
@@ -394,6 +394,17 @@ html.discret .num { letter-spacing: 0.05em; }
 .assistant-suggestions { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 12px 8px; }
 .assistant-puce { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px; padding: 5px 10px; font: inherit; font-size: 0.76rem; cursor: pointer; text-align: left; }
 .assistant-puce:hover { border-color: var(--accent); color: var(--accent); }
+.assistant-puce:disabled, .assistant-action:disabled { opacity: 0.5; cursor: default; }
+.assistant-puce:disabled:hover { border-color: var(--line); color: var(--fg); }
+.assistant-flux { white-space: pre-wrap; }
+.assistant-flux::after { content: "▍"; margin-left: 1px; color: var(--accent); animation: assistant-curseur 1s steps(2, start) infinite; }
+@keyframes assistant-curseur { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .assistant-flux::after { animation: none; } }
+.assistant-actions, .assistant-suivi { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 0; }
+.assistant-action { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--fg); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer; text-align: left; }
+.assistant-action:hover:not(:disabled) { background: var(--accent); color: var(--accent-ink); }
+.assistant-action-annuler { border-color: var(--line); background: var(--surface); font-weight: 500; }
+.bandeau-scenario { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin: 0 0 12px; padding: 9px 12px; border: 1px solid var(--warn); border-radius: var(--r); background: var(--warn-soft); color: var(--fg); font-size: 0.86rem; }
 .assistant-form { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--line); }
 .assistant-saisie { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); padding: 7px 9px; font: inherit; font-size: 0.86rem; min-width: 0; }
 .assistant-pied { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px 10px; font-size: 0.68rem; color: var(--faint); }
@@ -422,6 +433,16 @@ html.discret .num { letter-spacing: 0.05em; }
     <a href="#fiches" id="lien-fiches">Fiches</a>
     <a href="#mon-plan" id="lien-plan">Mon plan</a>
   </nav>
+
+  <!-- Scénario partagé (lien magique) ou simulation What-If : profil affiché ≠ profil enregistré -->
+  <div class="bandeau-scenario" id="bandeau-scenario" role="status" aria-live="polite" hidden>
+    <span id="bandeau-texte"></span>
+    <span class="ligne-actions">
+      <button type="button" id="bandeau-annuler" hidden>↩ Annuler la simulation</button>
+      <button type="button" class="principal" id="bandeau-garder" hidden>Garder ces valeurs</button>
+      <button type="button" class="principal" id="bandeau-retour" hidden>Revenir à mon profil</button>
+    </span>
+  </div>
 
   <!-- ===================== 1. MON PROFIL ===================== -->
   <section id="vue-profil">
@@ -636,8 +657,9 @@ html.discret .num { letter-spacing: 0.05em; }
       <div class="panneau" id="bloc-donnees">
         <h2 style="margin:0 0 4px;font-size:1.05rem">Tes données</h2>
         <p class="note" style="margin:0 0 8px">Sauvegarde ton profil, tes relevés de suivi et tes scénarios dans un fichier (.json), pour les garder, changer de navigateur ou les transférer. Le fichier ne contient que des montants et des dates.</p>
-        <div class="ligne-actions"><button type="button" id="btn-export-json">Exporter mes données (.json)</button><button type="button" id="btn-import-json">Importer un fichier…</button><input type="file" id="fichier-import" accept="application/json,.json" hidden></div>
+        <div class="ligne-actions"><button type="button" id="btn-export-json">Exporter mes données (.json)</button><button type="button" id="btn-import-json">Importer un fichier…</button><button type="button" id="btn-partager" title="Copie un lien qui ouvre ce profil (sans prénom ni nom d'établissement) chez la personne qui le reçoit">🔗 Partager ce profil</button><input type="file" id="fichier-import" accept="application/json,.json" hidden></div>
         <div id="msg-donnees" class="small" style="margin-top:8px"></div>
+        <div id="msg-partage" class="small" style="margin-top:8px" role="status" aria-live="polite"></div>
       </div>
     </form>
   </section>

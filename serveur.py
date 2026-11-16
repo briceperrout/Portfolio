@@ -8,7 +8,8 @@ Usage :  python3 serveur.py [port]      (défaut : 8080, ou variable PORT)
 Assistant IA
   GET  /api/statut  → {"actif": bool, "modele": "..."}      (sans appeler OpenAI)
   POST /api/chat    → relais vers https://api.openai.com/v1/chat/completions
-                      réponse en flux SSE normalisé (voir _chat) ou JSON si stream=false
+                      flux SSE normalisé (voir _chat) si le client envoie stream=true,
+                      sinon réponse JSON classique {"reponse", "modele", "masques"}
 
 La clé OPENAI_API_KEY est lue dans l'environnement ou dans le fichier `.env`
 (ignoré par Git). Elle ne quitte jamais ce processus : le navigateur n'en
@@ -20,6 +21,7 @@ en euros. Le navigateur envoie déjà un profil anonymisé (pourcentages, ratios
 ce filtre est une seconde ligne de défense.
 """
 
+import http.client
 import json
 import mimetypes
 import os
@@ -188,7 +190,8 @@ def valider_requete(payload) -> dict:
         "profil": profil,
         "messages": propres,
         "raisonnement": payload.get("raisonnement") is True,
-        "stream": payload.get("stream", True) is not False,
+        # Flux SSE seulement si le client le demande (stream: true) ; sinon réponse JSON classique.
+        "stream": payload.get("stream") is True,
         "masques": masques,
     }
 
@@ -213,7 +216,7 @@ def corps_openai(d: dict) -> tuple[dict, str]:
             corps["max_completion_tokens"] = 2500
     else:
         corps["temperature"] = 0.2
-        corps["max_tokens"] = 650
+        corps["max_tokens"] = 800  # marge pour les balises [[ACTION:…]] et [[SUGGESTION:…]]
     if d["stream"]:
         corps["stream_options"] = {"include_usage": True}
     return corps, modele
@@ -349,16 +352,23 @@ class Handler(SimpleHTTPRequestHandler):
         if self._chemin() != "/api/chat":
             self.send_error(404, "Introuvable")
             return
+        self._flux_ouvert = False  # vrai dès que les en-têtes SSE sont partis : plus de réponse JSON possible
         try:
             self._chat()
         except ErreurAPI as e:
-            self._json(e.statut, {"erreur": e.code})
+            if self._flux_ouvert:
+                self._evenement({"erreur": e.code})
+            else:
+                self._json(e.statut, {"erreur": e.code})
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as e:  # ne jamais laisser fuiter de détails (ni la clé) au navigateur
             sys.stderr.write(f"[plan-patrimoine] erreur inattendue : {type(e).__name__}\n")
             try:
-                self._json(500, {"erreur": "interne"})
+                if self._flux_ouvert:
+                    self._evenement({"erreur": "flux"})
+                else:
+                    self._json(500, {"erreur": "interne"})
             except OSError:
                 pass
 
@@ -414,25 +424,37 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
             self.send_header("X-Accel-Buffering", "no")
             self.end_headers()
+            self._flux_ouvert = True
             usage = None
-            for brut in reponse:
-                ligne = brut.decode("utf-8", "replace").strip()
-                if not ligne.startswith("data:"):
-                    continue
-                contenu = ligne[5:].strip()
-                if contenu == "[DONE]":
-                    break
-                try:
-                    morceau = json.loads(contenu)
-                except ValueError:
-                    continue
-                usage = morceau.get("usage") or usage
-                choix = morceau.get("choices") or []
-                delta = (choix[0].get("delta") or {}).get("content") if choix else None
-                if delta and not self._evenement({"delta": delta}):
-                    break
+            termine = False  # OpenAI clôt toujours son flux par « [DONE] » ; sinon la réponse est tronquée
+            try:
+                for brut in reponse:
+                    ligne = brut.decode("utf-8", "replace").strip()
+                    if not ligne.startswith("data:"):
+                        continue
+                    contenu = ligne[5:].strip()
+                    if contenu == "[DONE]":
+                        termine = True
+                        break
+                    try:
+                        morceau = json.loads(contenu)
+                    except ValueError:
+                        continue
+                    usage = morceau.get("usage") or usage
+                    choix = morceau.get("choices") or []
+                    delta = (choix[0].get("delta") or {}).get("content") if choix else None
+                    if delta and not self._evenement({"delta": delta}):
+                        break
+            except (OSError, http.client.HTTPException):
+                # Coupure côté OpenAI en plein flux : on prévient le navigateur proprement.
+                QUOTA.ajouter(usage)
+                self._evenement({"erreur": "flux"})
+                return
             QUOTA.ajouter(usage)
-            self._evenement({"fin": True, "modele": modele, "masques": donnees["masques"]})
+            fin = {"fin": True, "modele": modele, "masques": donnees["masques"]}
+            if not termine:
+                fin["interrompu"] = True
+            self._evenement(fin)
 
     def end_headers(self):
         # Pas de cache en développement : les modifications sont visibles au rechargement.
