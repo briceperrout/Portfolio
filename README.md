@@ -25,7 +25,7 @@
 
 L'application est pensée selon trois principes :
 
-- **Local-first** : tous les calculs s'exécutent dans votre navigateur. Aucune donnée patrimoniale n'est envoyée à un serveur.
+- **Local-first** : tous les calculs s'exécutent dans votre navigateur. Aucune donnée patrimoniale n'est envoyée à un serveur, sauf si vous activez explicitement l'assistant OpenAI (voir ci-dessous) : il n'envoie alors qu'un profil *anonymisé* (pourcentages et ratios, jamais de montants en euros, de noms ni de comptes).
 - **Privacy-by-design** : un *mode discrétion* masque les montants d'un raccourci clavier, utile en partage d'écran.
 - **Transparence** : calculs déterministes et lisibles, sources et dates de vérification affichées dans les fiches.
 
@@ -70,7 +70,9 @@ Portfolio_Project/
 ├── fiches.js · lexique.js# Contenu pédagogique et infobulles
 │
 ├── prix-m2.json          # Références DVF et loyers (~35 000 communes)
-├── serveur.py            # Serveur statique local (stdlib Python, sans dépendance)
+├── assistant.js          # Assistant : RAG léger sur les fiches, profil anonymisé, repli local, widget
+├── serveur.py            # Serveur local (stdlib Python) : fichiers statiques + relais /api/chat vers OpenAI
+├── worker.js             # Relais équivalent pour Cloudflare Workers (production)
 ├── .env.example          # Variables d'environnement documentées (aucun secret)
 ├── LICENSE               # MIT
 └── CLAUDE.md             # Conventions techniques du dépôt
@@ -97,7 +99,11 @@ Ouvrez ensuite **<http://localhost:8080>** dans votre navigateur.
 
 > Les modules ES et le chargement de `prix-m2.json` nécessitent un serveur HTTP : l'ouverture directe de `index.html` (`file://`) ne fonctionne pas. Le serveur écoute uniquement sur `127.0.0.1`.
 
-Variables d'environnement : copiez `.env.example` vers `.env` si vous activez plus tard des fonctions nécessitant une clé. La v0.1 n'en requiert aucune.
+### Assistant IA (optionnel)
+
+Le bouton **💬 Une question ?** ouvre un assistant qui répond à partir des fiches et de votre plan. Sans configuration, il fonctionne en **mode local** : aucune donnée ne quitte le navigateur.
+
+Pour activer les réponses OpenAI : copiez `.env.example` vers `.env` (ignoré par Git), renseignez `OPENAI_API_KEY`, relancez `python3 serveur.py`, puis acceptez l'envoi anonymisé dans le panneau de l'assistant. La clé reste côté serveur ; elle n'est jamais envoyée au navigateur. En production, `worker.js` joue le même rôle (secrets Cloudflare). Si le serveur ou la clé manque, l'assistant retombe automatiquement sur le mode local.
 
 ## Confidentialité
 

@@ -12,6 +12,7 @@ import { estimerPension, ageEnTexte } from "./pension.js";
 import { decomposerSalaire, foyerFiscal, impotBareme, BAREME } from "./fiscal.js";
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
 import { plafondPEREstime, endettementBancaire, lepEstime } from "./moteur.js";
+import { monterAssistant } from "./assistant.js";
 
 // ---------------------------------------------------------------- outils
 const $ = (s) => document.querySelector(s);
@@ -3505,4 +3506,6 @@ remplirProfil();
 rendreReglages();
 rendreVue();
 apresChangementPlan();
+// Assistant : lit le plan, le profil et le dernier résultat à chaque question (aucun état dupliqué)
+monterAssistant({ getContexte: () => ({ plan: etat.brouillon, res: etat.resultat, profil: etat.profil }) });
 brancherStockage();

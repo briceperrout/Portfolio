@@ -12,6 +12,7 @@
 !.env.example
 *.pem
 *.key
+.quota-tokens.json
 
 # ── Python ───────────────────────────────────────────
 __pycache__/

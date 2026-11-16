@@ -359,6 +359,47 @@ ul.arguments.contre li::before { content: "−"; position: absolute; left: 4px; 
 @media (max-width: 640px) { .evenement { grid-template-columns: 1fr 1fr; } .evenement .ev-suppr { grid-column: 1 / -1; justify-self: start; } }
 html.discret input[type="number"]:not(:focus) { filter: blur(6px); }
 html.discret .num { letter-spacing: 0.05em; }
+/* Assistant : bouton flottant + panneau de discussion (les montants de ses réponses sont masqués par Alt + H comme le reste) */
+.assistant { position: fixed; right: 16px; bottom: 16px; z-index: 40; font-family: var(--font-body); }
+.assistant-bouton { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px; padding: 9px 14px; font: inherit; font-size: 0.86rem; font-weight: 500; cursor: pointer; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14); }
+.assistant-bouton:hover { border-color: var(--accent); color: var(--accent); }
+.assistant[data-ouvert="true"] .assistant-bouton { display: none; }
+.assistant-panneau { position: fixed; right: 16px; bottom: 16px; width: min(400px, calc(100vw - 32px)); height: min(620px, calc(100vh - 32px)); display: flex; flex-direction: column; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22); overflow: hidden; animation: assistant-entree 0.2s ease-out; }
+@keyframes assistant-entree { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .assistant-panneau { animation: none; } }
+.assistant-entete { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.assistant-titre { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; }
+.assistant-badge { font-family: var(--font-body); font-weight: 500; font-size: 0.7rem; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.assistant-badge[data-moteur="local"] { background: var(--warn-soft); color: var(--warn); }
+.assistant-icone { border: 0; background: transparent; color: var(--muted); font-size: 1rem; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+.assistant-icone:hover { background: var(--accent-soft); color: var(--fg); }
+.assistant-reglages, .assistant-consentement { padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--bg); font-size: 0.8rem; color: var(--muted); }
+.assistant-reglages label { display: block; margin: 4px 0; color: var(--fg); }
+.assistant-reglages p, .assistant-consentement p { margin: 6px 0; line-height: 1.45; }
+.assistant-consentement .ligne { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.assistant-btn { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 0.8rem; cursor: pointer; }
+.assistant-btn.primaire { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.assistant-btn:disabled { opacity: 0.5; cursor: default; }
+.assistant-fil { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.assistant-msg { max-width: 92%; font-size: 0.86rem; line-height: 1.5; }
+.assistant-msg p { margin: 0 0 6px; }
+.assistant-msg ul { margin: 0 0 6px; padding-left: 18px; }
+.assistant-msg li { margin: 2px 0; }
+.assistant-msg-user { align-self: flex-end; }
+.assistant-msg-user .assistant-corps { background: var(--accent); color: var(--accent-ink); border-radius: 12px 12px 2px 12px; padding: 7px 11px; }
+.assistant-msg-user .assistant-corps p { margin: 0; }
+.assistant-msg-ia .assistant-corps { background: var(--bg); border: 1px solid var(--line); border-radius: 12px 12px 12px 2px; padding: 8px 11px; }
+.assistant-msg-ia .assistant-corps p:last-child, .assistant-msg-ia .assistant-corps ul:last-child { margin-bottom: 0; }
+.assistant-source { font-size: 0.68rem; color: var(--faint); margin: 3px 4px 0; }
+.assistant-suggestions { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 12px 8px; }
+.assistant-puce { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px; padding: 5px 10px; font: inherit; font-size: 0.76rem; cursor: pointer; text-align: left; }
+.assistant-puce:hover { border-color: var(--accent); color: var(--accent); }
+.assistant-form { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--line); }
+.assistant-saisie { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); padding: 7px 9px; font: inherit; font-size: 0.86rem; min-width: 0; }
+.assistant-pied { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px 10px; font-size: 0.68rem; color: var(--faint); }
+.assistant-pied .assistant-btn { font-size: 0.72rem; padding: 4px 8px; }
+@media (max-width: 640px) { .assistant-panneau { right: 0; bottom: 0; width: 100vw; height: min(80vh, 600px); border-radius: 14px 14px 0 0; } }
+@media print { .assistant { display: none !important; } }
 </style>
 </head>
 <body>
@@ -643,6 +684,39 @@ html.discret .num { letter-spacing: 0.05em; }
   </section>
 </div>
 <div class="bulle" id="bulle" hidden></div>
+
+<aside class="assistant" id="assistant" data-ouvert="false" aria-label="Assistant Plan Patrimoine">
+  <button type="button" class="assistant-bouton" id="assistant-bouton" aria-expanded="false" aria-controls="assistant-panneau">💬 Une question ?</button>
+  <section class="assistant-panneau" id="assistant-panneau" role="dialog" aria-label="Assistant" hidden>
+    <header class="assistant-entete">
+      <div class="assistant-titre">Assistant <span class="assistant-badge" id="assistant-badge" data-moteur="local">Mode local</span></div>
+      <div>
+        <button type="button" class="assistant-icone" id="assistant-reglages-btn" aria-expanded="false" aria-controls="assistant-reglages" title="Réglages" aria-label="Réglages de l'assistant">⚙️</button>
+        <button type="button" class="assistant-icone" id="assistant-fermer" title="Fermer (Échap)" aria-label="Fermer l'assistant">✕</button>
+      </div>
+    </header>
+    <div class="assistant-reglages" id="assistant-reglages" hidden>
+      <label><input type="radio" name="assistant-mode" value="auto"> Automatique : OpenAI si le serveur le permet, sinon local</label>
+      <label><input type="radio" name="assistant-mode" value="local" checked> Local uniquement : rien ne quitte ton navigateur</label>
+      <p>La clé OpenAI se règle côté serveur (fichier <code>.env</code> ou secret Cloudflare), jamais dans le navigateur. Avec OpenAI, seuls des pourcentages et ratios sont envoyés, jamais tes montants en euros, noms ou comptes.</p>
+      <button type="button" class="assistant-btn" id="assistant-effacer">Effacer la conversation</button>
+    </div>
+    <div class="assistant-consentement" id="assistant-consentement" hidden>
+      <p><b>Réponses plus riches avec OpenAI ?</b> L'assistant enverrait ta question (montants et noms masqués) et ton profil <b>anonymisé</b> (pourcentages et ratios, jamais d'euros, de noms ni de comptes). Sinon il reste 100 % local.</p>
+      <div class="ligne"><button type="button" class="assistant-btn primaire" id="assistant-activer">Activer OpenAI</button><button type="button" class="assistant-btn" id="assistant-refuser">Rester en local</button></div>
+    </div>
+    <div class="assistant-fil" id="assistant-fil" role="log" aria-live="polite"></div>
+    <div class="assistant-suggestions" id="assistant-suggestions"></div>
+    <form class="assistant-form" id="assistant-form" autocomplete="off">
+      <textarea class="assistant-saisie" id="assistant-saisie" rows="2" maxlength="500" placeholder="Pose ta question…" aria-label="Ta question"></textarea>
+      <button type="submit" class="assistant-btn primaire" id="assistant-envoyer">Envoyer</button>
+    </form>
+    <div class="assistant-pied">
+      <button type="button" class="assistant-btn" id="assistant-copier" title="Copie la question et ton profil anonymisé pour les coller dans un autre assistant">📋 Copier question + profil</button>
+      <span>Pédagogique, pas un conseil en investissement.</span>
+    </div>
+  </section>
+</aside>
 
 <script type="module" src="app.js"></script>
 </body>
