@@ -1578,6 +1578,53 @@ export async function lireFichierReleve(nom, octets) {
 // ---- Prix de revient (PRU) et plus-values latentes
 export const ecartMois = (a, b) => { const [y1, m1] = a.split("-").map(Number), [y2, m2] = b.split("-").map(Number); return (y2 - y1) * 12 + (m2 - m1); };
 
+function ajouterMois(aaaamm, n) {
+  const [y, m] = aaaamm.split("-").map(Number);
+  const t = y * 12 + (m - 1) + n;
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`;
+}
+
+// Prochain relevé attendu, selon la fréquence du calendrier (même règle que calendrier.js). Fonction pure : moisActuel "AAAA-MM" fourni.
+export function etatReleve(releves, frequenceMois, moisActuel) {
+  const f = Number.isInteger(frequenceMois) && frequenceMois >= 1 ? frequenceMois : 3;
+  const dates = (releves ?? []).map((r) => r?.date).filter(Boolean);
+  if (!dates.length) return { dernier: null, prochain: moisActuel, du: true, retardMois: 0 };
+  const dernier = dates.reduce((a, b) => (b > a ? b : a));
+  const prochain = ajouterMois(dernier, f);
+  const ecart = ecartMois(prochain, moisActuel);
+  return { dernier, prochain, du: ecart >= 0, retardMois: Math.max(0, ecart) };
+}
+
+// Compare les soldes actuels du profil à ceux d'un relevé en cours de saisie, et signale les écarts à vérifier.
+export function comparerReleve(avant, apres, { seuilPct = 50, seuilEuros = 1000 } = {}) {
+  const A = avant ?? {}, B = apres ?? {};
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const lignes = [];
+  let totalAvant = 0, totalApres = 0;
+  for (const id of new Set([...Object.keys(A), ...Object.keys(B)])) {
+    const a0 = Number(A[id]), b0 = Number(B[id]);
+    const av = Number.isFinite(a0) ? a0 : 0;
+    const invalide = !Number.isFinite(b0) || b0 < 0;
+    const ap = invalide ? 0 : b0;
+    if (!(av > 0.5 || ap > 0.5 || invalide)) continue;
+    const ecart = ap - av;
+    const ecartPct = av > 0.5 ? Math.round((ecart / av) * 1000) / 10 : null;
+    let aVerifier = false, motif = null;
+    if (invalide) { aVerifier = true; motif = "montant invalide"; }
+    else if (av > seuilEuros && ap <= 0.5) { aVerifier = true; motif = "compte vidé"; }
+    else if (av > 0.5 && Math.abs(ecart) >= seuilEuros && Math.abs(ecartPct) >= seuilPct) {
+      aVerifier = true; motif = `variation de ${ecart < 0 ? "\u2212" : "+"}${Math.round(Math.abs(ecartPct))} %`;
+    }
+    totalAvant += av; totalApres += ap;
+    lignes.push({ id, avant: r2(av), apres: r2(ap), ecart: r2(ecart), ecartPct, aVerifier, motif });
+  }
+  lignes.sort((x, y) => Math.abs(y.ecart) - Math.abs(x.ecart));
+  return {
+    lignes, totalAvant: r2(totalAvant), totalApres: r2(totalApres), ecartTotal: r2(totalApres - totalAvant),
+    nbChanges: lignes.filter((l) => Math.abs(l.ecart) > 0.5).length, nbAVerifier: lignes.filter((l) => l.aVerifier).length,
+  };
+}
+
 function soldeDuCompte(releve, id) {
   const pl = releve.placements ?? {}, peaPme = Number(releve.pru?.peaPme?.solde) || 0;
   if (id === "peaPme") return peaPme;

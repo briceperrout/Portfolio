@@ -3,7 +3,7 @@
 // Aucun appel réseau, aucune dépendance : les fichiers .xlsx de test sont fabriqués ici (zip minimal + CompressionStream).
 import {
   COMPTES_PRU, TAILLE_MAX_FICHIER, calculerPRU, detecterColonnes, idCompteDepuisLibelle, importerReleveTableau, lireFichierReleve,
-  lireNombre, lireReleveColle, lireTableauCsv, lireXlsx, releveDepuisImport,
+  lireNombre, lireReleveColle, lireTableauCsv, lireXlsx, releveDepuisImport, etatReleve, comparerReleve,
 } from "./moteur.js";
 
 export const resultats = { ok: 0, echecs: [] };
@@ -190,6 +190,39 @@ const parId = (res) => Object.fromEntries(res.comptes.map((c) => [c.id, c]));
 }
 egal(calculerPRU([], {}), { comptes: [], total: null }, "aucun relevé");
 egal(calculerPRU([R("2025-01", { pea: 0, livretA: 100 })], {}).comptes, [], "compte vide ignoré");
+
+// ---- Relevé attendu / en retard (etatReleve)
+egal(etatReleve([], 3, "2026-11"), { dernier: null, prochain: "2026-11", du: true, retardMois: 0 }, "etatReleve : aucun relevé");
+egal(etatReleve(undefined, 3, "2026-11").du, true, "etatReleve : undefined");
+egal(etatReleve([{ date: "2026-08" }], 3, "2026-11"), { dernier: "2026-08", prochain: "2026-11", du: true, retardMois: 0 }, "etatReleve : dû ce mois-ci");
+egal(etatReleve([{ date: "2026-06" }], 3, "2026-11"), { dernier: "2026-06", prochain: "2026-09", du: true, retardMois: 2 }, "etatReleve : en retard de 2 mois");
+egal(etatReleve([{ date: "2026-10" }], 3, "2026-11"), { dernier: "2026-10", prochain: "2027-01", du: false, retardMois: 0 }, "etatReleve : changement d'année, non dû");
+egal(etatReleve([{ date: "2026-09" }, { date: "2025-01" }], 3, "2026-11").dernier, "2026-09", "etatReleve : relevés non triés");
+egal(etatReleve([{ date: "2026-06" }], 0, "2026-11").prochain, "2026-09", "etatReleve : fréquence 0 → 3");
+egal(etatReleve([{ date: "2026-06" }], NaN, "2026-11").prochain, "2026-09", "etatReleve : fréquence NaN → 3");
+
+// ---- Comparaison d'un relevé en saisie (comparerReleve)
+{
+  const id = comparerReleve({ pea: 20000, livretA: 5000 }, { pea: 20000, livretA: 5000 });
+  egal([id.nbAVerifier, id.ecartTotal, id.nbChanges], [0, 0, 0], "comparerReleve : montants identiques");
+  const v = comparerReleve({ livretA: 10000 }, { livretA: 0 });
+  egal([v.lignes[0].aVerifier, v.lignes[0].motif], [true, "compte vidé"], "comparerReleve : compte vidé");
+  const b = comparerReleve({ pea: 20000 }, { pea: 9000 });
+  egal([b.lignes[0].aVerifier, b.lignes[0].motif, b.lignes[0].ecartPct], [true, "variation de \u221255 %", -55], "comparerReleve : baisse de 55 %");
+  const h = comparerReleve({ pea: 20000 }, { pea: 21000 });
+  egal(h.lignes[0].aVerifier, false, "comparerReleve : hausse de 5 % sans alerte");
+  const n = comparerReleve({}, { pea: 5000 });
+  egal([n.lignes[0].ecartPct, n.lignes[0].aVerifier], [null, false], "comparerReleve : nouveau compte");
+  const p = comparerReleve({ livret: 500 }, { livret: 0 });
+  egal(p.lignes[0].aVerifier, false, "comparerReleve : petit livret vidé, sous le seuil");
+  for (const x of [-5, "abc"]) {
+    const i = comparerReleve({ pea: 100 }, { pea: x });
+    egal([i.lignes[0].motif, i.lignes[0].apres, i.totalApres], ["montant invalide", 0, 0], `comparerReleve : montant invalide ${x}`);
+  }
+  const t = comparerReleve({ a: 1000, b: 5000, c: 200 }, { a: 1100, b: 4000, c: 200 });
+  egal(t.lignes.map((l) => l.id), ["b", "a", "c"], "comparerReleve : tri par écart décroissant");
+  egal([t.totalAvant, t.totalApres, t.ecartTotal, t.nbChanges], [6200, 5300, -900, 2], "comparerReleve : totaux");
+}
 
 export function terminer() {
   console.log(resultats.echecs.length ? `ÉCHECS (${resultats.echecs.length}) :\n- ${resultats.echecs.join("\n- ")}\n${resultats.ok} vérifications réussies.` : `OK : ${resultats.ok} vérifications réussies.`);

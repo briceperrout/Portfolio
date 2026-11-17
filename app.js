@@ -12,7 +12,7 @@ import { DEPARTEMENTS, chargerPrix, prixCharges, estimer, estimerLoyer, libelleC
 import { estimerPension, ageEnTexte } from "./pension.js";
 import { decomposerSalaire, foyerFiscal, impotBareme, BAREME } from "./fiscal.js";
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
-import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER } from "./moteur.js";
+import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER, etatReleve, comparerReleve } from "./moteur.js";
 import { monterAssistant } from "./assistant.js";
 import { NIVEAUX, INFOS_NIVEAUX, visible, reglagesAvancesActifs, niveauLePlusBas, nomVue, libelleOnglet, suiteVue } from "./niveaux.js";
 import { genererCode, extraireCode, formaterCode, creerLien, estCleSynchronisable, synchroniser, effacerDistant, oublierCles } from "./sync.js";
@@ -3466,6 +3466,18 @@ let brouillonReleve = null;
 let moisReleve = null; // montants en cours de saisie dans « Noter un relevé »
 let brouillonPRU = null; // capital versé (et solde du PEA-PME) lus dans un fichier importé, en attente du relevé
 let importFichier = null; // { nom, resultat } : fichier CSV / Excel lu, en attente de validation par l'utilisateur
+let minuterieApercu = null;
+
+// Montants du profil, remplacés par ceux du brouillon de relevé en cours de saisie
+function placementsBrouillon() {
+  const p = { ...clone(etat.profil.placements ?? {}), ...(brouillonReleve ?? {}) };
+  for (const k of Object.keys(p)) p[k] = Math.max(0, Number(p[k]) || 0);
+  return p;
+}
+function aBrouillon() {
+  const base = etat.profil.placements ?? {};
+  return Object.entries(brouillonReleve ?? {}).some(([k, v]) => !(Math.abs((Number(v) || 0) - (Number(base[k]) || 0)) <= 0.5));
+}
 
 function appliquerPlacements(placements) {
   etat.profil.placements = clone(placements);
@@ -3494,7 +3506,7 @@ async function actionSuivi(e) {
     brouillonPRU = { ...(brouillonPRU ?? {}), ...pru };
     if (montants.pea !== undefined && !pru.peaPme) delete brouillonPRU.peaPme; // le solde du PEA importé ne contient plus de PEA-PME
     if (Object.keys(montants).some((k) => !((Number(etat.profil.placements?.[k]) || 0) > 0))) tousLesComptes = true;
-    messageSuivi = `${Object.keys(montants).length} compte(s) rempli(s) depuis le fichier${Object.keys(pru).length ? " (capital versé inclus)" : ""}. Vérifie les montants puis note le relevé.`;
+    messageSuivi = `${Object.keys(montants).length} compte(s) rempli(s) depuis le fichier${Object.keys(pru).length ? " (capital versé inclus)" : ""}. Vérifie l'aperçu ci-dessous puis note le relevé.`;
     importFichier = null;
     rendreSuivi(); return;
   }
@@ -3503,7 +3515,7 @@ async function actionSuivi(e) {
     brouillonReleve = { ...(brouillonReleve ?? {}), ...r.montants };
     if (Object.keys(r.montants).some((k) => !((Number(etat.profil.placements?.[k]) || 0) > 0))) tousLesComptes = true;
     messageSuivi = Object.keys(r.montants).length
-      ? `${Object.keys(r.montants).length} compte(s) rempli(s) : ${Object.entries(r.montants).map(([k, v]) => `${etat.brouillon.enveloppes[k]?.libelle ?? k} ${eur(v)}`).join(", ")}.${r.ignores.length ? ` Lignes non reconnues : ${r.ignores.slice(0, 5).join(" ; ")}${r.ignores.length > 5 ? "…" : ""}.` : ""} Vérifie puis note le relevé.`
+      ? `${Object.keys(r.montants).length} compte(s) rempli(s) : ${Object.entries(r.montants).map(([k, v]) => `${etat.brouillon.enveloppes[k]?.libelle ?? k} ${eur(v)}`).join(", ")}.${r.ignores.length ? ` Lignes non reconnues : ${r.ignores.slice(0, 5).join(" ; ")}${r.ignores.length > 5 ? "…" : ""}.` : ""} Vérifie l'aperçu ci-dessous puis note le relevé.`
       : "Aucune ligne reconnue. Écris une ligne par compte : le nom du compte puis le montant (ex. « Livret A ; 12 345,67 »).";
     rendreSuivi(); return;
   }
@@ -3512,8 +3524,7 @@ async function actionSuivi(e) {
   try {
     if (t.id === "btn-releve") {
       const date = $("#suivi-mois").value || moisCourant();
-      const placements = { ...clone(etat.profil.placements ?? {}), ...(brouillonReleve ?? {}) };
-      for (const k of Object.keys(placements)) placements[k] = Math.max(0, Number(placements[k]) || 0);
+      const placements = placementsBrouillon();
       const plusRecent = !suivi.releves.some((r) => r.date > date);
       const note = ($("#releve-note")?.value ?? "").trim().slice(0, 140);
       const pru = {};
@@ -3547,7 +3558,7 @@ async function actionSuivi(e) {
   rendreSuivi();
 }
 
-$("#suivi").addEventListener("change", (e) => { if (e.target.id === "suivi-mois") moisReleve = e.target.value || null; });
+$("#suivi").addEventListener("change", (e) => { if (e.target.id === "suivi-mois") { moisReleve = e.target.value || null; planifierApercuSuivi(); } });
 
 // Import d'un fichier CSV / Excel : lu dans le navigateur (FileReader), 2 Mo maximum, jamais envoyé au serveur
 async function lireFichierDepose(fichier) {
@@ -3626,7 +3637,16 @@ $("#suivi").addEventListener("input", (e) => {
   brouillonReleve[id] = e.target.value === "" ? 0 : Number(e.target.value);
   const total = totalPlacements({ ...(etat.profil.placements ?? {}), ...brouillonReleve });
   const el = $("#releve-total"); if (el) el.textContent = eur(total);
+  planifierApercuSuivi();
 });
+
+function planifierApercuSuivi() {
+  clearTimeout(minuterieApercu);
+  minuterieApercu = setTimeout(() => {
+    const a = $("#releve-apercu"); if (a) a.innerHTML = htmlApercuReleve();
+    const m = $("#suivi-mois-prochain"); if (m) m.innerHTML = htmlMoisProchain();
+  }, 400);
+}
 
 function graphiqueSuivi(ref, releves) {
   const { W, H, g, d, h, b } = GEOM;
@@ -3685,15 +3705,54 @@ function graphiqueComptes(releves) {
   return svg + `<div class="legende-g">${familles.map((f) => `<span><span class="pastille" style="background:var(${f.couleur})"></span>${f.nom}</span>`).join("")}</div>`;
 }
 
+function resultatSuivi() {
+  let res = etat.resultat;
+  try { if (etat.futur) res = analyser(etat.brouillon, profilPourMoteur()); } catch (e) { console.error(e); }
+  return res;
+}
+
+function htmlApercuReleve() {
+  if (!aBrouillon()) return "";
+  const c = comparerReleve(etat.profil.placements ?? {}, placementsBrouillon());
+  const lib = (id) => echapper(etat.brouillon.enveloppes[id]?.libelle ?? id);
+  const signe = c.ecartTotal < 0 ? "−" : "+";
+  let h = `<p class="small" style="margin:10px 0 4px"><b>Ce relevé change ${c.nbChanges} compte(s)</b> : total ${eur(c.totalAvant)} → <b class="num">${eur(c.totalApres)}</b> (${signe}${eur(Math.abs(c.ecartTotal))}).</p>`;
+  if (c.nbAVerifier) h += `<ul class="small" style="margin:0 0 4px">${c.lignes.filter((l) => l.aVerifier).map((l) => `<li><span class="niveau alerte">À vérifier</span> ${lib(l.id)} : ${eur(l.avant)} → ${eur(l.apres)} (${echapper(l.motif)})</li>`).join("")}</ul>`;
+  return h + `<p class="note" style="margin:0">Les virements et achats d'ETF recalculés sur ces montants sont plus bas, dans « Si tu notes ce relevé ».</p>`;
+}
+
+function htmlMoisProchain() {
+  const plan = etat.brouillon;
+  const env = (id) => plan.enveloppes[id]?.libelle ?? id;
+  const releves = suiviCourant().suivi?.releves ?? [];
+  let res = null, provisoire = false;
+  // Un relevé daté avant le dernier ne met pas à jour le profil : pas d'aperçu des virements dans ce cas
+  const moisSaisi = moisReleve ?? moisCourant();
+  if (aBrouillon() && !releves.some((r) => r.date > moisSaisi)) {
+    try { res = analyser(plan, { ...profilPourMoteur(), placements: placementsBrouillon() }); provisoire = true; } catch (e) { console.error(e); return ""; }
+  } else {
+    res = resultatSuivi();
+    if (!res || !releves.length) return "";
+  }
+  const mvts = res.mouvements;
+  const libMvt = (m) => m.sens === "arbitrage" ? `${m.transfert ? "Transférer de" : "Arbitrer de"} ${env(m.enveloppe)} vers ${env(m.vers)}` : `${m.sens === "retrait" ? (m.annuel ? "Vendre une fois cette année sur" : "Retirer de") : "Verser sur"} ${env(m.enveloppe)}`;
+  const titre = provisoire ? `Si tu notes ce relevé · ${eur(res.profil.epargneMensuelle)} à répartir` : `Le mois prochain · ${eur(res.profil.epargneMensuelle)} à répartir`;
+  const note = provisoire ? "Calculé sur les montants saisis ci-dessus, relevé pas encore noté : virements du mois et achats d'ETF qui en découlent." : "D'après ton dernier relevé, voici les virements qui rapprochent chaque compte de sa cible.";
+  return `<section class="panneau"><h2>${titre}</h2>
+      <p class="note" style="margin:4px 0 8px">${note}</p>
+      <div class="table-wrap"><table><tbody>${mvts.map((m) => `<tr><td>${texteLie(libMvt(m))}${m.note ? `<div class="note">${texteLie(m.note)}</div>` : ""}</td><td class="m"><span class="${m.sens === "retrait" ? "ecart-moins" : m.sens === "versement" ? "ecart-plus" : "muted"}">${m.sens === "retrait" ? "−" : m.sens === "versement" ? "+" : "⇄ "}${eur(m.montant)}</span></td></tr>`).join("") || '<tr><td class="muted">Aucun mouvement.</td></tr>'}</tbody></table></div>
+      <p class="small" style="margin:8px 0 0"><a class="lien-fiche" href="#reequilibrage">Voir le détail et les actions dans « ${nomVue("reequilibrage", niveauCourant())} » →</a></p></section>`;
+}
+
 function rendreSuivi() {
+  clearTimeout(minuterieApercu);
   const plan = etat.brouillon;
   const { suivi, test, exemple, doc } = suiviCourant();
   const nom = exemple ? "Exemple" : doc?.nom ?? "ce profil";
   const releves = suivi?.releves ?? [];
   const ref = suivi?.reference;
   const der = releves[releves.length - 1], avant = releves[releves.length - 2];
-  let resAuj = etat.resultat;
-  try { if (etat.futur) resAuj = analyser(plan, profilPourMoteur()); } catch (e) { console.error(e); }
+  const resAuj = resultatSuivi();
   const env = (id) => plan.enveloppes[id]?.libelle ?? id;
 
   // Comptes proposés dans la saisie : ceux qui ont un montant, ou tous sur demande
@@ -3716,6 +3775,13 @@ function rendreSuivi() {
       ${exemple ? `<button type="button" class="lien" id="btn-exemple-reset">Recommencer l'exemple</button>` : ""}</p>` : ""}
   </section>
   <section class="panneau"><h2>Noter un relevé · ${echapper(nom)}</h2>
+    <p class="small" style="margin:4px 0 6px">${(() => {
+      const er = etatReleve(releves, plan.calendrier?.frequenceReleveMois ?? 3, moisCourant());
+      if (!er.dernier) return '<span class="niveau info">Premier relevé</span> Il servira de point de départ pour comparer au plan.';
+      if (er.du && er.retardMois === 0) return `<span class="niveau info">À faire</span> Relevé de ${libMois(er.prochain)} attendu ce mois-ci.`;
+      if (er.du) return `<span class="niveau alerte">En retard</span> Relevé attendu depuis ${libMois(er.prochain)} (${er.retardMois} mois de retard ; dernier relevé : ${libMois(er.dernier)}).`;
+      return `<span class="muted">Prochain relevé conseillé : ${libMois(er.prochain)}.</span>`;
+    })()}</p>
     <p class="note" style="margin:4px 0 10px">Les montants sont pré-remplis avec ceux de ton profil : corrige ceux qui ont changé, puis note le relevé.</p>
     <div class="ligne-actions" style="margin-bottom:8px"><label for="suivi-mois" class="small">Mois du relevé</label><input type="month" id="suivi-mois" value="${moisReleve ?? moisCourant()}" style="width:auto"></div>
     <div class="table-wrap"><table class="saisie-releve"><thead><tr><th>Compte</th><th class="m">${der ? `Relevé de ${libMois(der.date)}` : "Dernier relevé"}</th><th class="m">Solde aujourd'hui</th></tr></thead>
@@ -3732,6 +3798,7 @@ function rendreSuivi() {
       <textarea id="releve-colle" rows="5" style="width:100%;margin-top:6px" placeholder="Livret A ; 12 345,67&#10;LDDS ; 8 100&#10;PEA Trade Republic ; 31 250,40 €&#10;Assurance vie fonds euros ; 25 000"></textarea>
       <div class="ligne-actions" style="margin-top:6px"><button type="button" id="btn-coller">Remplir les montants</button><span class="small muted">Le nom du compte est reconnu par mots-clés (Livret A, LDDS, PEA, compte-titres, assurance vie, PER, SCPI, bitcoin…).</span></div>
     </details>
+    <div id="releve-apercu" aria-live="polite">${htmlApercuReleve()}</div>
     <div class="ligne-actions" style="margin-top:10px">
       <button type="button" class="principal" id="btn-releve">Noter ce relevé</button>
       <button type="button" class="lien" id="releve-tous">${tousLesComptes ? "Masquer les comptes vides" : "Afficher tous les comptes"}</button>
@@ -3739,14 +3806,7 @@ function rendreSuivi() {
     ${messageSuivi ? `<p class="small" style="margin:8px 0 0">${echapper(messageSuivi)}</p>` : ""}
   </section>`;
 
-  if (resAuj && releves.length) {
-    const mvts = resAuj.mouvements;
-    const libMvt = (m) => m.sens === "arbitrage" ? `${m.transfert ? "Transférer de" : "Arbitrer de"} ${env(m.enveloppe)} vers ${env(m.vers)}` : `${m.sens === "retrait" ? (m.annuel ? "Vendre une fois cette année sur" : "Retirer de") : "Verser sur"} ${env(m.enveloppe)}`;
-    html += `<section class="panneau"><h2>Le mois prochain · ${eur(resAuj.profil.epargneMensuelle)} à répartir</h2>
-      <p class="note" style="margin:4px 0 8px">D'après ton dernier relevé, voici les virements qui rapprochent chaque compte de sa cible.</p>
-      <div class="table-wrap"><table><tbody>${mvts.map((m) => `<tr><td>${texteLie(libMvt(m))}${m.note ? `<div class="note">${texteLie(m.note)}</div>` : ""}</td><td class="m"><span class="${m.sens === "retrait" ? "ecart-moins" : m.sens === "versement" ? "ecart-plus" : "muted"}">${m.sens === "retrait" ? "−" : m.sens === "versement" ? "+" : "⇄ "}${eur(m.montant)}</span></td></tr>`).join("") || '<tr><td class="muted">Aucun mouvement.</td></tr>'}</tbody></table></div>
-      <p class="small" style="margin:8px 0 0"><a class="lien-fiche" href="#reequilibrage">Voir le détail et les actions dans « ${nomVue("reequilibrage", niveauCourant())} » →</a></p></section>`;
-  }
+  html += `<div id="suivi-mois-prochain">${htmlMoisProchain()}</div>`;
 
   if (releves.length && ref) {
     const prem = releves[0];
