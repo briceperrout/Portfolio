@@ -5,9 +5,9 @@
 //  au hasard selon la volatilité de chaque classe.
 // =====================================================================
 import { fluxLocatif, projetLocatifDe, echeancier } from "./locatif.js";
-import { PRELEVEMENTS, PFU, ABATTEMENT_AV_DECES, foyerFiscal, revenuImposablePension } from "./fiscal.js";
+import { PRELEVEMENTS, PFU, foyerFiscal, revenuImposablePension } from "./fiscal.js";
 import { planifierRetraits, impotsAuDeces, STRATEGIES_DECUMULATION } from "./pension.js";
-import { droitsSurRegistre } from "./succession.js";
+import { droitsSurRegistre, reserveAVTransmissible } from "./succession.js";
 import { totalGroupe, allocationCible, actuelParClasse, repartirEnEnveloppes, capitalDe, achatResidence, analyser, chargesProprietaire, normaliserFoyer, resideEnFrance, paysDe, facteurSalaire, interessementPlace, locatifFinancable } from "./moteur.js";
 
 const somme = (o) => Object.values(o).reduce((s, x) => s + x, 0);
@@ -542,7 +542,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
         parts: ff.parts, partsBase: ff.partsBase, indexation, couple: !!profil.marie,
         revenuImposableAutre: revenuImposablePension(pensionAn, { pensionnes: profil.couple && profil.marie ? 2 : 1, indexation }),
         anneesRestantesPER: Math.max(1, 85 - age), reserveLivrets: net / 2, garderOr, prelevements: prelevementsAn(y), ordreEtape3: retraite.ordreEtape3 === "ctoDabord" ? "ctoDabord" : "peaDabord",
-        reserveTransmissionAV: ABATTEMENT_AV_DECES * Math.max(1, Math.round(Number(profil.enfants) || 0)),
+        reserveTransmissionAV: reserveAVTransmissible(profil),
       };
       const res = planifierRetraits(registre, net, ctx, strategie);
       registre = res.registre;
@@ -567,7 +567,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
         // Part du patrimoine emportée par les impôts dus au décès sur les gains latents (hors droits de succession : voir droitsSuccession*)
         const totalFin = totalRegistre(registre);
         point.tauxDeces = totalFin > 0 ? impotsAuDeces(registre, prelevementsAn(y)) / totalFin : 0;
-        // Avant-dernier exercice : le registre après retraits est l'état du dernier point ; copie gardée pour estimer les droits de succession
+        // Avant-dernier exercice : copie du registre après retraits, rattachée au dernier point (droitsPlacementsFinaux la remet à l'échelle de son `financier`)
         if (y === nb - 1) registreFinal = JSON.parse(JSON.stringify(registre));
       }
     }
@@ -689,7 +689,11 @@ function droitsPlacementsFinaux(profil, f, defl) {
   if (!f.registreFinal) return f.financier <= 1 ? 0 : null; // patrimoine épuisé : rien à transmettre
   try {
     const an = new Date().getFullYear() + (f.annees ?? 0);
-    return droitsSurRegistre(profil, f.registreFinal, { annee: an, ageDefunt: (profil.agePrincipal ?? profil.age) + (f.annees ?? 0), echelle: 1 / defl(f) }).droitsPlacements;
+    // Le registre copié date de l'exercice précédent (état après retraits, avant la dernière revalorisation) : on le met à l'échelle
+    // du dernier point (f.financier), puis en euros constants. totalRegistre compte les mêmes poches que `financier` (écart < 1 €).
+    const total = totalRegistre(f.registreFinal);
+    const echelle = (total > 0 ? f.financier / total : 1) / defl(f);
+    return droitsSurRegistre(profil, f.registreFinal, { annee: an, ageDefunt: (profil.agePrincipal ?? profil.age) + (f.annees ?? 0), echelle }).droitsPlacements;
   } catch (e) { return null; }
 }
 

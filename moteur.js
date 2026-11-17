@@ -52,7 +52,7 @@ export function facteurSalaire(plan, profil, y) {
 export function normaliserFoyer(plan, p) {
   if (p._foyer) return p;
   // Concubinage, calcul « pour toi seul » : ton salaire, ton épargne, tes placements (impôts séparés de toute façon)
-  if (p.foyer?.actif && p.foyer.statut === "concubin" && p.foyer.vue === "moi") return normaliserFoyer(plan, { ...p, foyer: { ...p.foyer, actif: false } });
+  if (p.foyer?.actif && p.foyer.statut === "concubin" && p.foyer.vue === "moi") return { ...normaliserFoyer(plan, { ...p, foyer: { ...p.foyer, actif: false } }), foyerSuccession: p.foyer }; // foyerSuccession : situation réelle, lue par succession.js
   const c = p.foyer?.actif ? p.conjoint ?? {} : null;
   if (!c) return { ...p, _foyer: true, personnes: 1, couple: false, agePrincipal: p.age, ageEmprunteur: p.age, peaPrincipal: p.pea, hausseSalaire10: hausseSur10Ans(plan, p, null), jeune: (p.age ?? 99) <= 25 };
   const age1 = p.age ?? 0, age2 = c.age > 0 ? c.age : age1;

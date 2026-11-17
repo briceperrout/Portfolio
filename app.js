@@ -10,7 +10,7 @@ import { FICHES as CONTENU_FICHES, VERIFIE_LE, PARCOURS_DEBUTANT } from "./fiche
 import { LEXIQUE, lierTermes } from "./lexique.js";
 import { DEPARTEMENTS, chargerPrix, prixCharges, estimer, estimerLoyer, libelleCommune, chercherCommunes, codeCommune } from "./immobilier.js";
 import { estimerPension, ageEnTexte } from "./pension.js";
-import { entreeDepuisProfil, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, optionsPossibles } from "./succession.js";
+import { entreeDepuisProfil, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, optionsPossibles, reserveAVTransmissible } from "./succession.js";
 import { decomposerSalaire, foyerFiscal, impotBareme, BAREME } from "./fiscal.js";
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
 import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER, etatReleve, comparerReleve } from "./moteur.js";
@@ -1670,7 +1670,7 @@ ${economieRetraitsHtml(D)}
         <li>${texteLie("PEA de plus de 5 ans : retraits sans impôt sur le revenu, seulement 18,6 % de prélèvements sociaux sur la part de gains. Il est consommé avant le compte-titres, imposé à 31,4 % sur la part de gains de chaque vente.")}</li>
         <li>${texteLie("PER : la sortie en capital est lissée sur les années restantes, en restant dans ta tranche d'imposition (les versements déduits sont imposés au barème, les gains à 31,4 %), pour éviter une grosse facture d'un seul coup.")}</li>
         <li>${texteLie("Pour transmettre, l'assurance-vie est l'outil le plus avantageux : les sommes versées avant 70 ans sont transmises jusqu'à 152 500 € par bénéficiaire sans droits de succession ; après 70 ans, 30 500 € de versements au total (les gains sont exonérés). Le PEA, lui, est fermé au décès et entre dans la succession.")}</li>
-        <li>${texteLie("L'assurance-vie des versements faits avant 70 ans est gardée pour la fin : elle se transmet jusqu'à 152 500 € par bénéficiaire sans droits de succession (choix « Consommer » pour l'utiliser plus tôt). À faire valider par un conseiller ou un notaire selon ta situation.")}</li>
+        <li>${reserveAVTransmissible(etat.profil) > 0 ? texteLie(`L'assurance-vie des versements faits avant 70 ans est gardée pour la fin : elle se transmet jusqu'à 152 500 € par bénéficiaire sans droits de succession, soit ${eur(reserveAVTransmissible(etat.profil))} mis de côté pour ta situation (choix « Consommer » pour l'utiliser plus tôt). À faire valider par un conseiller ou un notaire selon ta situation.`) : `L'assurance-vie n'est pas mise de côté pour la transmission : ton conjoint ou partenaire est bénéficiaire de la clause et déjà exonéré de droits. Pour profiter de l'abattement de 152 500 € par bénéficiaire, désigne tes enfants dans la clause (réglage dans l'onglet <a class="lien-fiche" href="#transmission">Transmission</a>), puis l'assurance-vie sera gardée pour la fin.`}</li>
         <li>Droits de succession, abattements, donations : <a class="lien-fiche" href="#fiche-heritage">tout sur l'héritage</a>. Pour aller plus loin : <a class="lien-fiche" href="#fiche-optimisation-fiscale">optimisation fiscale</a>.</li>
       </ul>
       ${blocDroitsSuccession(D, priorite)}
@@ -4686,7 +4686,7 @@ function rendreTransmission() {
   montre("#tm-ch-testament", sit === "pacs" || sit === "concubin"); montre("#tm-ch-mineur", sit === "seul" || sit === "concubin");
   montre("#tm-ch-clause", sit !== "seul");
   montre("#tm-ch-option", sit === "mariage" && avecEnfants && entree.regime !== "communaute_universelle"); montre("#tm-ch-ddv", sit === "mariage" && avecEnfants);
-  montre("#tm-ch-noncommuns", sit === "mariage" && avecEnfants); montre("#tm-ch-propres", sit === "mariage" && entree.regime !== "separation");
+  montre("#tm-ch-noncommuns", sit === "mariage" && avecEnfants); montre("#tm-ch-propres", sit !== "seul" && entree.regime !== "communaute_universelle");
   $("#tm-noncommuns").max = String(entree.enfants);
   // Options du conjoint impossibles dans cette situation : grisées (« auto » reste toujours disponible) ; si la valeur enregistrée
   // est devenue impossible, simulerSuccession se replie sur le quart en pleine propriété et l'indique dans les hypothèses
@@ -4729,13 +4729,18 @@ function rendreTransmission() {
   else if (!(Number(D.valeur) > 0)) bloc.innerHTML = `<p class="muted" style="margin:0">Saisis la valeur du bien à donner pour voir l'économie de droits.</p>`;
   else {
     let d = null;
-    try { d = simulerDonationNP({ valeur: Number(D.valeur), ageDonateur: entree.ageDefunt, enfants: entree.enfants, donations: entree.donations, annee, croissance: (Number(D.croissance) || 0) / 100, anneesAvantDeces: Number(D.annees) || 0 }); }
+    // Reste de la succession : part moyenne reçue par chaque enfant dans la simulation ci-dessus (elle s'ajoute au bien au décès)
+    const recus = r.heritiers.filter((h) => h.lien === "enfant").map((h) => h.recuSuccession);
+    const autres = recus.length ? recus.reduce((t, x) => t + x, 0) / recus.length : 0;
+    try { d = simulerDonationNP({ valeur: Number(D.valeur), ageDonateur: entree.ageDefunt, enfants: entree.enfants, donations: entree.donations, annee, croissance: (Number(D.croissance) || 0) / 100, anneesAvantDeces: Number(D.annees) || 0, autresBiensParEnfant: autres }); }
     catch (e) { console.error(e); }
     bloc.innerHTML = d ? `<p style="margin:0">À ${entree.ageDefunt} ans, la nue-propriété vaut <b>${pct(d.nuePropriete)}</b> du bien, soit <b>${eur(d.valeurNP)}</b> à partager entre ${entree.enfants} enfant${entree.enfants > 1 ? "s" : ""}.</p>
       <div class="table-wrap"><table><tbody>
         <tr><td>Droits si tu donnes aujourd'hui</td><td class="m">${eur(d.droitsDonation)}</td></tr>
-        <tr><td>Droits si le bien est transmis au décès, dans ${Number(D.annees) || 0} ans</td><td class="m">${eur(d.droitsSansDonation)}</td></tr>
+        ${d.droitsDecesAvecDonation > 0 || autres > 0 ? `<tr><td>Droits au décès sur le reste de la succession (donation rappelée si moins de 15 ans)</td><td class="m">${eur(d.droitsDecesAvecDonation)}</td></tr>` : ""}
+        <tr><td>Droits si rien n'est donné : bien et reste de la succession transmis au décès, dans ${Number(D.annees) || 0} ans</td><td class="m">${eur(d.droitsSansDonation)}</td></tr>
         <tr class="tm-ligne-total"><td>Économie de droits</td><td class="m">${eur(d.economie)}</td></tr></tbody></table></div>
+      <p class="small muted" style="margin:8px 0 4px">Le reste de ta succession (${eur(autres)} par enfant dans la simulation ci-dessus) est pris en compte : une donation de moins de 15 ans est rappelée au décès et consomme l'abattement de 100 000 €. Si le bien donné figure déjà dans tes placements ou ton logement, il est compté deux fois dans ce reste.</p>
       <p class="small muted" style="margin:8px 0 4px">Renouvellements de l'abattement de 100 000 € par enfant (tous les 15 ans) :</p>
       <ul class="points">${d.calendrier.map((l) => `<li>${l.annee}, à ${l.age} ans : ${eur(l.abattementParEnfant)} par enfant, nue-propriété à ${pct(l.nuePropriete)}</li>`).join("")}</ul>` : "";
   }

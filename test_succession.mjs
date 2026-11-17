@@ -1,5 +1,7 @@
 // Tests du simulateur successoral — node test_succession.mjs
-import { droitsBareme, valeurUsufruit, rappelFiscal, droitsEnfant, droitsConcubin, droitsAV990I, reserveHereditaire, masseSuccessorale, optionsPossibles, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, calendrierAbattements, entreeDepuisProfil, droitsSurRegistre } from "./succession.js";
+import { droitsBareme, valeurUsufruit, rappelFiscal, droitsEnfant, droitsConcubin, droitsAV990I, reserveHereditaire, masseSuccessorale, optionsPossibles, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, calendrierAbattements, entreeDepuisProfil, droitsSurRegistre, reserveAVTransmissible } from "./succession.js";
+import { PLAN } from "./plan.js";
+import { normaliserFoyer } from "./moteur.js";
 import { ABATTEMENT_AV_DECES, AV_DECES } from "./fiscal.js";
 
 let ok = 0, ko = 0;
@@ -111,16 +113,17 @@ verifier("adaptateur marié : RP part 50 %", eM.actifs.find((a) => a.rp).valeur,
 verifier("adaptateur marié : RP commune", eM.actifs.find((a) => a.rp).nature, "commun");
 const propre = eM.actifs.find((a) => a.nature === "propre");
 verifier("adaptateur marié : biens propres transférés", propre.valeur, 60000);
-verifier("adaptateur marié : total conservé", eM.actifs.reduce((s, a) => s + a.valeur, 0), 200000 + 30000 + 70000 + 20000);
-verifier("adaptateur marié : PEA du conjoint en commun", eM.actifs.some((a) => a.libelle === "PEA du conjoint" && a.nature === "commun"), true);
+verifier("adaptateur marié : total conservé (PEA du conjoint non ajouté)", eM.actifs.reduce((s, a) => s + a.valeur, 0), 200000 + 30000 + 70000);
+verifier("adaptateur marié : pas de ligne « PEA du conjoint » (déjà dans les placements du foyer)", eM.actifs.some((a) => a.libelle === "PEA du conjoint"), false);
 verifier("adaptateur marié : dette selon quotité assurée", eM.dettes[0].montant, 50000);
 verifier("adaptateur marié : donation rappelée", eM.donations, [{ annee: 2018, montant: 30000 }]);
 verifier("adaptateur marié : PER", eM.per.valeur, 10000);
 verifier("adaptateur marié : simulation sans erreur", simulerSuccession(eM).heritiers.length, 3);
 verifier("adaptateur marié : pas de mutation", JSON.stringify(profilMarie), copieMarie);
 const eSep = entreeDepuisProfil({ ...profilMarie, succession: { ...profilMarie.succession, regime: "separation" } }, 2026);
-verifier("adaptateur séparation : actifs propres", eSep.actifs.every((a) => a.nature === "propre"), true);
-verifier("adaptateur séparation : PEA du conjoint hors actifs", eSep.patrimoineConjoint.propre, 20000);
+verifier("adaptateur séparation : placements du foyer en commun, logement propre", eSep.actifs.filter((a) => a.libelle !== "Logement" && a.libelle !== "Biens propres déclarés").every((a) => a.nature === "commun") && eSep.actifs.find((a) => a.libelle === "Logement").nature === "propre", true);
+verifier("adaptateur séparation : biens propres transférés aussi", eSep.actifs.find((a) => a.libelle === "Biens propres déclarés")?.valeur, 60000);
+verifier("adaptateur séparation : patrimoine propre du conjoint nul", eSep.patrimoineConjoint.propre, 0);
 verifier("adaptateur PACS", entreeDepuisProfil({ ...profilMarie, succession: { union: "pacs" } }, 2026).situation, "pacs");
 verifier("adaptateur concubin", entreeDepuisProfil({ ...profilMarie, foyer: { actif: true, statut: "concubin" } }, 2026).situation, "concubin");
 
@@ -139,6 +142,42 @@ verifier("registre : pas de mutation", JSON.stringify({ profilReg, regFinal }), 
 verifier("registre : seul sans enfant, 0 droit", droitsSurRegistre({ age: 60, enfants: 0, foyer: { actif: false } }, regFinal, { annee: 2056, ageDefunt: 90 }).totalDroits, 0);
 verifier("registre : échelle réduit les droits", droitsSurRegistre(profilReg, regFinal, { annee: 2056, ageDefunt: 90, echelle: 0.5 }).totalDroits <= dR.totalDroits, true);
 verifier("registre : registre vide", droitsSurRegistre(profilReg, {}, { annee: 2056, ageDefunt: 90 }).totalDroits, 0);
+
+// 19. Correctifs de revue
+// E3 : donation de nue-propriété et reste de la succession (1 enfant, 62 ans, 300 000 €, N = 5, croissance 0, 400 000 € d'autres biens)
+//  sans donation : base 700 000 − 100 000 = 600 000 → 1 380,75 + (552 324 − 15 932) × 20 % + (600 000 − 552 324) × 30 % = 122 961,95
+//  donation : 180 000 de nue-propriété − 100 000 = 80 000 → 14 194,35 ; au décès, donation rappelée (5 ans < 15) : abattement 0, déjà taxé 80 000
+//  droitsBareme(400 000, 80 000) = impôt(480 000) − impôt(80 000) = (1 380,75 + 92 813,60) − 14 194,35 = 80 000
+//  économie = 122 961,95 − 14 194,35 − 80 000 = 28 767,60
+const dR2 = simulerDonationNP({ valeur: 300000, ageDonateur: 62, enfants: 1, annee: 2026, anneesAvantDeces: 5, croissance: 0, autresBiensParEnfant: 400000 });
+verifier("donation + reste : sans donation", dR2.droitsSansDonation, 122961.95);
+verifier("donation + reste : droits à la donation", dR2.droitsDonation, 14194.35);
+verifier("donation + reste : droits au décès avec donation", dR2.droitsDecesAvecDonation, 80000);
+verifier("donation + reste : économie", dR2.economie, 28767.6);
+const dR3 = simulerDonationNP({ valeur: 300000, ageDonateur: 62, enfants: 1, annee: 2026 });
+verifier("donation seule inchangée", [dR3.droitsDonation, dR3.droitsSansDonation, dR3.economie, dR3.droitsDecesAvecDonation], [14194.35, 38194.35, 24000, 0]);
+// E7 : donation datée dans le futur non rappelée
+verifier("rappel : donation future ignorée", rappelFiscal([{ annee: 2027, montant: 60000 }], 2026).abattement, 100000);
+// E4 : concubin en vue « moi » (normaliserFoyer le ramène à « seul » pour le budget, mais la situation réelle est conservée)
+const profilMoi = { age: 50, enfants: 1, proprietaire: false, placements: { pea: 100000, assuranceVie: 40000 }, foyer: { actif: true, statut: "concubin", vue: "moi" }, conjoint: { age: 48, pea: { ouvert: true, versements: 15000 } }, succession: { testament: true, clauseAV: "conjoint_puis_enfants" } };
+const moiNorm = normaliserFoyer(PLAN, profilMoi);
+verifier("concubin vue moi : brut", entreeDepuisProfil(profilMoi, 2026).situation, "concubin");
+verifier("concubin vue moi : normalisé", entreeDepuisProfil(moiNorm, 2026).situation, "concubin");
+verifier("concubin vue moi : placements propres", entreeDepuisProfil(profilMoi, 2026).actifs.every((a) => a.nature === "propre"), true);
+verifier("concubin vue foyer : placements communs", entreeDepuisProfil({ ...profilMoi, foyer: { actif: true, statut: "concubin", vue: "foyer" } }, 2026).actifs.every((a) => a.nature === "commun"), true);
+verifier("concubin vue moi : droitsSurRegistre = même situation", droitsSurRegistre(moiNorm, regFinal, { annee: 2056, ageDefunt: 80 }).totalDroits, simulerSuccession({ ...entreeDepuisProfil({ ...profilMoi, age: 80, placements: { livretBancaire: 20000, pea: 100000, cto: 50000, scpi: 30000, assuranceVie: 150000 - 8600 }, conjoint: { age: 78 } }, 2056) }).totalDroits - simulerSuccession(entreeDepuisProfil({ ...profilMoi, age: 80, placements: {}, conjoint: { age: 78 } }, 2056)).totalDroits, 0.01);
+// E6 : âge du conjoint absent, décalage de 30 ans compté une seule fois (usufruit à 85 ans = 30 %, et non à 115 ans)
+const mariePArg = { age: 55, enfants: 2, proprietaire: false, foyer: { actif: true, statut: "marie" }, conjoint: { pea: { ouvert: false } }, placements: {}, succession: { optionConjoint: "usufruit", clauseAV: "enfants" } };
+const regSimple = { livrets: { valeur: 600000 } };
+const attendu6 = simulerSuccession({ annee: 2056, ageDefunt: 85, situation: "mariage", ageConjoint: 85, enfants: 2, optionConjoint: "usufruit", clauseAV: "enfants", actifs: [{ valeur: 600000, nature: "commun" }] }).totalDroits;
+verifier("âge conjoint absent : ageInitial + décalage", droitsSurRegistre(mariePArg, regSimple, { annee: 2056, ageDefunt: 85 }).totalDroits, attendu6);
+// E8 : réserve d'AV transmissible
+const resA = (situationFoyer, clause, enfants = 2) => reserveAVTransmissible({ enfants, foyer: situationFoyer, succession: { clauseAV: clause } });
+verifier("réserve AV : marié, clause conjoint", resA({ actif: true, statut: "marie" }, "conjoint_puis_enfants"), 0);
+verifier("réserve AV : marié, clause enfants", resA({ actif: true, statut: "marie" }, "enfants"), 305000);
+verifier("réserve AV : concubin, clause conjoint", resA({ actif: true, statut: "concubin" }, "conjoint_puis_enfants"), 152500);
+verifier("réserve AV : seul, 2 enfants", resA({ actif: false }, "conjoint_puis_enfants"), 305000);
+verifier("réserve AV : seul sans enfant", resA({ actif: false }, "enfants", 0), 152500);
 
 console.log(`${ok} vérifications réussies, ${ko} échec(s)`);
 process.exit(ko ? 1 : 0);

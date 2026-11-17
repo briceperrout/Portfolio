@@ -61,7 +61,7 @@ export function valeurUsufruit(age) {
 // Donations reçues par UN enfant de CE parent et encore rappelées (moins de 15 ans).
 export function rappelFiscal(donations = [], annee = ANNEE_REF) {
   const rappele = (donations || [])
-    .filter((d) => annee - Number(d.annee) < DMTG.RAPPEL_FISCAL_ANS)
+    .filter((d) => Number(d.annee) <= annee && annee - Number(d.annee) < DMTG.RAPPEL_FISCAL_ANS) // une donation datée dans le futur n'est pas rappelée
     .reduce((s, d) => s + (Number(d.montant) || 0), 0);
   return {
     rappele,
@@ -389,21 +389,28 @@ export function calendrierAbattements(age, annee, ageMax = 90) {
   return lignes;
 }
 
-export function simulerDonationNP({ valeur, ageDonateur, enfants, donations = [], annee, croissance = 0, anneesAvantDeces = 0 } = {}) {
+// `autresBiensParEnfant` : part de chaque enfant dans le reste de la succession au décès. La donation (valeur de la nue-propriété)
+// est rappelée au décès si elle date de moins de 15 ans : elle consomme alors l'abattement et les tranches basses du barème.
+export function simulerDonationNP({ valeur, ageDonateur, enfants, donations = [], annee, croissance = 0, anneesAvantDeces = 0, autresBiensParEnfant = 0 } = {}) {
   const n = Math.max(1, Math.floor(Number(enfants) || 1));
   const v = Math.max(0, Number(valeur) || 0);
   const an = annee ?? ANNEE_REF;
+  const N = Number(anneesAvantDeces) || 0;
+  const autres = Math.max(0, Number(autresBiensParEnfant) || 0);
   const np = valeurUsufruit(ageDonateur).nuePropriete;
   const partNP = v * np / 100 / n;
   const droitsDonation = cts(n * droitsEnfant(partNP, { donations, annee: an }).droits);
-  const valeurDeces = v * Math.pow(1 + (Number(croissance) || 0), Number(anneesAvantDeces) || 0);
-  const droitsSansDonation = cts(n * droitsEnfant(valeurDeces / n, { donations, annee: an + (Number(anneesAvantDeces) || 0) }).droits);
+  const valeurDeces = v * Math.pow(1 + (Number(croissance) || 0), N);
+  const droitsSansDonation = cts(n * droitsEnfant(valeurDeces / n + autres, { donations, annee: an + N }).droits);
+  const donationsRappelees = [...donations, { annee: an, montant: partNP }];
+  const droitsDecesAvecDonation = cts(n * droitsEnfant(autres, { donations: donationsRappelees, annee: an + N }).droits);
   return {
     nuePropriete: np,
     valeurNP: cts(partNP * n),
     droitsDonation,
+    droitsDecesAvecDonation,
     droitsSansDonation,
-    economie: cts(droitsSansDonation - droitsDonation),
+    economie: cts(droitsSansDonation - droitsDonation - droitsDecesAvecDonation),
     calendrier: calendrierAbattements(ageDonateur, an),
   };
 }
@@ -416,59 +423,60 @@ const LIBELLES_PLACEMENTS = Object.freeze({
 });
 const COMPTES_HORS_ACTIFS = Object.freeze(["assuranceVie", "assuranceVieUC", "per"]);
 
+// Situation familiale réelle du profil. Un concubin en vue « moi » est ramené à « seul » par normaliserFoyer (moteur.js) pour les
+// calculs de budget : le foyer d'origine est alors conservé dans `foyerSuccession`, et c'est lui qui fait foi ici.
+function situationDeProfil(p) {
+  const foyer = p.foyerSuccession ?? p.foyer ?? {};
+  const actif = !!foyer.actif;
+  const concubin = foyer.statut === "concubin";
+  const situation = !actif ? "seul" : concubin ? "concubin" : p.succession?.union === "pacs" ? "pacs" : "mariage";
+  return { situation, actif, vueMoi: actif && concubin && foyer.vue === "moi" };
+}
+
 // Sémantique retenue (profil de l'application) :
-//  - foyer : « seul » si foyer.actif est faux, « concubin » si foyer.statut vaut "concubin", sinon marié (même règle que situationDe d'app.js) ;
+//  - foyer : « seul » si foyer.actif est faux, « concubin » si foyer.statut vaut "concubin", sinon marié ou pacsé (succession.union) ;
 //  - logement.valeur = valeur du logement ENTIER, logement.part = % détenu par l'utilisateur : on retient valeur × part ;
 //    logement.creditRestant = capital restant dû pour sa part (déjà proportionné, pas de nouvelle quote-part) ;
-//  - placements.* : tout ce que le profil déclare (épargne du couple quand il est marié) = actifs du défunt ;
-//    assuranceVieUC est ajoutée à l'assurance-vie (même contrat, même régime fiscal au décès) ;
-//  - conjoint.pea.versements : seule valeur connue des actifs propres du conjoint (proxy des sommes placées) ;
-//  - mariage hors séparation de biens : tout est « commun » (RP, placements, PEA du conjoint), sauf succession.biensPropres
-//    (héritages, donations reçues) transférés vers une ligne « propre » ; sinon les biens de l'utilisateur sont « propre »
-//    (sa quote-part, ou son compte) et ceux du conjoint vont dans patrimoineConjoint.propre.
+//  - placements.* : en couple (foyer actif), ce sont les placements du FOYER : chaque ligne est « commun » (le moteur en attribue 50 %
+//    au défunt et laisse l'autre moitié, `partCommuneConjoint`, au 2e décès). C'est la communauté en mariage ; en séparation de biens,
+//    PACS ou concubinage, une indivision ou une épargne à parts égales (hypothèse). Seul, ou concubin en vue « moi » (placements de
+//    l'utilisateur uniquement) : « propre ». Le PEA du conjoint n'est PAS ajouté : normaliserFoyer l'additionne déjà aux placements ;
+//  - assuranceVieUC est ajoutée à l'assurance-vie (même contrat, même régime fiscal au décès) ;
+//  - logement : « commun » seulement en mariage hors séparation de biens, sinon quote-part « propre » de l'utilisateur ;
+//  - succession.biensPropres (héritages, donations reçues) : transférés des lignes communes non-RP vers une ligne « propre », pour tout couple.
 export function entreeDepuisProfil(profil, annee = 2026) {
   const p = profil ?? {}, s = p.succession ?? {};
   const euros = (x) => Math.max(0, Number(x) || 0);
-  const foyerActif = !!p.foyer?.actif;
-  const unionPacs = s.union === "pacs";
-  const situation = !foyerActif ? "seul" : p.foyer?.statut === "concubin" ? "concubin" : unionPacs ? "pacs" : "mariage";
+  const { situation, actif: foyerActif, vueMoi } = situationDeProfil(p);
   const regime = situation === "mariage" && ["separation", "communaute_universelle"].includes(s.regime) ? s.regime : "communaute_legale";
-  const commun = situation === "mariage" && regime !== "separation";
-  const natureBiens = commun ? "commun" : "propre";
+  const natureLogement = situation === "mariage" && regime !== "separation" ? "commun" : "propre";
+  const naturePlacements = foyerActif && !vueMoi ? "commun" : "propre";
 
   const actifs = [];
   const logement = p.logement ?? {};
   if (p.proprietaire) {
     const part = Number(logement.part) > 0 ? Math.min(100, Number(logement.part)) : 100;
     const valeur = euros(logement.valeur) * part / 100;
-    if (valeur > 0) actifs.push({ libelle: "Logement", valeur, nature: natureBiens, rp: (logement.usage ?? "rp") === "rp" });
+    if (valeur > 0) actifs.push({ libelle: "Logement", valeur, nature: natureLogement, rp: (logement.usage ?? "rp") === "rp" });
   }
   for (const [cle, v] of Object.entries(p.placements ?? {})) {
     if (COMPTES_HORS_ACTIFS.includes(cle) || euros(v) <= 0) continue;
-    actifs.push({ libelle: LIBELLES_PLACEMENTS[cle] ?? cle, valeur: euros(v), nature: natureBiens, rp: false });
-  }
-  const peaConjoint = foyerActif && p.conjoint?.pea?.ouvert ? euros(p.conjoint.pea.versements) : 0;
-  let propreConjoint = 0;
-  if (peaConjoint > 0) {
-    if (commun) actifs.push({ libelle: "PEA du conjoint", valeur: peaConjoint, nature: "commun", rp: false });
-    else propreConjoint = peaConjoint;
+    actifs.push({ libelle: LIBELLES_PLACEMENTS[cle] ?? cle, valeur: euros(v), nature: naturePlacements, rp: false });
   }
   // Biens propres déclarés : prélevés sur les lignes communes non-RP, dans l'ordre, dans la limite du disponible
-  if (commun) {
-    let reste = euros(s.biensPropres), transfere = 0;
-    for (const a of actifs) {
-      if (reste <= 0) break;
-      if (a.nature !== "commun" || a.rp) continue;
-      const pris = Math.min(a.valeur, reste);
-      a.valeur -= pris; reste -= pris; transfere += pris;
-    }
-    if (transfere > 0) actifs.push({ libelle: "Biens propres déclarés", valeur: transfere, nature: "propre", rp: false });
+  let reste = euros(s.biensPropres), transfere = 0;
+  for (const a of actifs) {
+    if (reste <= 0) break;
+    if (a.nature !== "commun" || a.rp) continue;
+    const pris = Math.min(a.valeur, reste);
+    a.valeur -= pris; reste -= pris; transfere += pris;
   }
+  if (transfere > 0) actifs.push({ libelle: "Biens propres déclarés", valeur: transfere, nature: "propre", rp: false });
 
   const dettes = [];
   const credit = p.proprietaire ? euros(logement.creditRestant) : 0;
   const quotite = Math.min(100, Math.max(0, s.quotiteAssuranceEmprunteur == null ? 100 : Number(s.quotiteAssuranceEmprunteur) || 0));
-  if (credit > 0) dettes.push({ libelle: "Crédit immobilier restant dû", montant: credit * (1 - quotite / 100), nature: natureBiens });
+  if (credit > 0) dettes.push({ libelle: "Crédit immobilier restant dû", montant: credit * (1 - quotite / 100), nature: natureLogement });
 
   const valeurAV = euros(p.placements?.assuranceVie) + euros(p.placements?.assuranceVieUC);
   const apres70 = euros(p.assuranceVie?.versementsApres70);
@@ -493,8 +501,19 @@ export function entreeDepuisProfil(profil, annee = 2026) {
     per: { valeur: euros(p.placements?.per) },
     clauseAV: s.clauseAV === "enfants" ? "enfants" : "conjoint_puis_enfants",
     donations,
-    patrimoineConjoint: { propre: propreConjoint },
+    patrimoineConjoint: { propre: 0 },
   };
+}
+
+// Assurance-vie d'avant 70 ans à garder pour l'abattement de 152 500 € par bénéficiaire (art. 990 I) : utile pour les enfants et un
+// concubin, inutile quand le conjoint ou le partenaire de PACS est bénéficiaire (exonéré dans tous les cas).
+export function reserveAVTransmissible(profil) {
+  const p = profil ?? {};
+  const { situation } = situationDeProfil(p);
+  const clause = p.succession?.clauseAV === "enfants" ? "enfants" : "conjoint_puis_enfants";
+  if (clause === "conjoint_puis_enfants" && (situation === "mariage" || situation === "pacs")) return 0;
+  if (clause === "conjoint_puis_enfants" && situation === "concubin") return AV_DECES.ABATTEMENT_990I;
+  return AV_DECES.ABATTEMENT_990I * Math.max(1, Math.round(Number(p.enfants) || 0));
 }
 
 // ==== Droits de succession sur le registre final d'une décumulation ===
@@ -514,7 +533,8 @@ export function droitsSurRegistre(profil, registre, { annee = 2026, ageDefunt, e
   const nb = (x) => Math.max(0, Number(x) || 0);
   const k = Number(echelle) > 0 ? Number(echelle) : 1;
   const ageFinal = Number(ageDefunt) > 0 ? Number(ageDefunt) : Number(p.agePrincipal ?? p.age) || 0;
-  const decalage = ageFinal - (Number(p.agePrincipal ?? p.age) || 0);
+  const ageInitial = Number(p.agePrincipal ?? p.age) || 0;
+  const decalage = ageFinal - ageInitial;
   const psPEA = nb(prelevements?.PS_CAPITAL) / 100, psAV = nb(prelevements?.PS_PATRIMOINE) / 100;
   const netAV = (c = {}) => nb(c.valeur) - Math.max(0, nb(c.valeur) - nb(c.primes)) * psAV;
   const placements = {};
@@ -529,7 +549,7 @@ export function droitsSurRegistre(profil, registre, { annee = 2026, ageDefunt, e
   const profilFinal = (pl, apres70) => ({
     ...p,
     age: ageFinal,
-    conjoint: p.conjoint ? { ...p.conjoint, age: (Number(p.conjoint.age) || ageFinal) + decalage } : p.conjoint,
+    conjoint: p.conjoint ? { ...p.conjoint, age: (Number(p.conjoint.age) || ageInitial) + decalage } : p.conjoint,
     placements: pl,
     assuranceVie: { ...(p.assuranceVie ?? {}), versementsApres70: apres70 },
     logement: { ...(p.logement ?? {}), creditRestant: 0 },

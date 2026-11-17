@@ -516,6 +516,12 @@ egal(libelleModele(undefined), "", "libellé absent");
     verifier(sans.ordreEtape3 === "peaDabord" && Math.abs(sans.gainOrdreReel - 83486) < 100, `ordre sans héritier : comportement historique conservé (${sans.ordreEtape3}, gain ${Math.round(sans.gainOrdreReel)})`);
     verifier(avec.ordreEtape3 === "peaDabord" && avec.gainOrdreReel >= -1 && avec.gainOrdreReel < sans.gainOrdreReel - 1000, `ordre avec enfants : écart mesuré après droits de succession (${Math.round(avec.gainOrdreReel)} < ${Math.round(sans.gainOrdreReel)})`);
   }
+  // Registre final : même périmètre que `financier` (écart d'un an de revalorisation au plus), remis à l'échelle par droitsPlacementsFinaux
+  {
+    const c = projeterCentral(PLAN, profils.find((x) => x.age === 45)), f = c.central[c.dernier], r = f.registreFinal;
+    const somme = r ? r.livrets.valeur + r.av.apres70.valeur + r.av.avant70.valeur + r.pea.valeur + r.cto.valeur + r.per.valeur + r.autres.reduce((s, a) => s + a.valeur, 0) : 0;
+    verifier(!!r && f.financier > 0 && Math.abs(somme - f.financier) / f.financier < 0.25, `registre final : même périmètre que le patrimoine du dernier point (${Math.round(somme)} / ${Math.round(f.financier)})`);
+  }
   for (const p of profils) {
     const nom = `décumulation ${p.age} ans`;
     const c = projeterCentral(PLAN, p), complet = projeter(PLAN, p, { legere: true });
