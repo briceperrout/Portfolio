@@ -80,6 +80,95 @@ export function capitalDe(profil) {
   return profil.placements ? somme(profil.placements) : profil.capital ?? 0;
 }
 
+// ------------------------------------------------------------- placements regroupés (niveau Débutant)
+// Le débutant saisit 4 montants ; le détail compte par compte en découle. « autres » est trop hétérogène : lecture seule.
+export const GROUPES_PLACEMENTS = {
+  livrets: ["livretA", "ldds", "lep", "livretJeune", "livretBancaire"],
+  assuranceVie: ["assuranceVie", "assuranceVieUC"],
+  bourse: ["pea", "cto"],
+  autres: ["per", "scpi", "orPhysique", "plateformeCrypto", "coldWallet", "epargneSalariale", "pel"],
+};
+const GROUPES_MODIFIABLES = ["livrets", "assuranceVie", "bourse"];
+const TOLERANCE_GROUPE = 1; // € : écart d'arrondi toléré entre le détail saisi et la répartition automatique
+
+/** Somme des comptes d'un groupe (0 si le groupe est inconnu). */
+export function totalGroupe(placements, groupe) {
+  return (GROUPES_PLACEMENTS[groupe] ?? []).reduce((s, id) => s + (Number(placements?.[id]) || 0), 0);
+}
+
+// Couple (calcul à deux) : les plafonds « par personne » sont doublés, comme dans repartirEnEnveloppes
+const nbPersonnes = (profil) => (profil?.foyer?.actif && !(profil.foyer.statut === "concubin" && profil.foyer.vue === "moi") ? 2 : 1);
+const plafondCompte = (plan, id, personnes) => { const e = plan.enveloppes?.[id]; return e?.plafond == null ? Infinity : e.plafond * (e.parPersonne ? personnes : 1); };
+
+/**
+ * Répartition automatique et prudente d'un montant dans un groupe, sans muter `placements`.
+ * - livrets : Livret A jusqu'à son plafond, puis LDDS, puis livret bancaire (LEP et Livret Jeune : conditions d'éligibilité, jamais automatiques) ;
+ * - assuranceVie : tout en fonds euros ; - bourse : PEA jusqu'à son plafond de versements, le surplus en compte-titres.
+ * Les autres comptes du groupe sont remis à 0 ; un montant négatif ou invalide vaut 0. Groupe « autres » ou inconnu : copie inchangée.
+ */
+export function repartirGroupe(plan, groupe, montant, placements = {}, profil = {}) {
+  const r = { ...placements };
+  if (!GROUPES_MODIFIABLES.includes(groupe)) return r;
+  const m = Number.isFinite(Number(montant)) ? Math.max(0, Math.round(Number(montant))) : 0;
+  const n = nbPersonnes(profil);
+  for (const id of GROUPES_PLACEMENTS[groupe]) r[id] = 0;
+  if (groupe === "livrets") {
+    r.livretA = Math.min(m, plafondCompte(plan, "livretA", n));
+    r.ldds = Math.min(m - r.livretA, plafondCompte(plan, "ldds", n));
+    r.livretBancaire = m - r.livretA - r.ldds;
+  } else if (groupe === "assuranceVie") {
+    r.assuranceVie = m;
+  } else {
+    r.pea = Math.min(m, plafondCompte(plan, "pea", n));
+    r.cto = m - r.pea;
+  }
+  return r;
+}
+
+/**
+ * Vrai si le détail du groupe saisi compte par compte s'écarte de la répartition automatique de son total :
+ * la case débutant est alors en lecture seule. Un détail identique à ce que produirait le débutant (Livret A plein + LDDS) reste modifiable.
+ */
+export function groupePersonnalise(plan, placements, groupe, profil = {}) {
+  if (!GROUPES_MODIFIABLES.includes(groupe)) return false;
+  const auto = repartirGroupe(plan, groupe, totalGroupe(placements, groupe), placements, profil);
+  return GROUPES_PLACEMENTS[groupe].some((id) => Math.abs((Number(placements?.[id]) || 0) - auto[id]) > TOLERANCE_GROUPE);
+}
+
+/**
+ * Nouveaux `pea` et `assuranceVie` du profil après une répartition (null = inchangé) :
+ * - un PEA ou une assurance-vie apparaît quand il n'y avait pas de contrat ouvert ;
+ * - un PEA ouvert dont les versements égalaient le solde avant la saisie (`placementsAvant`) garde cette égalité (saisie chiffre par chiffre) ;
+ * - sinon un contrat déjà ouvert garde ses versements et sa date.
+ */
+export function contratsApresRepartition(profil, placements, aujourdhui = new Date(), placementsAvant = null) {
+  const pea = Number(placements?.pea) || 0, av = (Number(placements?.assuranceVie) || 0) + (Number(placements?.assuranceVieUC) || 0);
+  const mois = `${aujourdhui.getFullYear()}-${String(aujourdhui.getMonth() + 1).padStart(2, "0")}`;
+  const versements = Math.round(Number(profil?.pea?.versements) || 0);
+  let nouveauPea = null;
+  if (pea > 0 && !profil?.pea?.ouvert) nouveauPea = { ...(profil?.pea ?? {}), ouvert: true, versements: Math.round(pea), dateOuverture: profil?.pea?.dateOuverture || mois, etablissement: profil?.pea?.etablissement ?? "" };
+  else if (profil?.pea?.ouvert && placementsAvant && versements === Math.round(Number(placementsAvant.pea) || 0) && versements !== Math.round(pea)) nouveauPea = { ...profil.pea, versements: Math.round(pea) };
+  return { pea: nouveauPea, assuranceVie: av > 0 && !profil?.assuranceVie?.ouverte ? { ...(profil?.assuranceVie ?? {}), ouverte: true } : null };
+}
+
+/**
+ * Capital de la Découverte : 6 mois de dépenses en épargne de précaution (Livret A, puis LDDS, puis livret bancaire),
+ * le reste en PEA jusqu'à son plafond de versements, puis en compte-titres. Montants arrondis à l'euro.
+ */
+export function repartirCapitalPrudent(plan, capital, depensesMensuelles) {
+  const cap = Math.max(0, Number(capital) || 0), dep = Number(depensesMensuelles) || 0;
+  const precaution = Math.min(cap, 6 * (dep > 0 ? dep : 1000));
+  const livretA = Math.min(precaution, plan.enveloppes.livretA.plafond);
+  const ldds = Math.min(precaution - livretA, plan.enveloppes.ldds.plafond);
+  const livretBancaire = precaution - livretA - ldds;
+  const reste = cap - precaution;
+  const pea = Math.min(reste, plan.enveloppes.pea.plafond);
+  const cto = reste - pea;
+  const r = { livretA, ldds, livretBancaire, pea, cto };
+  for (const k of Object.keys(r)) r[k] = Math.round(r[k]);
+  return r;
+}
+
 export function profilRisque(plan, profil) {
   const P = plan.profilsRisque ?? {};
   const id = P[profil.profilRisque] ? profil.profilRisque : P.defaut;

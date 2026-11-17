@@ -1,5 +1,5 @@
 import { PLAN } from "./plan.js";
-import { analyser, capitalDe, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer } from "./moteur.js";
+import { analyser, capitalDe, GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer } from "./moteur.js";
 import { projetLocatifDe, analyseLocatif, mensualitePret } from "./locatif.js";
 import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, CRISES, simulerCrise, fluxLocatif } from "./projection.js";
 import { SCENARIOS_FISCAUX, NEUTRE, optionFiscale, comparerTaux } from "./evolution-fiscale.js";
@@ -574,6 +574,7 @@ function rendreResultats() {
   etat.resultat = res;
   if (!$("#vue-ideale").hidden) rendreEpargneIdeale();
   $("#total-capital").textContent = eur(res.capital);
+  $("#total-capital-debutant").textContent = eur(res.capital);
   $("#total-capital-bas").textContent = eur(res.capital);
   const env = (id) => (id ? plan.enveloppes[id]?.libelle ?? id : "⚠ aucun compte");
   const signe = (v) => (Math.abs(v) < 0.5 ? '<span class="muted">0 €</span>' : `<span class="${v > 0 ? "ecart-plus" : "ecart-moins"}">${v > 0 ? "+" : "−"}${eur(Math.abs(v))}</span>`);
@@ -1808,6 +1809,9 @@ $("#selecteur-niveau").addEventListener("keydown", (e) => {
   const n = NIVEAUX[(NIVEAUX.indexOf(niveauCourant()) + d + NIVEAUX.length) % NIVEAUX.length];
   appliquerNiveau(n); $(`#selecteur-niveau [data-niveau="${n}"]`).focus();
 });
+// Les champs masqués (détail des comptes, regroupement débutant) doivent être à jour dès qu'un niveau les révèle
+document.addEventListener("niveau:change", () => remplirProfil());
+document.addEventListener("click", (e) => { const b = e.target.closest("[data-aller-niveau]"); if (b) appliquerNiveau(b.dataset.allerNiveau); });
 $("#badge-avances-voir").addEventListener("click", () => {
   appliquerNiveau($("#badge-avances").dataset.niveauCible || "avance");
   if (location.hash.split("?")[0] !== "#mon-profil") location.hash = "#mon-profil"; else window.scrollTo(0, 0);
@@ -2265,6 +2269,34 @@ $("#profil").addEventListener("click", (e) => {
   apresSaisieProfil(); majEstimations();
 });
 
+// Placements regroupés (niveau Débutant) : 4 montants, répartis automatiquement dans les comptes (repartirGroupe, moteur.js)
+function remplirPlacementsDebutant(champEnSaisie = null) {
+  const p = etat.profil, pl = p.placements ?? {};
+  for (const g of Object.keys(GROUPES_PLACEMENTS)) {
+    const champ = $(`#pd-${g}`); if (!champ) continue;
+    const total = totalGroupe(pl, g);
+    const lecture = g === "autres" || groupePersonnalise(etat.brouillon, pl, g, p); // « Autres » : détail à saisir en Intermédiaire
+    if (champ !== champEnSaisie) champ.value = total || ""; // le champ en cours de saisie n'est pas réécrit (curseur, zéros)
+    champ.readOnly = lecture; // readonly (et non disabled) : la valeur reste lisible
+    const mention = lecture && total > 0;
+    $(`#lecture-pd-${g}`).hidden = !mention;
+    $(`#aide-pd-${g}`).hidden = mention;
+  }
+  $("#ligne-pd-autres").hidden = totalGroupe(pl, "autres") === 0;
+}
+function saisieGroupeDebutant(el) {
+  if (el.readOnly) return;
+  const p = etat.profil, g = el.dataset.groupe;
+  const avant = p.placements ?? {};
+  p.placements = repartirGroupe(etat.brouillon, g, el.value === "" ? 0 : Number(el.value), avant, p);
+  const contrats = contratsApresRepartition(p, p.placements, new Date(), avant);
+  if (contrats.pea) p.pea = contrats.pea;
+  if (contrats.assuranceVie) p.assuranceVie = contrats.assuranceVie;
+  if (g === "assuranceVie") p.avPartEuros = 100; // tout en fonds euros
+  remplirPlacementsDebutant(el);
+  majAideRetraite0(); majAideFrais();
+  apresSaisieProfil();
+}
 function remplirProfil() {
   (etat.profil.foyer ??= {}).situation = situationDe(etat.profil);
   if (etat.profil.foyer.actif && etat.profil.foyer.statut === "concubin" && !etat.profil.foyer.vue) etat.profil.foyer.vue = "foyer"; // anciens profils : épargne saisie pour le couple
@@ -2273,6 +2305,7 @@ function remplirProfil() {
     if (el.type === "checkbox") el.checked = !!v; else el.value = v ?? "";
   });
   remplirAV();
+  remplirPlacementsDebutant();
   rendreChoixProfil();
   majVisibiliteProfil();
   marquerBudget();
@@ -2497,6 +2530,7 @@ function majAideRetraite0() {
 $("#profil").addEventListener("input", (e) => {
   const el = e.target;
   if (el.id === "av-total" || el.id === "av-euros") { saisieAV(); apresSaisieProfil(); return; }
+  if (el.dataset.groupe) { saisieGroupeDebutant(el); return; }
   if (!el.dataset.p) return;
   // Bornes des champs numériques (âge entre 18 et 120 ans…) : le maximum s'applique tout de suite
   if (el.type === "number" && el.max !== "" && el.value !== "" && Number(el.value) > Number(el.max)) el.value = el.max;
@@ -2770,16 +2804,9 @@ function profilDepuisDecouverte(r, aujourdhui = new Date()) {
   const depenses = Math.max(0, salaire - epargne);
   Object.assign(p, { age: Math.round(Number(r.age) || 30), salaireNetMensuel: salaire, epargneMensuelle: epargne, depensesMensuelles: depenses, statutPro: "stable", pays: "FR" });
   // Capital : 6 mois de dépenses en épargne de précaution (Livret A, puis LDDS), le reste en PEA (plafond de versements 150 000 €, puis compte-titres)
-  const precaution = Math.min(capital, 6 * (depenses > 0 ? depenses : 1000));
-  const livretA = Math.min(precaution, 22950);
-  const ldds = Math.min(precaution - livretA, 12000);
-  const livretBancaire = precaution - livretA - ldds;
-  const reste = capital - precaution;
-  const pea = Math.min(reste, 150000);
-  const cto = reste - pea;
-  p.placements = { livretA, ldds, livretBancaire, pea, cto };
-  for (const k of Object.keys(p.placements)) p.placements[k] = Math.round(p.placements[k]);
-  if (pea > 0) p.pea = { ouvert: true, dateOuverture: `${aujourdhui.getFullYear()}-${String(aujourdhui.getMonth() + 1).padStart(2, "0")}`, versements: Math.round(pea), etablissement: "" };
+  p.placements = repartirCapitalPrudent(PLAN, capital, depenses);
+  const pea = p.placements.pea;
+  if (pea > 0) p.pea = { ouvert: true, dateOuverture: `${aujourdhui.getFullYear()}-${String(aujourdhui.getMonth() + 1).padStart(2, "0")}`, versements: pea, etablissement: "" };
   if (r.objectif === "rp") {
     p.loyerMensuel = Math.round((0.28 * salaire) / 10) * 10;
     Object.assign(p.projetRP, { actif: true, prix: Math.max(100000, Math.round((80 * salaire) / 5000) * 5000), type: "ancien", imperatif: false, horizonAnnees: 5 });

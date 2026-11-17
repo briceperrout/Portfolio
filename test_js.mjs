@@ -5,6 +5,8 @@
 import worker, { MODEL_FAST, MODEL_REASONING, choisirModele, choixRepli, corpsOpenAI, questionComplexe, tokensDuJour } from "./worker.js";
 import { CONSIGNE_VOCALE, DELAI_SILENCE_MS, choisirVoixFr, decouperPhrases, extraireBalises, libelleModele, preparerRequeteCloud, texteParle } from "./assistant.js";
 
+import { PLAN } from "./plan.js";
+import { GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent } from "./moteur.js";
 import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS } from "./projection.js";
 
 export const resultats = { ok: 0, echecs: [] };
@@ -244,6 +246,94 @@ egal(libelleModele(undefined), "", "libellé absent");
   const borne = comparerFrais({ capital: -500, mensuel: -10, annees: 999 });
   egal([borne.annees, borne.verse], [60, 0], "frais : entrées négatives ramenées à 0, horizon plafonné à 60 ans");
   egal(comparerFrais({ capital: 1000, mensuel: 0, annees: 0 }).annees, 1, "frais : horizon minimal d'un an");
+}
+
+// ---------------------------------------------------------------- moteur.js : groupes de placements (niveau Débutant)
+{
+  // Toutes les clés des groupes existent dans le plan, sans doublon entre groupes
+  const toutes = Object.values(GROUPES_PLACEMENTS).flat();
+  verifier(toutes.every((id) => PLAN.enveloppes[id]), "groupes : toutes les clés existent dans PLAN.enveloppes");
+  egal(new Set(toutes).size, toutes.length, "groupes : aucun compte dans deux groupes");
+  const plafA = PLAN.enveloppes.livretA.plafond, plafL = PLAN.enveloppes.ldds.plafond;
+  egal([plafA, plafL, PLAN.enveloppes.pea.plafond], [22950, 12000, 150000], "groupes : plafonds Livret A, LDDS, PEA");
+
+  // Livrets : Livret A, puis LDDS, puis livret bancaire ; LEP et Livret Jeune remis à 0
+  const base = { livretA: 1, ldds: 2, lep: 300, livretJeune: 400, livretBancaire: 5, pea: 7000, per: 900 };
+  const copieBase = JSON.stringify(base);
+  const l = repartirGroupe(PLAN, "livrets", 30000, base);
+  egal([l.livretA, l.ldds, l.livretBancaire, l.lep, l.livretJeune], [22950, 7050, 0, 0, 0], "livrets : 30 000 € = Livret A plein + 7 050 € de LDDS");
+  egal([l.pea, l.per], [7000, 900], "livrets : les autres groupes sont intacts");
+  egal(JSON.stringify(base), copieBase, "repartirGroupe ne mute pas l'entrée");
+  const l2 = repartirGroupe(PLAN, "livrets", 50000, base);
+  egal([l2.livretA, l2.ldds, l2.livretBancaire], [22950, 12000, 15050], "livrets : au-delà des plafonds, livret bancaire");
+  egal(repartirGroupe(PLAN, "livrets", 10000, {}).livretA, 10000, "livrets : sous le plafond, tout sur le Livret A");
+  // Couple : plafonds par personne doublés
+  const lc = repartirGroupe(PLAN, "livrets", 50000, {}, { foyer: { actif: true, statut: "marie" } });
+  egal([lc.livretA, lc.ldds, lc.livretBancaire], [45900, 4100, 0], "livrets : couple, plafonds doublés");
+  const conc = repartirGroupe(PLAN, "livrets", 30000, {}, { foyer: { actif: true, statut: "concubin", vue: "moi" } });
+  egal(conc.livretA, 22950, "livrets : concubin « pour toi seul » = un plafond");
+
+  // Assurance-vie : tout en fonds euros
+  const av = repartirGroupe(PLAN, "assuranceVie", 40000, { assuranceVie: 5000, assuranceVieUC: 9000 });
+  egal([av.assuranceVie, av.assuranceVieUC], [40000, 0], "assurance-vie : tout en fonds euros, UC remis à 0");
+
+  // Bourse : PEA jusqu'à 150 000 €, puis CTO
+  const b1 = repartirGroupe(PLAN, "bourse", 100000, { pea: 5, cto: 6 });
+  egal([b1.pea, b1.cto], [100000, 0], "bourse : sous 150 000 €, tout en PEA");
+  const b2 = repartirGroupe(PLAN, "bourse", 180000, {});
+  egal([b2.pea, b2.cto], [150000, 30000], "bourse : surplus en CTO");
+
+  // Montants invalides, arrondis, groupe « autres »
+  for (const m of [-500, NaN, "abc", undefined, null]) egal(totalGroupe(repartirGroupe(PLAN, "livrets", m, { livretA: 100 }), "livrets"), 0, `montant invalide (${m}) : 0`);
+  egal(repartirGroupe(PLAN, "bourse", 1234.6, {}).pea, 1235, "montant arrondi à l'euro");
+  egal(repartirGroupe(PLAN, "autres", 5000, { per: 10 }), { per: 10 }, "« autres » : jamais modifié");
+  egal(repartirGroupe(PLAN, "inconnu", 5000, { per: 10 }), { per: 10 }, "groupe inconnu : copie inchangée");
+
+  // totalGroupe
+  egal(totalGroupe({ livretA: 100, ldds: 50, pea: 999 }, "livrets"), 150, "totalGroupe : somme du groupe");
+  egal(totalGroupe({}, "bourse"), 0, "totalGroupe : groupe vide");
+  egal(totalGroupe(undefined, "bourse"), 0, "totalGroupe : placements absents");
+  egal(totalGroupe({ per: 1, scpi: 2, pel: 3, orPhysique: 4 }, "autres"), 10, "totalGroupe : autres");
+
+  // groupePersonnalise : écart avec la répartition automatique du total
+  egal(groupePersonnalise(PLAN, { livretA: 22950, ldds: 7050 }, "livrets"), false, "personnalisé : le résultat du débutant reste modifiable");
+  egal(groupePersonnalise(PLAN, { livretA: 22950, ldds: 12000, livretBancaire: 5050 }, "livrets"), false, "personnalisé : profil Exemple (livrets) = répartition automatique");
+  egal(groupePersonnalise(PLAN, { livretA: 5000, ldds: 5000 }, "livrets"), true, "personnalisé : Livret A et LDDS à parts égales");
+  egal(groupePersonnalise(PLAN, { lep: 4000 }, "livrets"), true, "personnalisé : un LEP seul (pas un Livret A)");
+  egal(groupePersonnalise(PLAN, { livretA: 8000 }, "livrets"), false, "personnalisé : un seul Livret A");
+  egal(groupePersonnalise(PLAN, { assuranceVie: 20000, assuranceVieUC: 10000 }, "assuranceVie"), true, "personnalisé : assurance-vie avec unités de compte");
+  egal(groupePersonnalise(PLAN, { pea: 150000, cto: 20000 }, "bourse"), false, "personnalisé : PEA plein + CTO = automatique");
+  egal(groupePersonnalise(PLAN, { pea: 20000, cto: 20000 }, "bourse"), true, "personnalisé : PEA et CTO à parts égales");
+  egal(groupePersonnalise(PLAN, {}, "livrets"), false, "personnalisé : groupe vide");
+  egal(groupePersonnalise(PLAN, { per: 10 }, "autres"), false, "personnalisé : « autres » n'est jamais réparti");
+
+  // repartirCapitalPrudent : non-régression de la Découverte (34 ans, 3 000 € de salaire, 700 € d'épargne, 40 000 €)
+  egal(repartirCapitalPrudent(PLAN, 40000, 2300), { livretA: 13800, ldds: 0, livretBancaire: 0, pea: 26200, cto: 0 }, "Découverte : 6 mois de dépenses en Livret A, le reste en PEA");
+  egal(repartirCapitalPrudent(PLAN, 100000, 5000), { livretA: 22950, ldds: 7050, livretBancaire: 0, pea: 70000, cto: 0 }, "Découverte : précaution au-delà du Livret A, LDDS");
+  egal(repartirCapitalPrudent(PLAN, 100000, 8000), { livretA: 22950, ldds: 12000, livretBancaire: 13050, pea: 52000, cto: 0 }, "Découverte : précaution au-delà du LDDS, livret bancaire");
+  egal(repartirCapitalPrudent(PLAN, 300000, 1000), { livretA: 6000, ldds: 0, livretBancaire: 0, pea: 150000, cto: 144000 }, "Découverte : PEA plein, surplus en CTO");
+  egal(repartirCapitalPrudent(PLAN, 3000, 0), { livretA: 3000, ldds: 0, livretBancaire: 0, pea: 0, cto: 0 }, "Découverte : sans dépenses, 6 000 € de précaution par défaut");
+  egal(repartirCapitalPrudent(PLAN, 0, 2000), { livretA: 0, ldds: 0, livretBancaire: 0, pea: 0, cto: 0 }, "Découverte : capital nul");
+
+  // contratsApresRepartition : un PEA ou une assurance-vie apparaît ; un contrat déjà ouvert n'est pas touché
+  const aujourdhui = new Date(2026, 10, 16);
+  const neuf = contratsApresRepartition({ pea: { ouvert: false, versements: 0, etablissement: "" }, assuranceVie: { ouverte: false, type: "" } }, { pea: 26200, assuranceVie: 5000 }, aujourdhui);
+  egal(neuf.pea, { ouvert: true, versements: 26200, etablissement: "", dateOuverture: "2026-11" }, "PEA créé : ouvert, versements = montant, mois courant");
+  egal(neuf.assuranceVie, { ouverte: true, type: "" }, "assurance-vie créée : ouverte");
+  const exist = contratsApresRepartition({ pea: { ouvert: true, versements: 10000, dateOuverture: "2015-03" }, assuranceVie: { ouverte: true } }, { pea: 40000, assuranceVie: 5000 }, aujourdhui);
+  egal([exist.pea, exist.assuranceVie], [null, null], "contrats déjà ouverts : versements et dates conservés");
+  egal(contratsApresRepartition({}, { pea: 0, assuranceVie: 0 }, aujourdhui), { pea: null, assuranceVie: null }, "aucun montant : aucun contrat créé");
+  // Saisie chiffre par chiffre : les versements suivent le solde tant qu'ils lui étaient égaux
+  let prof = { pea: { ouvert: false, versements: 0, etablissement: "" } }, pl = {};
+  for (const v of [1, 18, 180, 1800, 18000, 180000]) {
+    const apres = repartirGroupe(PLAN, "bourse", v, pl, prof), c = contratsApresRepartition(prof, apres, aujourdhui, pl);
+    if (c.pea) prof = { ...prof, pea: c.pea }; pl = apres;
+  }
+  egal([prof.pea.ouvert, prof.pea.versements, pl.pea, pl.cto], [true, 150000, 150000, 30000], "PEA : saisie progressive de 180 000 € = versements 150 000 €");
+  const gains = contratsApresRepartition({ pea: { ouvert: true, versements: 10000 } }, { pea: 40000 }, aujourdhui, { pea: 30000 });
+  egal(gains.pea, null, "PEA : versements différents du solde (gains réels), conservés");
+  egal(contratsApresRepartition({ pea: { ouvert: true, versements: 30000, dateOuverture: "2015-03" } }, { pea: 35000 }, aujourdhui, { pea: 30000 }).pea, { ouvert: true, versements: 35000, dateOuverture: "2015-03" }, "PEA : versements = solde, ils suivent la saisie");
+  egal(contratsApresRepartition({ pea: { ouvert: false, dateOuverture: "2020-01" } }, { pea: 100 }, aujourdhui).pea.dateOuverture, "2020-01", "PEA créé : date déjà saisie conservée");
 }
 
 if (typeof process !== "undefined" && process.argv?.[1]?.endsWith("test_js.mjs")) {

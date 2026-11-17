@@ -95,6 +95,9 @@ nav.onglets a:focus-visible, button:focus-visible, input:focus-visible, select:f
 .champs { display: grid; gap: 10px; }
 .champ { display: grid; grid-template-columns: minmax(0, 1fr) 128px; align-items: center; gap: 8px; }
 .champ label { font-size: 0.9rem; }
+.champ input[readonly] { color: var(--muted); cursor: default; }
+.champs .ligne-pd { display: grid; gap: 4px; }
+.ligne-pd button.lien { justify-self: start; padding-left: 0; color: var(--accent); text-decoration: underline; }
 .saisie { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
 .saisie input { width: 100%; min-width: 0; border: 0; background: transparent; color: var(--fg); padding: 7px 8px;
   font: inherit; text-align: right; }
@@ -541,6 +544,7 @@ html.discret .num { letter-spacing: 0.05em; }
   <!-- ===================== 1. MON PROFIL ===================== -->
   <section id="vue-profil">
     <div class="etape"><p><b>Étape 1 sur 4.</b> Décris ta situation d'aujourd'hui. Les résultats se mettent à jour à chaque saisie, dans « Rééquilibrage » et « Trajectoire ».</p></div>
+    <p class="conseil" data-seul="debutant" id="intro-debutant">Quelques questions suffisent : tout le reste est réglé avec des hypothèses prudentes. Tu pourras affiner plus tard en passant en mode Intermédiaire.</p>
     <div class="cta-decouverte" id="cta-decouverte" hidden>
       <p><b>Nouveau ici ?</b> Réponds à 5 questions rapides : ton profil est pré-rempli avec des hypothèses prudentes et ton plan d'action s'affiche tout de suite.</p>
       <button type="button" class="principal" id="cta-decouverte-bouton">⚡ Découverte en 60 s</button>
@@ -677,6 +681,33 @@ html.discret .num { letter-spacing: 0.05em; }
           </fieldset></div>
         </div>
         <div class="pile">
+          <div class="panneau" data-seul="debutant" id="bloc-placements-debutant"><fieldset>
+            <legend>Ton argent placé aujourd'hui</legend>
+            <p class="note" style="margin:0">Le total de chaque famille de comptes suffit : le détail est réparti pour toi, avec des hypothèses prudentes.</p>
+            <div class="champs">
+            <div class="ligne-pd" id="ligne-pd-livrets">
+              <div class="champ"><label for="pd-livrets">Livrets (Livret A, LDDS…)</label><div class="saisie"><input id="pd-livrets" type="number" min="0" step="500" data-groupe="livrets"><span>€</span></div></div>
+              <p class="note" id="aide-pd-livrets" style="margin:0">Ce que tu peux retirer à tout moment. Rempli dans l'ordre : Livret A (22 950 €), puis LDDS (12 000 €), puis livret bancaire.</p>
+              <p class="note" id="lecture-pd-livrets" style="margin:0" hidden>Détail saisi compte par compte : modifiable en mode Intermédiaire. <button type="button" class="lien" data-aller-niveau="intermediaire">Passer en Intermédiaire</button></p>
+            </div>
+            <div class="ligne-pd" id="ligne-pd-assuranceVie">
+              <div class="champ"><label for="pd-assuranceVie">Assurance-vie</label><div class="saisie"><input id="pd-assuranceVie" type="number" min="0" step="500" data-groupe="assuranceVie"><span>€</span></div></div>
+              <p class="note" id="aide-pd-assuranceVie" style="margin:0">Tout le montant du contrat, compté en fonds euros (sans risque) tant que tu n'as pas détaillé.</p>
+              <p class="note" id="lecture-pd-assuranceVie" style="margin:0" hidden>Détail saisi compte par compte : modifiable en mode Intermédiaire. <button type="button" class="lien" data-aller-niveau="intermediaire">Passer en Intermédiaire</button></p>
+            </div>
+            <div class="ligne-pd" id="ligne-pd-bourse">
+              <div class="champ"><label for="pd-bourse">Bourse (PEA, compte-titres)</label><div class="saisie"><input id="pd-bourse" type="number" min="0" step="500" data-groupe="bourse"><span>€</span></div></div>
+              <p class="note" id="aide-pd-bourse" style="margin:0">Rempli d'abord en PEA (jusqu'à 150 000 €), le surplus en compte-titres.</p>
+              <p class="note" id="lecture-pd-bourse" style="margin:0" hidden>Détail saisi compte par compte : modifiable en mode Intermédiaire. <button type="button" class="lien" data-aller-niveau="intermediaire">Passer en Intermédiaire</button></p>
+            </div>
+            <div class="ligne-pd" id="ligne-pd-autres">
+              <div class="champ"><label for="pd-autres">Autres (PER, SCPI, or, crypto…)</label><div class="saisie"><input id="pd-autres" type="number" min="0" step="500" data-groupe="autres"><span>€</span></div></div>
+              <p class="note" id="aide-pd-autres" style="margin:0">Compté dans ton patrimoine, sans être modifiable ici.</p>
+              <p class="note" id="lecture-pd-autres" style="margin:0" hidden>Détail saisi compte par compte : modifiable en mode Intermédiaire. <button type="button" class="lien" data-aller-niveau="intermediaire">Passer en Intermédiaire</button></p>
+            </div>
+            </div>
+            <div class="total-capital"><span>Capital total</span><b class="num" id="total-capital-debutant">0 €</b></div>
+          </fieldset></div>
           <div class="panneau" data-min="intermediaire"><fieldset>
             <legend>Placements actuels</legend>
             <p class="note" style="margin:0">Le solde de chaque compte aujourd'hui (dans l'appli de ta banque). Le « ? » ouvre la fiche du compte.</p>
@@ -756,8 +787,8 @@ html.discret .num { letter-spacing: 0.05em; }
             <div class="champ"><label for="r0-age">Âge où tu veux arrêter de travailler</label><div class="saisie"><input id="r0-age" type="number" min="18" max="64" step="1" data-p="retraite.ageDepart" placeholder="64"><span>ans</span></div></div>
             <div class="champ" data-min="intermediaire"><label for="r0-mode">Retraite publique (Sécurité sociale et complémentaire)</label><select id="r0-mode" data-p="retraite.modePension"><option value="auto">Estimée automatiquement (suit l'âge où tu arrêtes)</option><option value="manuel">Montant que j'indique (relevé info-retraite.fr)</option><option value="zero">Ne pas la compter (prudence)</option></select></div>
             <div class="champ" data-min="intermediaire"><label for="r0-pension">Retraite publique comptée (après impôt)</label><div class="saisie"><input id="r0-pension" type="number" min="0" step="10" data-p="retraite.pension" placeholder="0"><span>€/mois</span></div></div>
-            <label class="coche"><input id="r0-loyers" type="checkbox" data-p="retraite.compterLoyers"> Compter les loyers de mes biens loués dans mes revenus à la retraite</label>
-            <label class="coche"><input id="r0-or" type="checkbox" data-p="retraite.vendreOr"> Vendre aussi mon or physique pour financer ma retraite (déconseillé)</label>
+            <label class="coche" data-min="intermediaire"><input id="r0-loyers" type="checkbox" data-p="retraite.compterLoyers"> Compter les loyers de mes biens loués dans mes revenus à la retraite</label>
+            <label class="coche" data-min="intermediaire"><input id="r0-or" type="checkbox" data-p="retraite.vendreOr"> Vendre aussi mon or physique pour financer ma retraite (déconseillé)</label>
             <p class="note" id="aide-retraite0" style="margin:0"></p>
           </fieldset></div>
           <div class="panneau" data-min="intermediaire"><fieldset>

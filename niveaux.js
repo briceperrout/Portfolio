@@ -4,6 +4,8 @@
 // Tout nouveau bloc d'interface doit déclarer son niveau minimal (attribut data-min dans index.html) et,
 // s'il est listé ici, apparaître dans MATRICE.
 
+import { GROUPES_PLACEMENTS } from "./moteur.js";
+
 export const NIVEAUX = ["debutant", "intermediaire", "avance"];
 
 export const INFOS_NIVEAUX = {
@@ -40,7 +42,7 @@ export const MATRICE = {
     "Ton employeur": I,
     "Foyer": I, "c-pea-date": A, "c-pea-etab": A, "c-pea-vers": A,
     "Tester une situation future": A,
-    "Placements actuels": I, // l'étape 2 ajoutera la version simplifiée pour les débutants
+    "Placements actuels": I, // le débutant a sa version regroupée (bloc data-seul="debutant" « Ton argent placé aujourd'hui »)
     "Ouverture des contrats": I,
     "Argent versé et frais réels": A,
     // « Projet d'achat de la résidence principale » : activation, prix et horizon restent visibles partout
@@ -48,7 +50,7 @@ export const MATRICE = {
     "Projet d'investissement locatif": A,
     "Ton taux d'endettement": I,
     // « Ta retraite » : revenu cible et âge de départ restent visibles partout
-    "r0-mode": I, "r0-pension": I,
+    "r0-mode": I, "r0-pension": I, "r0-loyers": I, "r0-or": I,
     "Événements de vie": I,
   },
   onglets: { suivi: I, plan: A },
@@ -58,8 +60,8 @@ export const MATRICE = {
   retraite: {},
 };
 
-// Comptes proposés à tous les niveaux dès l'étape 2 ; tous les autres sont des comptes « Autres » (détail intermédiaire).
-export const COMPTES_ESSENTIELS = ["livretA", "ldds", "livretBancaire", "assuranceVie", "pea"];
+// Comptes « Autres » (PER, SCPI, or, crypto…) : lecture seule en débutant, détail à saisir en Intermédiaire (groupes définis dans moteur.js).
+export const COMPTES_AUTRES = GROUPES_PLACEMENTS.autres;
 
 const vide = (v) => v === undefined || v === null || v === "";
 const egal = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -82,7 +84,7 @@ const REGLES = [
   { libelle: "Profil de risque choisi à la main", niveauRequis: I, actif: (p, d) => !vide(p.profilRisque) && p.profilRisque !== d.profilRisque },
   { libelle: "Tranche d'imposition saisie à la main", niveauRequis: I, actif: (p, d) => !vide(p.tmi) && !egal(String(p.tmi), String(d.tmi ?? "")) },
   { libelle: "Retraite publique saisie à la main", niveauRequis: I, actif: (p) => !vide(p.retraite?.modePension) && p.retraite.modePension !== "auto" },
-  { libelle: "Placements détaillés dans des comptes « Autres »", niveauRequis: I, actif: (p) => Object.entries(p.placements ?? {}).some(([c, v]) => !COMPTES_ESSENTIELS.includes(c) && nombre(v) > 0) },
+  { libelle: "Placements détaillés dans des comptes « Autres »", niveauRequis: I, actif: (p) => Object.entries(p.placements ?? {}).some(([c, v]) => COMPTES_AUTRES.includes(c) && nombre(v) > 0) },
 ];
 
 /**

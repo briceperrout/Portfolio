@@ -60,6 +60,11 @@ egal(reglagesAvancesActifs({ ...copie(VIDE), pays: "FR", futur: { actif: false }
 const pur = copie(riche); reglagesAvancesActifs(pur, "debutant", VIDE);
 egal(pur, riche, "le profil n'est jamais modifié");
 egal(reglagesAvancesActifs({ ...copie(VIDE), placements: { pea: 9000, livretA: 500 } }, "debutant", VIDE), [], "comptes essentiels ne déclenchent pas « Autres »");
+const sansAutres = { ...copie(VIDE), placements: { pea: 9000, cto: 1000, assuranceVieUC: 500, lep: 300, livretJeune: 100, ldds: 5 } };
+egal(reglagesAvancesActifs(sansAutres, "debutant", VIDE), [], "CTO, assurance-vie UC, LEP et Livret Jeune sont des comptes regroupés, pas des « Autres »");
+for (const c of ["per", "scpi", "orPhysique", "plateformeCrypto", "coldWallet", "epargneSalariale", "pel"]) {
+  verifier(reglagesAvancesActifs({ ...copie(VIDE), placements: { [c]: 1 } }, "debutant", VIDE).length === 1, `${c} non nul : compté dans les réglages avancés`);
+}
 
 console.log(`test_niveaux : ${resultats.ok} vérifications OK, ${resultats.echecs.length} échec(s)`);
 for (const e of resultats.echecs) console.error("  ✗", e);
