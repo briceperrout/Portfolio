@@ -57,7 +57,26 @@ function decoter(r, revenuImposable, partsBase) {
 // =====================================================================
 export const ABATTEMENT_AV = Object.freeze({ seul: 4600, couple: 9200 });   // art. 125-0 A CGI, non indexé
 export const SEUIL_PRIMES_AV = 150000;                                       // primes nettes, non indexé
-export const ABATTEMENT_AV_DECES = 152500;                                   // art. 990 I, par bénéficiaire
+// ==== Droits de mutation à titre gratuit (successions et donations) — 2026 ====
+// Barème inchangé par la LF 2026. Tranches : [plafond de la tranche, taux %].
+export const DMTG = Object.freeze({
+  BAREME_LIGNE_DIRECTE: Object.freeze([[8072, 5], [12109, 10], [15932, 15], [552324, 20], [902838, 30], [1805677, 40], [Infinity, 45]]), // art. 777 CGI
+  ABATTEMENT_ENFANT: 100000,      // art. 779 I, par parent et par enfant
+  RAPPEL_FISCAL_ANS: 15,          // art. 784
+  CONCUBIN: Object.freeze({ abattement: 1594, taux: 60 }), // art. 777 tableau III + 788 IV
+  ABATTEMENT_RP: 20,              // % — art. 764 bis
+  FORFAIT_FUNERAIRE: 1500,        // art. 775
+  VERIFIE_LE: "2026-11-17",
+});
+export const AV_DECES = Object.freeze({
+  ABATTEMENT_990I: 152500, SEUIL_990I: 700000, TAUX_990I: Object.freeze([20, 31.25]), // art. 990 I, par bénéficiaire
+  ABATTEMENT_757B: 30500,  // art. 757 B, global, sur les primes seulement
+  AGE_PIVOT: 70,
+  VERIFIE_LE: "2026-11-17",
+});
+// Art. 669 CGI : [âge de l'usufruitier strictement inférieur à, % de l'usufruit]
+export const BAREME_USUFRUIT = Object.freeze([[21, 90], [31, 80], [41, 70], [51, 60], [61, 50], [71, 40], [81, 30], [91, 20], [Infinity, 10]]);
+export const ABATTEMENT_AV_DECES = AV_DECES.ABATTEMENT_990I;                  // art. 990 I, par bénéficiaire
 // Revenus 2025 (IR 2026) : plancher par pensionné, plafond par foyer ; la LF 2026 (19/02/2026) a conservé l'abattement de 10 %
 export const ABATTEMENT_PENSIONS = Object.freeze({ taux: 10, plancher: 454, plafond: 4439, VERIFIE_LE: "2026-11-17" });
 

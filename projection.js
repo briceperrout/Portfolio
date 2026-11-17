@@ -7,6 +7,7 @@
 import { fluxLocatif, projetLocatifDe, echeancier } from "./locatif.js";
 import { PRELEVEMENTS, PFU, ABATTEMENT_AV_DECES, foyerFiscal, revenuImposablePension } from "./fiscal.js";
 import { planifierRetraits, impotsAuDeces, STRATEGIES_DECUMULATION } from "./pension.js";
+import { droitsSurRegistre } from "./succession.js";
 import { totalGroupe, allocationCible, actuelParClasse, repartirEnEnveloppes, capitalDe, achatResidence, analyser, chargesProprietaire, normaliserFoyer, resideEnFrance, paysDe, facteurSalaire, interessementPlace, locatifFinancable } from "./moteur.js";
 
 const somme = (o) => Object.values(o).reduce((s, x) => s + x, 0);
@@ -382,6 +383,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
   const evtsDe = (age) => evts.filter((e) => age >= Number(e.age) && age < Number(e.age) + Math.max(1, Number(e.annees) || 1));
   let verse = C0; // argent mis : capital de départ + épargne versée − apport sorti pour l'achat
   const points = [];
+  let registreFinal = null; // registre fiscal à l'horizon (détail seulement), rattaché au dernier point
 
   for (let y = 0; y <= nb; y++) {
     const age = profil.age + y;
@@ -453,7 +455,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
       point.impot = impotsSortie(planT(y), v, base, y, profil) + (cumulPER * (planT(y).per?.tmiRetraite ?? 0)) / 100;
     }
     points.push(point);
-    if (y === nb) break;
+    if (y === nb) { if (registreFinal) point.registreFinal = registreFinal; break; }
 
     // 1. Rendements de l'année (ou ceux d'une crise rejouée)
     const totAvant = somme(v);
@@ -562,9 +564,11 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
         point.ecartRegistre = Math.max(ecart, ecart2);
         point.retraits = res.retraits; point.impotRetraits = res.impots; point.brutRetraits = res.brut;
         point.avAvant70 = registre.av.avant70.valeur; point.insuffisant = res.insuffisant;
-        // Part du patrimoine emportée par les impôts dus au décès sur les gains latents (hors droits de succession)
+        // Part du patrimoine emportée par les impôts dus au décès sur les gains latents (hors droits de succession : voir droitsSuccession*)
         const totalFin = totalRegistre(registre);
         point.tauxDeces = totalFin > 0 ? impotsAuDeces(registre, prelevementsAn(y)) / totalFin : 0;
+        // Avant-dernier exercice : le registre après retraits est l'état du dernier point ; copie gardée pour estimer les droits de succession
+        if (y === nb - 1) registreFinal = JSON.parse(JSON.stringify(registre));
       }
     }
     // 3. Crédit et valeur du bien
@@ -678,12 +682,23 @@ function planDepart(plan, age, ageFin) {
   return { ...plan, hypotheses: { ...H, ageRetraite: age, ageFinProjection: Math.max(H.ageFinProjection ?? 70, ageFin) } };
 }
 
+// Droits de succession attribuables aux placements au dernier point d'une trajectoire (euros constants, succession.js) ;
+// null si le profil manque ou si le registre final est indisponible alors qu'il reste du patrimoine.
+function droitsPlacementsFinaux(profil, f, defl) {
+  if (!profil || !f) return null;
+  if (!f.registreFinal) return f.financier <= 1 ? 0 : null; // patrimoine épuisé : rien à transmettre
+  try {
+    const an = new Date().getFullYear() + (f.annees ?? 0);
+    return droitsSurRegistre(profil, f.registreFinal, { annee: an, ageDefunt: (profil.agePrincipal ?? profil.age) + (f.annees ?? 0), echelle: 1 / defl(f) }).droitsPlacements;
+  } catch (e) { return null; }
+}
+
 // Choix de l'ordre de l'étape 3 (PEA d'abord ou compte-titres d'abord) par anticipation : on simule les deux ordres sur le
 // scénario central (rendements moyens) et on retient le meilleur. Le choix se fait UNE fois, sur ce scénario, et non à
 // chaque tirage Monte-Carlo : un look-ahead par tirage donnerait à chaque chemin la connaissance de son propre avenir
 // (biais d'anticipation) et surestimerait la robustesse du plan. Les tirages héritent de l'ordre retenu.
-// Critères : 1) âge d'épuisement le plus tardif (jamais = meilleur) ; 2) patrimoine final net des impôts dus au décès,
-// en euros réels ; 3) impôts de retraits cumulés (réels) les plus faibles ; égalité complète : 'peaDabord'.
+// Critères : 1) âge d'épuisement le plus tardif (jamais = meilleur) ; 2) patrimoine final net des impôts dus au décès ET des droits de
+// succession (succession.js), en euros réels : calculé seulement à égalité d'âge d'épuisement, droits = 0 si indisponibles pour l'un des deux ; 3) impôts de retraits cumulés (réels) les plus faibles ; égalité complète : 'peaDabord'.
 function choisirOrdre(plan, profil, { achat, per, retraite, fiscF = null, infl = 0, iR = 0 }) {
   const evaluerOrdre = (ordre) => {
     const points = simuler(plan, profil, { achat, detail: true, per, retraite: { ...retraite, ordreEtape3: ordre }, fiscF });
@@ -693,29 +708,39 @@ function choisirOrdre(plan, profil, { achat, per, retraite, fiscF = null, infl =
     const dernierTaux = [...points].reverse().find((pt) => pt.tauxDeces != null)?.tauxDeces ?? 0;
     const netFinalReel = (dernier.financier * (1 - dernierTaux)) / defl(dernier);
     const impotsReels = points.reduce((t, pt) => (pt.age >= retraite.age && pt.impotRetraits != null ? t + pt.impotRetraits / defl(pt) : t), 0);
-    return { ordre, points, ageEpuisement, netFinalReel, impotsReels };
+    return { ordre, points, ageEpuisement, netFinalReel, impotsReels, defl, netApresDroits: null };
   };
   const a = evaluerOrdre("peaDabord"), b = evaluerOrdre("ctoDabord");
+  // Net après droits des deux candidats (une seule fois, et seulement si le critère est atteint)
+  const evaluerDroits = () => {
+    if (a.netApresDroits != null) return;
+    const da = droitsPlacementsFinaux(profil, a.points[a.points.length - 1], a.defl), db = droitsPlacementsFinaux(profil, b.points[b.points.length - 1], b.defl);
+    const ok = da != null && db != null;
+    a.netApresDroits = a.netFinalReel - (ok ? da : 0); b.netApresDroits = b.netFinalReel - (ok ? db : 0);
+  };
   const meilleur = (x, y) => {
     if (x.ageEpuisement !== y.ageEpuisement) {
       if (x.ageEpuisement == null) return true;
       if (y.ageEpuisement == null) return false;
       return x.ageEpuisement > y.ageEpuisement;
     }
-    if (Math.abs(x.netFinalReel - y.netFinalReel) > 1) return x.netFinalReel > y.netFinalReel;
+    evaluerDroits();
+    if (Math.abs(x.netApresDroits - y.netApresDroits) > 1) return x.netApresDroits > y.netApresDroits;
     if (Math.abs(x.impotsReels - y.impotsReels) > 1) return x.impotsReels < y.impotsReels;
     return false;
   };
   const retenu = meilleur(b, a) ? b : a, autre = retenu === a ? b : a;
   return {
     ordre: retenu.ordre, points: retenu.points,
-    autre: { ordre: autre.ordre, ageEpuisement: autre.ageEpuisement, netFinalReel: autre.netFinalReel },
-    netFinalReel: retenu.netFinalReel, ageEpuisement: retenu.ageEpuisement, gainOrdreReel: retenu.netFinalReel - autre.netFinalReel,
+    autre: { ordre: autre.ordre, ageEpuisement: autre.ageEpuisement, netFinalReel: autre.netFinalReel, netApresDroits: autre.netApresDroits },
+    netFinalReel: retenu.netFinalReel, netApresDroits: retenu.netApresDroits, ageEpuisement: retenu.ageEpuisement,
+    // Écart sur le critère qui a départagé : net après droits si les deux ordres durent aussi longtemps, sinon net hors droits
+    gainOrdreReel: retenu.netApresDroits != null ? retenu.netApresDroits - autre.netApresDroits : retenu.netFinalReel - autre.netFinalReel,
   };
 }
 
 // Comparaison ordre optimal / retrait au prorata, sur les années de retraite où aucun des deux n'est à court d'argent
-function comparerDecumulation(central, prorata, iR, strategie, infl = 0, choix = null) {
+function comparerDecumulation(central, prorata, iR, strategie, infl = 0, choix = null, profil = null) {
   const defl = (pt) => Math.pow(1 + infl, pt?.annees ?? 0);
   let impotsOptimise = 0, impotsProrata = 0, impotsOptimiseReel = 0, impotsProrataReel = 0, anneesComparees = 0;
   for (let i = iR; i < central.length; i++) {
@@ -735,8 +760,16 @@ function comparerDecumulation(central, prorata, iR, strategie, infl = 0, choix =
     return (f.financier * (1 - taux)) / defl(f);
   };
   const patrimoineFinalNetReel = netReel(central, fa), patrimoineFinalNetProrataReel = netReel(prorata, fb);
+  // Droits de succession estimés sur le registre final (euros constants, scénario central ; succession.js). Ils s'ajoutent aux
+  // champs existants : patrimoineFinalNetReel reste « hors droits de succession », patrimoineFinalNetApresDroitsReel = net − droits.
+  // `droitsSuccession*` = part des droits attribuable aux placements (la résidence principale n'y est pas imputée) ; null sans registre.
+  const droitsDe = (pts, f) => droitsPlacementsFinaux(profil, f, defl);
+  const droitsSuccessionOptimise = droitsDe(central, fa), droitsSuccessionProrata = droitsDe(prorata, fb);
+  const apresDroits = (net, d) => (d == null ? null : net - d);
   return {
-    ordreEtape3: choix?.ordre ?? "peaDabord", gainOrdreReel: choix?.gainOrdreReel ?? 0, ageEpuisementAutreOrdre: choix?.autre?.ageEpuisement ?? null,
+    ordreEtape3: choix?.ordre ?? "peaDabord", gainOrdreReel: choix?.gainOrdreReel ?? 0, gainOrdreApresDroits: choix?.netApresDroits != null, ageEpuisementAutreOrdre: choix?.autre?.ageEpuisement ?? null,
+    droitsSuccessionOptimise, droitsSuccessionProrata,
+    patrimoineFinalNetApresDroitsReel: apresDroits(patrimoineFinalNetReel, droitsSuccessionOptimise), patrimoineFinalNetApresDroitsProrataReel: apresDroits(patrimoineFinalNetProrataReel, droitsSuccessionProrata),
     patrimoineFinalNetReel, patrimoineFinalNetProrataReel, gainPatrimoineNetReel: patrimoineFinalNetReel - patrimoineFinalNetProrataReel,
     strategie, impotsOptimise, impotsProrata, economie: impotsProrata - impotsOptimise, anneesComparees,
     impotsOptimiseReel, impotsProrataReel, economieReel: impotsProrataReel - impotsOptimiseReel,
@@ -765,7 +798,7 @@ function centralEtRetraite(planSaisi, profilSaisi, { inclureAchat = true, prolon
   const retraite = { ...base, ordreEtape3: choix.ordre };
   const central = choix.points;
   const decumulation = iR >= 0 && iR < central.length - 1
-    ? comparerDecumulation(central, simuler(plan, profil, { achat, detail: true, per, retraite: { ...retraite, strategie: "prorata" }, fiscF }), iR, strategie, infl, choix)
+    ? comparerDecumulation(central, simuler(plan, profil, { achat, detail: true, per, retraite: { ...retraite, strategie: "prorata" }, fiscF }), iR, strategie, infl, choix, profil)
     : null;
   return { profil, PR, plan, achat, per, iR, retraite, central, decumulation };
 }

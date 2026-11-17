@@ -10,6 +10,7 @@ import { FICHES as CONTENU_FICHES, VERIFIE_LE, PARCOURS_DEBUTANT } from "./fiche
 import { LEXIQUE, lierTermes } from "./lexique.js";
 import { DEPARTEMENTS, chargerPrix, prixCharges, estimer, estimerLoyer, libelleCommune, chercherCommunes, codeCommune } from "./immobilier.js";
 import { estimerPension, ageEnTexte } from "./pension.js";
+import { entreeDepuisProfil, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, optionsPossibles } from "./succession.js";
 import { decomposerSalaire, foyerFiscal, impotBareme, BAREME } from "./fiscal.js";
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
 import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER, etatReleve, comparerReleve } from "./moteur.js";
@@ -74,6 +75,7 @@ const lienFiche = (id, texte) => (FICHES[id] ? `<a class="lien-fiche" href="#fic
 
 // ---------------------------------------------------------------- état
 const PTZ_DEFAUT = { actif: false, zone: "B1", tranche: 2, typeOperation: "collectifNeuf", personnes: null, travauxPctCout: 0 };
+const SUCCESSION_DEFAUT = { union: "mariage", regime: "communaute_legale", optionConjoint: "auto", donationDernierVivant: false, enfantsNonCommuns: 0, testament: false, enfantMineurAuFoyer: false, biensPropres: 0, clauseAV: "conjoint_puis_enfants", quotiteAssuranceEmprunteur: 100, donationAnterieure: { annee: null, montantParEnfant: 0 }, projetDonation: { valeur: 0, croissance: 3, annees: 15 } };
 const PROFIL_EXEMPLE = {
   age: 32, salaireNetMensuel: 3200, epargneMensuelle: 1000, depensesMensuelles: 1800, tmi: "30",
   pays: "FR", statutPro: "stable", eligibleLEP: false, creditsMensuels: 0,
@@ -89,6 +91,7 @@ const PROFIL_EXEMPLE = {
   independant: { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false },
   foyer: { actif: false, statut: "marie" },
   conjoint: { prenom: "", age: 31, salaireNetMensuel: 2400, pea: { ouvert: false, versements: 0, etablissement: "" } },
+  succession: clone(SUCCESSION_DEFAUT),
 };
 
 const PROFIL_VIDE = {
@@ -103,6 +106,7 @@ const PROFIL_VIDE = {
   independant: { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false },
   foyer: { actif: false, statut: "marie" },
   conjoint: { prenom: "", age: 30, salaireNetMensuel: 0, pea: { ouvert: false, versements: 0, etablissement: "" } },
+  succession: clone(SUCCESSION_DEFAUT),
 };
 const INDEPENDANT_VIDE = { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false };
 const COURANT_INITIAL = memo.get("profil-courant") ?? { col: "exemple", id: "exemple" };
@@ -155,6 +159,7 @@ function completerProfil(p) {
   p.projetRP = { typeLogement: "appartement", loyerEquivalent: null, chargesCoproMensuelles: null, ...(p.projetRP ?? {}), ptz: { ...PTZ_DEFAUT, ...(p.projetRP?.ptz ?? {}) } };
   const acces0 = p.abondement?.acces ?? (p.abondement?.actif ? (p.abondement.plan === "pee" ? "pee" : "per") : "?");
   p.abondement = { actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false, ...(p.abondement ?? {}), acces: acces0 };
+  p.succession = { ...SUCCESSION_DEFAUT, ...(p.succession ?? {}), donationAnterieure: { ...SUCCESSION_DEFAUT.donationAnterieure, ...(p.succession?.donationAnterieure ?? {}) }, projetDonation: { ...SUCCESSION_DEFAUT.projetDonation, ...(p.succession?.projetDonation ?? {}) } };
   p.assuranceVie ??= {};
   if (p.assuranceVie.ouverte == null) p.assuranceVie.ouverte = !!(p.assuranceVie.type || p.assuranceVie.dateOuverture || (p.placements?.assuranceVie ?? 0) + (p.placements?.assuranceVieUC ?? 0) > 0);
   return p;
@@ -1496,7 +1501,7 @@ function ordreRetraitsHtml(priorite, D) {
   if (D?.ordreEtape3 === "ctoDabord") ordreLiquides = "Le compte-titres et les autres placements d'abord, puis le PEA : ton épargne sera consommée, autant laisser fructifier le PEA, moins taxé.";
   else if (D?.ordreEtape3 === "peaDabord" && D.ageEpuisementOptimise == null) ordreLiquides = "Le PEA d'abord, puis le compte-titres : ton épargne ne sera pas épuisée, et les plus-values du compte-titres sont effacées au décès.";
   else ordreLiquides = "Le PEA d'abord (moins taxé), puis le compte-titres et les autres placements.";
-  if (D?.gainOrdreReel >= 1) ordreLiquides += ` (environ ${eur(Math.round(D.gainOrdreReel / 10) * 10)} de plus, en euros d'aujourd'hui, que l'ordre inverse)`;
+  if (D?.gainOrdreReel >= 1) ordreLiquides += ` (environ ${eur(Math.round(D.gainOrdreReel / 10) * 10)} de plus transmis, après impôts au décès${D.gainOrdreApresDroits ? " et droits de succession" : ""}, en euros d'aujourd'hui, que l'ordre inverse)`;
   const etapes = [
     "Le PER est vidé progressivement sur les années qui restent, sans dépasser ta tranche d'imposition.",
     "L'assurance-vie de plus de 8 ans est rachetée chaque année dans la limite de l'abattement (peu ou pas d'impôt sur le revenu).",
@@ -1526,6 +1531,18 @@ function economieRetraitsHtml(D) {
       <p style="margin:6px 0 0">Retirer dans le bon ordre te laisse environ <b class="num">${dix(D.gainPatrimoineNetReel)}</b> de plus à ${D.ageFinal} ans (en euros d'aujourd'hui) qu'un retrait au prorata, pour le même revenu.${impots}${epuise}</p>
       <p class="note" style="margin:6px 0 0">Scénario central, en euros d'aujourd'hui, après les impôts dus au décès sur les plus-values (hors droits de succession).</p>
     </section>`;
+}
+// Impôts au décès, droits de succession et net transmis, pour la stratégie choisie et pour le retrait au prorata (euros d'aujourd'hui)
+function blocDroitsSuccession(D, priorite) {
+  if (!D || D.droitsSuccessionOptimise == null || D.droitsSuccessionProrata == null) return "";
+  const ligne = (nom, brut, net, droits, apres) => `<tr><td>${nom}</td><td class="m">${eur(brut - net)}</td><td class="m">${eur(droits)}</td><td class="m"><b>${eur(apres)}</b></td></tr>`;
+  const nomStrategie = priorite === "consommer" ? "Ordre optimal, priorité « Consommer »" : "Ordre optimal, priorité « Transmettre »";
+  return `<h3 style="margin:14px 0 6px">Ce qui serait transmis en fin de projection</h3>
+    <div class="table-wrap"><table><thead><tr><th>Stratégie de retraits</th><th class="m">Impôts au décès</th><th class="m">Droits de succession</th><th class="m">Net transmis après droits</th></tr></thead><tbody>
+      ${ligne(nomStrategie, D.patrimoineFinalOptimiseReel, D.patrimoineFinalNetReel, D.droitsSuccessionOptimise, D.patrimoineFinalNetApresDroitsReel)}
+      ${ligne("Retrait au prorata", D.patrimoineFinalProrataReel, D.patrimoineFinalNetProrataReel, D.droitsSuccessionProrata, D.patrimoineFinalNetApresDroitsProrataReel)}
+    </tbody></table></div>
+    <p class="note" style="margin:6px 0 0">Droits estimés pour ta situation familiale, sur la part transmise par les placements ; la résidence principale n'y est pas imputée. <a class="lien-fiche" href="#transmission">Voir le détail dans l'onglet Transmission</a>.</p>`;
 }
 function rendreRetraite() {
   if (niveauCourant() === "debutant") { rendreRetraiteDebutant(); return; }
@@ -1656,7 +1673,8 @@ ${economieRetraitsHtml(D)}
         <li>${texteLie("L'assurance-vie des versements faits avant 70 ans est gardée pour la fin : elle se transmet jusqu'à 152 500 € par bénéficiaire sans droits de succession (choix « Consommer » pour l'utiliser plus tôt). À faire valider par un conseiller ou un notaire selon ta situation.")}</li>
         <li>Droits de succession, abattements, donations : <a class="lien-fiche" href="#fiche-heritage">tout sur l'héritage</a>. Pour aller plus loin : <a class="lien-fiche" href="#fiche-optimisation-fiscale">optimisation fiscale</a>.</li>
       </ul>
-      <p class="note" style="margin:10px 0 0">Limites : simulation fondée sur les rendements du plan ; elle ne compte ni la dépendance (maison de retraite), ni les droits de succession, ni une éventuelle retraite publique si tu la laisses à 0 €.</p>
+      ${blocDroitsSuccession(D, priorite)}
+      <p class="note" style="margin:10px 0 0">Limites : simulation fondée sur les rendements du plan ; elle ne compte ni la dépendance (maison de retraite), ni une éventuelle retraite publique si tu la laisses à 0 €. Les droits de succession sont une estimation (barèmes 2026, euros d'aujourd'hui) : le détail et les hypothèses sont dans l'onglet Transmission.</p>
     </section>`;
   majPension();
   lancerPessimiste();
@@ -2173,7 +2191,7 @@ function niveauCourant() { const n = document.documentElement.dataset.niveau; re
 // Libellés des onglets, des bandeaux « Étape N » et des boutons : une seule table (niveaux.js), les ancres ne changent pas
 function majLibelles() {
   const n = niveauCourant();
-  for (const v of ["profil", "reequilibrage", "trajectoire", "retraite", "ideale", "suivi", "fiches", "plan"]) {
+  for (const v of ["profil", "reequilibrage", "trajectoire", "retraite", "transmission", "ideale", "suivi", "fiches", "plan"]) {
     const lien = $(`#lien-${v}`); if (lien) lien.textContent = libelleOnglet(v, n);
   }
   document.querySelectorAll("[data-lib]").forEach((el) => { el.textContent = nomVue(el.dataset.lib, n); });
@@ -4638,19 +4656,115 @@ function rendreFiches() {
 }
 
 // ---------------------------------------------------------------- onglets
+// ---------------------------------------------------------------- Transmission : succession et donation (calculs dans succession.js)
+// Les champs « succession.* » sont liés au profil par data-p ; les montants en euros passent par eur(), donc par le mode discrétion (Alt+H).
+const DETENUS_TEXTE = { pp: "pleine propriété", np: "nue-propriété", us: "usufruit", "pp+us": "pleine propriété (un quart) et usufruit" };
+const SITUATION_TEXTE = { seul: "Seul(e)", mariage: "Marié(e)", pacs: "Pacsé(e)", concubin: "En concubinage" };
+const OPTION_TEXTE = {
+  quart_pp: "Un quart en pleine propriété", usufruit: "Usufruit de toute la succession",
+  quart_pp_usufruit: "Un quart en pleine propriété et usufruit du reste", quotite_disponible: "Quotité disponible en pleine propriété",
+  communaute_universelle: "Si changement de régime (notaire) : communauté universelle",
+};
+const heritierTexte = (h) => (h.lien === "conjoint" ? "Conjoint survivant" : h.lien === "pacs" ? "Partenaire de PACS" : h.lien === "concubin" ? "Concubin" : `Enfant ${h.id.replace("enfant", "")}`);
+function rendreTransmission() {
+  const sortie = $("#tm-resultat"); if (!sortie) return;
+  const p = etat.profil;
+  // Champs liés au profil (sauf celui qu'on est en train de saisir)
+  document.querySelectorAll("#vue-transmission [data-p]").forEach((el) => {
+    if (el === document.activeElement) return;
+    const v = lire(p, el.dataset.p);
+    if (el.type === "checkbox") el.checked = !!v; else el.value = v ?? "";
+  });
+  const annee = new Date().getFullYear();
+  let entree, r;
+  try { entree = entreeDepuisProfil(p, annee); r = simulerSuccession(entree); }
+  catch (e) { console.error(e); sortie.innerHTML = `<p class="erreur">Simulation impossible : ${echapper(e.message)}</p>`; return; }
+  const sit = entree.situation, couple = sit === "mariage" || sit === "pacs", avecEnfants = entree.enfants > 0;
+  $("#tm-rappel").innerHTML = `Repris de ton profil : <b>${SITUATION_TEXTE[sit]}</b> · tu as <b>${entree.ageDefunt} ans</b>${sit !== "seul" ? ` · ton conjoint ou partenaire a <b>${entree.ageConjoint} ans</b>` : ""} · <b>${entree.enfants}</b> enfant${entree.enfants > 1 ? "s" : ""}. Pour les changer, va dans <a class="lien-fiche" href="#mon-profil">Mon profil</a>.`;
+  const montre = (id, on) => { const el = $(id); if (el) el.hidden = !on; };
+  montre("#tm-ch-union", couple); montre("#tm-ch-regime", sit === "mariage");
+  montre("#tm-ch-testament", sit === "pacs" || sit === "concubin"); montre("#tm-ch-mineur", sit === "seul" || sit === "concubin");
+  montre("#tm-ch-clause", sit !== "seul");
+  montre("#tm-ch-option", sit === "mariage" && avecEnfants && entree.regime !== "communaute_universelle"); montre("#tm-ch-ddv", sit === "mariage" && avecEnfants);
+  montre("#tm-ch-noncommuns", sit === "mariage" && avecEnfants); montre("#tm-ch-propres", sit === "mariage" && entree.regime !== "separation");
+  $("#tm-noncommuns").max = String(entree.enfants);
+  // Options du conjoint impossibles dans cette situation : grisées (« auto » reste toujours disponible) ; si la valeur enregistrée
+  // est devenue impossible, simulerSuccession se replie sur le quart en pleine propriété et l'indique dans les hypothèses
+  const possibles = optionsPossibles(entree);
+  document.querySelectorAll("#tm-option option").forEach((o) => { o.disabled = o.value !== "auto" && !possibles.includes(o.value); });
+
+  const M = r.masse;
+  const lignesH = r.heritiers.map((h) => `<tr><td>${heritierTexte(h)}</td><td>${h.recuSuccession > 0 ? DETENUS_TEXTE[h.droitsDetenus] ?? "" : "—"}</td><td class="m">${eur(h.recuSuccession)}</td><td class="m">${eur(h.avHorsSuccession)}</td><td class="m">${eur(h.abattement)}</td><td class="m">${eur(h.droitsTotal)}</td><td class="m"><b>${eur(h.net)}</b></td></tr>`).join("");
+  const synthese = `<section class="panneau" id="tm-synthese">
+    <h2>Ce que tes héritiers recevraient</h2>
+    <p class="small muted" style="margin:0 0 8px">Masse successorale nette : <b>${eur(M.masseNette)}</b> (actifs de la succession ${eur(M.actifBrut)}${M.abattementRP > 0 ? `, moins l'abattement de 20 % sur la résidence principale ${eur(M.abattementRP)}` : ""}, moins les dettes ${eur(M.passif)}, moins le forfait funéraire ${eur(M.forfaitFuneraire)}). L'assurance-vie et le PER sont hors succession.</p>
+    ${r.heritiers.length ? `<div class="table-wrap"><table><thead><tr><th>Héritier</th><th>Reçoit en</th><th class="m">Reçu (valeur fiscale)</th><th class="m">Assurance-vie et PER</th><th class="m">Abattement</th><th class="m">Droits</th><th class="m">Net</th></tr></thead><tbody>${lignesH}
+      <tr class="tm-ligne-total"><td colspan="5">Total</td><td class="m">${eur(r.totalDroits)}</td><td class="m">${eur(r.netTransmis)}</td></tr></tbody></table></div>
+    <p style="margin:8px 0 0">Droits totaux : <b>${eur(r.totalDroits)}</b> · net transmis : <b>${eur(r.netTransmis)}</b> · taux effectif : <b>${pct(r.tauxEffectif)}</b></p>` : `<p class="muted">Aucun héritier modélisé dans cette situation (voir les points hors périmètre).</p>`}
+    ${r.hypotheses.length ? `<ul class="points tm-liste">${r.hypotheses.map((h) => `<li>${echapper(h)}</li>`).join("")}</ul>` : ""}
+    <details style="margin-top:8px"><summary class="small">Hors périmètre de cette estimation</summary><ul class="points">${r.horsPerimetre.map((h) => `<li>${echapper(h)}</li>`).join("")}</ul></details>
+    <p class="note" style="margin:8px 0 0">${lienFiche("heritage", "Fiche Héritage et transmission")}</p>
+  </section>`;
+
+  let options = "";
+  let lignesO = [];
+  try { lignesO = comparerOptionsConjoint(entree); } catch (e) { console.error(e); }
+  if (lignesO.length) {
+    const meilleure = lignesO.find((l) => l.option !== "communaute_universelle");
+    const corps = lignesO.map((l) => `<tr${l === meilleure ? ' class="meilleure"' : ""}><td>${OPTION_TEXTE[l.option] ?? l.option}${l === meilleure ? " (la moins chère)" : ""}</td><td class="m">${eur(l.droits1erDeces)}</td><td class="m">${eur(l.droits2eDeces)}</td><td class="m">${eur(l.total)}</td><td class="m">${eur(l.netEnfants)}</td></tr>`).join("");
+    options = `<section class="panneau" id="tm-options" data-min="avance">
+      <h2>Options du conjoint survivant : deux décès</h2>
+      <p class="small muted" style="margin:0 0 8px">Droits payés par les enfants au premier décès, puis au second (à valeurs constantes, sans consommation du patrimoine).</p>
+      <div class="table-wrap"><table><thead><tr><th>Option</th><th class="m">1er décès</th><th class="m">2e décès</th><th class="m">Total des droits</th><th class="m">Net pour les enfants</th></tr></thead><tbody>${corps}</tbody></table></div>
+    </section>`;
+  }
+  sortie.innerHTML = synthese + options;
+
+  // Donation de nue-propriété
+  const D = p.succession?.projetDonation ?? {};
+  const bloc = $("#tm-donation-resultat");
+  const sansEnfant = entree.enfants <= 0;
+  document.querySelectorAll("#tm-donation input").forEach((el) => { el.disabled = sansEnfant; });
+  if (sansEnfant) bloc.innerHTML = `<p class="muted" style="margin:0">Indique au moins un enfant dans <a class="lien-fiche" href="#mon-profil">Mon profil</a> pour simuler une donation.</p>`;
+  else if (!(Number(D.valeur) > 0)) bloc.innerHTML = `<p class="muted" style="margin:0">Saisis la valeur du bien à donner pour voir l'économie de droits.</p>`;
+  else {
+    let d = null;
+    try { d = simulerDonationNP({ valeur: Number(D.valeur), ageDonateur: entree.ageDefunt, enfants: entree.enfants, donations: entree.donations, annee, croissance: (Number(D.croissance) || 0) / 100, anneesAvantDeces: Number(D.annees) || 0 }); }
+    catch (e) { console.error(e); }
+    bloc.innerHTML = d ? `<p style="margin:0">À ${entree.ageDefunt} ans, la nue-propriété vaut <b>${pct(d.nuePropriete)}</b> du bien, soit <b>${eur(d.valeurNP)}</b> à partager entre ${entree.enfants} enfant${entree.enfants > 1 ? "s" : ""}.</p>
+      <div class="table-wrap"><table><tbody>
+        <tr><td>Droits si tu donnes aujourd'hui</td><td class="m">${eur(d.droitsDonation)}</td></tr>
+        <tr><td>Droits si le bien est transmis au décès, dans ${Number(D.annees) || 0} ans</td><td class="m">${eur(d.droitsSansDonation)}</td></tr>
+        <tr class="tm-ligne-total"><td>Économie de droits</td><td class="m">${eur(d.economie)}</td></tr></tbody></table></div>
+      <p class="small muted" style="margin:8px 0 4px">Renouvellements de l'abattement de 100 000 € par enfant (tous les 15 ans) :</p>
+      <ul class="points">${d.calendrier.map((l) => `<li>${l.annee}, à ${l.age} ans : ${eur(l.abattementParEnfant)} par enfant, nue-propriété à ${pct(l.nuePropriete)}</li>`).join("")}</ul>` : "";
+  }
+}
+$("#vue-transmission").addEventListener("input", (e) => {
+  const el = e.target;
+  if (!el.dataset?.p) return;
+  if (el.type === "number" && el.max !== "" && el.value !== "" && Number(el.value) > Number(el.max)) el.value = el.max;
+  const v = el.type === "checkbox" ? el.checked : el.tagName === "SELECT" ? el.value : el.value === "" ? (el.placeholder ? null : 0) : Number(el.value);
+  ecrire(etat.profil, el.dataset.p, v);
+  memo.set("profil-v2", etat.profil);
+  rendreTransmission();
+  planifierSauvegardeProfil();
+});
+
 function rendreVue() {
-  const vues = { "#epargne-ideale": "ideale", "#mon-profil": "profil", "#simulation": "profil", "#reequilibrage": "reequilibrage", "#trajectoire": "trajectoire", "#retraite": "retraite", "#suivi": "suivi", "#fiches": "fiches", "#mon-plan": "plan" };
+  const vues = { "#epargne-ideale": "ideale", "#mon-profil": "profil", "#simulation": "profil", "#reequilibrage": "reequilibrage", "#trajectoire": "trajectoire", "#retraite": "retraite", "#transmission": "transmission", "#suivi": "suivi", "#fiches": "fiches", "#mon-plan": "plan" };
   const chemin = location.hash.split("?")[0]; // « #mon-profil?p=… » : seule la partie avant « ? » désigne l'onglet
   let vue = chemin.startsWith("#fiche-") ? "fiches" : vues[chemin] ?? "profil";
   if (!visible($(`#lien-${vue}`)?.dataset.min, niveauCourant())) { vue = "profil"; history.replaceState(null, "", "#mon-profil"); } // onglet masqué à ce niveau
   const avant = document.querySelector("section[id^='vue-']:not([hidden])")?.id;
-  for (const v of ["profil", "reequilibrage", "trajectoire", "retraite", "ideale", "suivi", "fiches", "plan"]) {
+  for (const v of ["profil", "reequilibrage", "trajectoire", "retraite", "transmission", "ideale", "suivi", "fiches", "plan"]) {
     $(`#vue-${v}`).hidden = v !== vue;
     const lien = $(`#lien-${v}`);
     if (v === vue) lien.setAttribute("aria-current", "page"); else lien.removeAttribute("aria-current");
   }
   if (vue === "trajectoire") rendreTrajectoire();
   if (vue === "retraite") rendreRetraite();
+  if (vue === "transmission") rendreTransmission();
   if (vue === "suivi") { messageSuivi = ""; rendreSuivi(); }
   if (vue === "fiches") rendreFiches();
   if (vue === "ideale") rendreEpargneIdeale();

@@ -509,6 +509,13 @@ egal(libelleModele(undefined), "", "libellé absent");
   const PLAN0 = structuredClone(PLAN);
   for (const k of Object.keys(PLAN0.hypotheses.rendements)) PLAN0.hypotheses.rendements[k] = 0;
   PLAN0.hypotheses.inflation = 0;
+  // Choix de l'ordre PEA / compte-titres : critère = net après impôts au décès et droits de succession (à égalité d'âge d'épuisement)
+  {
+    const base = { age: 45, salaireNet: 5000, epargneMensuelle: 1500, depensesMensuelles: 3000, placements: { livretA: 20000, pea: 60000, assuranceVie: 90000, cto: 40000, per: 30000 }, verses: { cto: 20000, assuranceVie: 45000 } };
+    const sans = projeterCentral(PLAN, { ...base, enfants: 0 }).decumulation, avec = projeterCentral(PLAN, { ...base, enfants: 2 }).decumulation;
+    verifier(sans.ordreEtape3 === "peaDabord" && Math.abs(sans.gainOrdreReel - 83486) < 100, `ordre sans héritier : comportement historique conservé (${sans.ordreEtape3}, gain ${Math.round(sans.gainOrdreReel)})`);
+    verifier(avec.ordreEtape3 === "peaDabord" && avec.gainOrdreReel >= -1 && avec.gainOrdreReel < sans.gainOrdreReel - 1000, `ordre avec enfants : écart mesuré après droits de succession (${Math.round(avec.gainOrdreReel)} < ${Math.round(sans.gainOrdreReel)})`);
+  }
   for (const p of profils) {
     const nom = `décumulation ${p.age} ans`;
     const c = projeterCentral(PLAN, p), complet = projeter(PLAN, p, { legere: true });
@@ -536,6 +543,10 @@ egal(libelleModele(undefined), "", "libellé absent");
       if (p.age === 45) egal(Ds.ordreEtape3, "peaDabord", `${nom} « ${strat} » : PEA d'abord (épargne jamais épuisée)`);
       if (p.age === 55 && strat === "consommer") egal(Ds.ordreEtape3, "ctoDabord", `${nom} « consommer » : compte-titres d'abord (épargne épuisée)`);
     }
+    // Droits de succession : champs ajoutés, jamais négatifs, et net après droits ≤ net existant (stratégie choisie et prorata)
+    verifier(D.droitsSuccessionOptimise == null || (D.droitsSuccessionOptimise >= 0 && D.patrimoineFinalNetApresDroitsReel <= D.patrimoineFinalNetReel + 1e-6 && Math.abs(D.patrimoineFinalNetReel - D.patrimoineFinalNetApresDroitsReel - D.droitsSuccessionOptimise) < 1e-6), `${nom} : droits de succession (stratégie choisie) ≥ 0 et net après droits ≤ net`);
+    verifier(D.droitsSuccessionProrata == null || (D.droitsSuccessionProrata >= 0 && D.patrimoineFinalNetApresDroitsProrataReel <= D.patrimoineFinalNetProrataReel + 1e-6), `${nom} : droits de succession (prorata) ≥ 0 et net après droits ≤ net`);
+    verifier("droitsSuccessionOptimise" in D && "patrimoineFinalNetApresDroitsReel" in D, `${nom} : champs droits de succession présents`);
     if (p.placements.assuranceVie && D.ageEpuisementOptimise == null) verifier(D.avAvant70Final > 0, `${nom} : AV avant 70 ans transmissible conservée (${Math.round(D.avAvant70Final)})`);
   }
 }

@@ -33,10 +33,11 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 - `moteur.js` : Cœur des calculs déterministes, capacité d'épargne, prêts, PTZ et enveloppes.
 - `fiscal.js` : Fiscalité française 2026 (barème progressif IR, décote, plafonnement du quotient familial, PFU/Flat Tax, IFI, plus-values, arbitrages rémunération/dividendes).
 - `pension.js` : Estimation des droits à la retraite (régime de base + complémentaire Agirc-Arrco) et stratégie de décumulation.
-- `projection.js` : Simulations long terme, tirages Monte-Carlo, Coast FIRE / règle des 4 %, backtesting sur crises historiques (`CRISES` : 2000, 2008, 2022), backtest sur fenêtres glissantes (`backtesterHistorique`), corrélations dynamiques par régime (`hypotheses.correlations`) et scénario d'inflation persistante (`scenarioInflation`).
+- `projection.js` : Simulations long terme, tirages Monte-Carlo, Coast FIRE / règle des 4 %, backtesting sur crises historiques (`CRISES` : 2000, 2008, 2022), backtest sur fenêtres glissantes (`backtesterHistorique`), corrélations dynamiques par régime (`hypotheses.correlations`) et scénario d'inflation persistante (`scenarioInflation`), net transmis après droits de succession (via `succession.js`).
 - `historique.js` : séries annuelles 1970–2025 (rendements par classe d'actifs et inflation) avec leurs sources, utilisées par `backtesterHistorique` et le bloc « Rejouer l'histoire réelle ». Données pures, aucun DOM.
 - `immobilier.js` & `locatif.js` : Recherche DVF (`prix-m2.json`), cash-flow locatif, échéancier d'emprunt, régimes micro-foncier / réel / LMNP et comparaison TRI vs PEA.
 - `entreprises.js` : Barèmes d'abondement salarial (PEE / PERECO) des grandes entreprises.
+- `succession.js` : droits de succession et de donation 2026, dévolution selon le régime matrimonial, assurance-vie (articles 990 I et 757 B), valeur de l'usufruit (art. 669), rappel fiscal de 15 ans, comparaison des options du conjoint survivant sur deux décès, adaptateur `entreeDepuisProfil`. Constantes `DMTG`, `AV_DECES` et `BAREME_USUFRUIT` dans `fiscal.js`. Aucun DOM.
 - `calendrier.js` : Échéancier patrimonial et export `.csv`.
 - `recap.js` : Génération du bilan patrimonial imprimable/exportable.
 - `fiches.js` & `lexique.js` : Fiches pédagogiques et infobulles automatiques du lexique financier.
@@ -79,7 +80,7 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 1. **Planification :** Pour toute tâche touchant plus de 2 fichiers ou introduisant une logique fiscale/financière complexe, expose d'abord ton plan d'action concis et attends validation avant d'écrire du code.
 2. **Contrôles obligatoires avant de rendre la main :**
    - Vérifie la syntaxe JavaScript (`node --check` sur les fichiers modifiés) et Python (`python3 -m py_compile serveur.py` le cas échéant).
-   - Lance les tests : `node test_niveaux.mjs` (cohérence `data-min` ↔ `MATRICE`, invariance des calculs, shell du service worker), `node test_js.mjs`, `test_fiscal.mjs`, `test_immobilier.mjs`, `test_releves.mjs`, `test_sync.mjs` et `python3 test_routage.py` : tout doit passer.
+   - Lance les tests : `node test_niveaux.mjs` (cohérence `data-min` ↔ `MATRICE`, invariance des calculs, shell du service worker), `node test_js.mjs`, `test_fiscal.mjs`, `test_succession.mjs`, `test_immobilier.mjs`, `test_releves.mjs`, `test_sync.mjs` et `python3 test_routage.py` : tout doit passer.
    - Vérifie qu'aucun import ES6 n'est cassé et qu'aucun lien mort (ex. `favicon.svg`, `manifest.json`) ne génère d'erreur 404.
    - Vérifie avec `git diff` qu'aucune clé secrète, donnée personnelle ou régression n'a été introduite.
 3. **Granularité Git :** Termine chaque étape validée en proposant un message de commit clair et atomique (ex. `feat(fiscal): ajoute simulateur de réforme fiscale dynamique`).

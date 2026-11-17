@@ -32,6 +32,7 @@ export const LIBELLES_VUES = {
   reequilibrage: { n: 2, debutant: { nom: "Mon plan du mois", suite: "voir mon plan du mois" }, intermediaire: { nom: "Rééquilibrage", suite: "voir mon rééquilibrage" }, avance: { nom: "Rééquilibrage", suite: "voir mon rééquilibrage" } },
   trajectoire: { n: 3, debutant: { nom: "Mon avenir", suite: "mon avenir" }, intermediaire: { nom: "Trajectoire", suite: "trajectoire" }, avance: { nom: "Trajectoire", suite: "trajectoire" } },
   retraite: { n: 4, debutant: { nom: "Ma retraite", suite: "ma retraite" }, intermediaire: { nom: "Retraite", suite: "ta retraite" }, avance: { nom: "Retraite", suite: "ta retraite" } },
+  transmission: { debutant: { nom: "Transmission", suite: "transmission" }, intermediaire: { nom: "Transmission", suite: "transmission" }, avance: { nom: "Transmission & succession", suite: "transmission et succession" } },
   ideale: unique("Épargne idéale", "épargne idéale"),
   suivi: unique("Suivi", "suivi"),
   fiches: unique("Fiches", "fiches"),
@@ -79,7 +80,7 @@ export const MATRICE = {
     "r0-mode": I, "r0-pension": I, "r0-loyers": I, "r0-or": I,
     "Événements de vie": I,
   },
-  onglets: { suivi: I, plan: A },
+  onglets: { suivi: I, transmission: I, plan: A },
   // Complétés aux étapes 3 à 5
   // Rééquilibrage : les clés sont les id générés dans rendreResultats() (app.js), qui portent aussi data-min
   reequilibrage: { "res-futur": A, "res-profil-risque": I, "res-infos": I, "res-montants": I, "res-rythme": A, "poche-bourse": I },
@@ -91,6 +92,13 @@ export const MATRICE = {
   },
   // Mon plan (vue réservée au niveau avancé) : réglages avancés du gabarit de rendreReglages() (app.js)
   plan: { "hyp-correlations": A },
+  // Transmission : ids de index.html (champs liés à succession.*) et du gabarit de rendreTransmission() (app.js)
+  transmission: {
+    "tm-ch-union": I, "tm-ch-regime": I, "tm-ch-testament": I, "tm-ch-mineur": I, "tm-ch-clause": I,
+    "tm-ch-option": A, "tm-ch-ddv": A, "tm-ch-noncommuns": A, "tm-ch-propres": A, "tm-ch-assurance": A, "tm-ch-donation-anterieure": A, "tm-ch-donation-annee": A,
+    "tm-options": A, "tm-donation": I,
+    "tm-ch-don-valeur": I, "tm-ch-don-croissance": I, "tm-ch-don-annees": I,
+  },
   // Retraite : ids du gabarit de rendreRetraite() (app.js). En Débutant la page est remplacée par « ret-simple » + « ret-verdict-bloc » (data-seul).
   retraite: {
     "ret-hypotheses": I, "ret-objectifs": I, "ret-age": I, "bloc-liberte": I, "bloc-pension": I, "ret-resultat": I, "ret-capital": I,

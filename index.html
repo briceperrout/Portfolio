@@ -155,6 +155,10 @@ input[type=month] { border: 1px solid var(--line); border-radius: 8px; backgroun
   white-space: pre-line; max-width: min(360px, calc(100vw - 32px)); }
 .pastille { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; }
 .table-wrap { overflow-x: auto; }
+table tr.meilleure td { background: var(--accent-soft); font-weight: 600; }
+.tm-rappel b { font-weight: 600; }
+.tm-ligne-total td { border-top: 2px solid var(--line); font-weight: 700; }
+#tm-resultat ul.tm-liste { margin: 6px 0 0; padding-left: 20px; }
 table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
 th { text-align: left; font-weight: 600; color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
 th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -533,6 +537,7 @@ html.discret .num { letter-spacing: 0.05em; }
     <a href="#reequilibrage" id="lien-reequilibrage">2. Rééquilibrage</a>
     <a href="#trajectoire" id="lien-trajectoire">3. Trajectoire</a>
     <a href="#retraite" id="lien-retraite">4. Retraite</a>
+    <a href="#transmission" id="lien-transmission" data-min="intermediaire">Transmission</a>
     <a href="#epargne-ideale" id="lien-ideale">Épargne idéale</a>
     <a href="#suivi" id="lien-suivi" data-min="intermediaire">Suivi</a>
     <a href="#fiches" id="lien-fiches">Fiches</a>
@@ -855,6 +860,42 @@ html.discret .num { letter-spacing: 0.05em; }
     <div class="etape" data-seul="debutant"><p><b>Étape 4 sur 4.</b> Une seule question : est-ce que ta retraite tient ? Tu choisis l'âge où tu veux arrêter de travailler et le revenu que tu veux par mois ; on te dit si l'argent suffit, et sinon ce qu'il faut changer.</p><a class="bouton" href="#trajectoire">← <span data-lib="trajectoire">Trajectoire</span></a></div>
     <div class="etape" data-min="intermediaire"><p><b>Étape 4 sur 4.</b> Ta retraite par capitalisation : à partir de 64 ans, tu te verses chaque mois un revenu pris sur tes placements, sans compter sur la retraite publique. Combien peux-tu te verser, combien de temps l'argent dure-t-il, et que restera-t-il à transmettre ?</p><a class="bouton" href="#trajectoire">← <span data-lib="trajectoire">Trajectoire</span></a></div>
     <div class="pile" id="retraite"></div>
+  </section>
+
+  <!-- ===================== TRANSMISSION ===================== -->
+  <section id="vue-transmission" hidden>
+    <div class="pile" id="transmission">
+      <section class="panneau" id="tm-avertissement" role="note"><p style="margin:0"><b>Estimation pédagogique à valeurs constantes, barèmes 2026 ; ne remplace pas l'avis d'un notaire.</b></p></section>
+      <div class="panneau"><fieldset>
+        <legend>Situation familiale</legend>
+        <p class="note tm-rappel" id="tm-rappel" style="margin:0"></p>
+        <div class="champs">
+            <div class="champ" id="tm-ch-union" data-min="intermediaire"><label for="tm-union">Votre union</label><select id="tm-union" data-p="succession.union"><option value="mariage">Mariage</option><option value="pacs">PACS</option></select></div>
+            <div class="champ" id="tm-ch-regime" data-min="intermediaire"><label for="tm-regime">Régime matrimonial</label><select id="tm-regime" data-p="succession.regime"><option value="communaute_legale">Communauté réduite aux acquêts (par défaut)</option><option value="separation">Séparation de biens</option><option value="communaute_universelle">Communauté universelle</option></select></div>
+            <label class="coche" id="tm-ch-testament" data-min="intermediaire"><input type="checkbox" data-p="succession.testament"> Un testament lègue la quotité disponible à mon partenaire</label>
+            <label class="coche" id="tm-ch-mineur" data-min="intermediaire"><input type="checkbox" data-p="succession.enfantMineurAuFoyer"> Un enfant mineur vit au foyer (abattement de 20 % sur la résidence principale)</label>
+            <div class="champ" id="tm-ch-clause" data-min="intermediaire"><label for="tm-clause">Clause bénéficiaire de l'assurance-vie</label><select id="tm-clause" data-p="succession.clauseAV"><option value="conjoint_puis_enfants">Conjoint ou partenaire, puis enfants</option><option value="enfants">Enfants à parts égales</option></select></div>
+            <div class="champ" id="tm-ch-option" data-min="avance"><label for="tm-option">Option du conjoint survivant</label><select id="tm-option" data-p="succession.optionConjoint"><option value="auto">La plus avantageuse (calcul automatique)</option><option value="quart_pp">Un quart en pleine propriété</option><option value="usufruit">Usufruit de toute la succession</option><option value="quart_pp_usufruit">Un quart en pleine propriété et usufruit du reste (donation au dernier vivant)</option><option value="quotite_disponible">Quotité disponible (donation au dernier vivant)</option></select></div>
+            <label class="coche" id="tm-ch-ddv" data-min="avance"><input type="checkbox" data-p="succession.donationDernierVivant"> Donation au dernier vivant signée chez le notaire</label>
+            <div class="champ" id="tm-ch-noncommuns" data-min="avance"><label for="tm-noncommuns">Dont enfants non communs au couple</label><div class="saisie"><input id="tm-noncommuns" type="number" min="0" step="1" data-p="succession.enfantsNonCommuns" placeholder="0" max="15"><span>enfants</span></div></div>
+            <div class="champ" id="tm-ch-propres" data-min="avance"><label for="tm-propres">Dont biens propres (héritage, donation reçue)</label><div class="saisie"><input id="tm-propres" type="number" min="0" step="1000" data-p="succession.biensPropres" placeholder="0"><span>€</span></div></div>
+            <div class="champ" id="tm-ch-assurance" data-min="avance"><label for="tm-assurance">Part du crédit couverte par l'assurance emprunteur</label><div class="saisie"><input id="tm-assurance" type="number" min="0" step="5" data-p="succession.quotiteAssuranceEmprunteur" placeholder="100" max="100"><span>%</span></div></div>
+            <div class="champ" id="tm-ch-donation-anterieure" data-min="avance"><label for="tm-don-montant">Donation déjà faite à chaque enfant (moins de 15 ans)</label><div class="saisie"><input id="tm-don-montant" type="number" min="0" step="1000" data-p="succession.donationAnterieure.montantParEnfant" placeholder="0"><span>€</span></div></div>
+            <div class="champ" id="tm-ch-donation-annee" data-min="avance"><label for="tm-don-annee">Année de cette donation</label><div class="saisie"><input id="tm-don-annee" type="number" min="1990" max="2100" step="1" data-p="succession.donationAnterieure.annee" placeholder="année"><span>en</span></div></div>
+        </div>
+      </fieldset></div>
+      <div class="pile" id="tm-resultat"></div>
+      <div class="panneau" id="tm-donation" data-min="intermediaire"><fieldset>
+        <legend>Donation de nue-propriété</legend>
+        <p class="note" id="tm-don-note" style="margin:0">Donner la nue-propriété d'un bien en gardant l'usufruit : les droits sont calculés sur la seule valeur de la nue-propriété (art. 669 du CGI), et l'abattement de 100 000 € par enfant se recharge tous les 15 ans.</p>
+        <div class="champs">
+            <div class="champ" id="tm-ch-don-valeur" data-min="intermediaire"><label for="tm-don-valeur">Valeur du bien à donner</label><div class="saisie"><input id="tm-don-valeur" type="number" min="0" step="5000" data-p="succession.projetDonation.valeur" placeholder="0"><span>€</span></div></div>
+            <div class="champ" id="tm-ch-don-croissance" data-min="intermediaire"><label for="tm-don-croissance">Croissance annuelle estimée de ce bien</label><div class="saisie"><input id="tm-don-croissance" type="number" min="-10" step="0.5" data-p="succession.projetDonation.croissance" placeholder="3" max="15"><span>%/an</span></div></div>
+            <div class="champ" id="tm-ch-don-annees" data-min="intermediaire"><label for="tm-don-annees">Années avant le décès (pour la comparaison)</label><div class="saisie"><input id="tm-don-annees" type="number" min="0" step="1" data-p="succession.projetDonation.annees" placeholder="15" max="60"><span>ans</span></div></div>
+        </div>
+        <div id="tm-donation-resultat"></div>
+      </fieldset></div>
+    </div>
   </section>
 
   <!-- ===================== SUIVI ===================== -->

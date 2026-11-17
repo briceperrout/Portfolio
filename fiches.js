@@ -1825,6 +1825,7 @@ export const FICHES = [
         "Le PER assurantiel suit les mêmes règles. Le PEA, lui, est fermé au décès et entre dans la succession (avec l'exonération des gains sur l'impôt sur le revenu).",
       ] },
       { titre: "Transmettre de son vivant : les donations", points: [
+        "Pour chiffrer ta propre situation (droits par héritier, options du conjoint survivant, donation de nue-propriété), ouvre l'onglet « Transmission » : simuler ma succession.",
         "Chaque parent peut donner 100 000 € à chaque enfant sans droits, et recommencer 15 ans plus tard : donner tôt permet d'utiliser l'abattement plusieurs fois.",
         "Don d'argent en plus (don familial) : 31 865 € par donateur de moins de 80 ans à un enfant, petit-enfant (ou neveu, à défaut) majeur. Cumulable avec l'abattement de 100 000 €.",
         "Don pour un logement : jusqu'au 31 décembre 2026, 100 000 € de plus sans droits par donateur (300 000 € au plus par bénéficiaire), à utiliser dans les 6 mois pour acheter un logement neuf ou faire une rénovation énergétique de sa résidence principale. Une prolongation en 2027 n'est pas encore votée.",

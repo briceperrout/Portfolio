@@ -52,6 +52,12 @@ verifier(/siNiveau\("avance", \(\) => blocRythme\(res\)\)/.test(appJs.join("\n")
 verifier(appJs.some((l) => l.includes('id="res-bourse-debutant"') && l.includes('data-seul="debutant"')), "ligne bourse débutant (data-seul)");
 egal(dm(lignes.find((l) => l.includes('id="lien-suivi"'))), MATRICE.onglets.suivi, "data-min de l'onglet Suivi");
 egal(dm(lignes.find((l) => l.includes('id="lien-plan"'))), MATRICE.onglets.plan, "data-min de l'onglet Mon plan");
+// Transmission : chaque clé de MATRICE.transmission porte son data-min dans index.html ou dans le gabarit de rendreTransmission() (app.js)
+for (const [cle, min] of Object.entries(MATRICE.transmission)) {
+  const ligne = lignes.find((l) => l.includes(`id="${cle}"`)) ?? appJs.find((l) => l.includes(`id="${cle}"`));
+  egal(dm(ligne), min, `data-min de « ${cle} » (Transmission)`);
+}
+egal(dm(lignes.find((l) => l.includes('id="lien-transmission"'))), MATRICE.onglets.transmission, "data-min de l'onglet Transmission");
 const valeursHtml = [...html.matchAll(/data-min="([^"]*)"/g)].map((m) => m[1]);
 verifier(valeursHtml.length > 0 && valeursHtml.every((v) => v === "intermediaire" || v === "avance"), "valeurs data-min valides");
 verifier(/html\[data-niveau="debutant"\] \[data-min="intermediaire"\]/.test(html) && /\[data-seul="debutant"\]/.test(html), "règles CSS de masquage présentes");
@@ -117,6 +123,8 @@ for (const n of ["inconnu", undefined, null, ""]) {
 verifier(visible("valeur-inconnue", "debutant") === false && visible("valeur-inconnue", "avance") === true, "data-min inconnu : traité comme avancé (masqué sous « avance »)");
 
 // ---------------------------------------------------------------- copies locales des profils d'app.js (app.js touche au DOM : non importable en Node)
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const SUCCESSION_DEFAUT = { union: "mariage", regime: "communaute_legale", optionConjoint: "auto", donationDernierVivant: false, enfantsNonCommuns: 0, testament: false, enfantMineurAuFoyer: false, biensPropres: 0, clauseAV: "conjoint_puis_enfants", quotiteAssuranceEmprunteur: 100, donationAnterieure: { annee: null, montantParEnfant: 0 }, projetDonation: { valeur: 0, croissance: 3, annees: 15 } };
 const PTZ_DEFAUT = { actif: false, zone: "B1", tranche: 2, typeOperation: "collectifNeuf", personnes: null, travauxPctCout: 0 };
 const PROFIL_EXEMPLE = {
   age: 32, salaireNetMensuel: 3200, epargneMensuelle: 1000, depensesMensuelles: 1800, tmi: "30",
@@ -133,6 +141,7 @@ const PROFIL_EXEMPLE = {
   independant: { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false },
   foyer: { actif: false, statut: "marie" },
   conjoint: { prenom: "", age: 31, salaireNetMensuel: 2400, pea: { ouvert: false, versements: 0, etablissement: "" } },
+  succession: clone(SUCCESSION_DEFAUT),
 };
 const PROFIL_VIDE = {
   age: 30, salaireNetMensuel: 0, epargneMensuelle: 0, depensesMensuelles: 0, proprietaire: false, loyerMensuel: 0,
@@ -146,10 +155,12 @@ const PROFIL_VIDE = {
   independant: { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false },
   foyer: { actif: false, statut: "marie" },
   conjoint: { prenom: "", age: 30, salaireNetMensuel: 0, pea: { ouvert: false, versements: 0, etablissement: "" } },
+  succession: clone(SUCCESSION_DEFAUT),
 };
 // Garde-fou : les copies suivent app.js (si un champ y est ajouté, ce test le rappelle)
 const appSrc = readFileSync(new URL("./app.js", import.meta.url), "utf8");
-const litApp = (nom) => { const t = appSrc.match(new RegExp(`const ${nom} = (\\{\\n[\\s\\S]*?\\n\\});`))?.[1]; return t ? new Function("PTZ_DEFAUT", `return ${t};`)(PTZ_DEFAUT) : null; };
+const litApp = (nom) => { const t = appSrc.match(new RegExp(`const ${nom} = (\\{\\n[\\s\\S]*?\\n\\});`))?.[1]; return t ? new Function("PTZ_DEFAUT", "clone", "SUCCESSION_DEFAUT", `return ${t};`)(PTZ_DEFAUT, clone, SUCCESSION_DEFAUT) : null; };
+egal(SUCCESSION_DEFAUT, new Function(`return ${appSrc.match(/const SUCCESSION_DEFAUT = (\{.*\});/)?.[1]};`)(), "copie de SUCCESSION_DEFAUT identique à celle d'app.js");
 egal(PROFIL_EXEMPLE, litApp("PROFIL_EXEMPLE"), "copie de PROFIL_EXEMPLE identique à celle d'app.js");
 egal(PROFIL_VIDE, litApp("PROFIL_VIDE"), "copie de PROFIL_VIDE identique à celle d'app.js");
 
