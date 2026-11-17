@@ -137,6 +137,9 @@ select { border: 1px solid var(--line); border-radius: 8px; background: var(--bg
 input[type=month] { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); padding: 6px 8px; font: inherit; width: 100%; min-width: 0; }
 
 /* Allocation */
+#bloc-independant { border: 0; padding: 0; margin: 0; min-width: 0; }
+#resultat-independant ul { margin: 0; padding-left: 18px; }
+#resultat-independant .chiffres { margin: 4px 0 0; }
 .chiffres { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 4px 0 14px; }
 .chiffres div { display: grid; }
 .chiffres b { font-family: var(--font-display); font-size: 1.25rem; }
@@ -491,6 +494,17 @@ html.discret .num { letter-spacing: 0.05em; }
             <p class="note" id="aide-risque" style="margin:-4px 0 0"></p>
             <p class="conseil" id="conseil-risque"></p>
             <div class="champ"><label for="p-statut-pro">Situation professionnelle</label><select id="p-statut-pro" data-p="statutPro"><option value="">À préciser</option><option value="stable">CDI, fonctionnaire</option><option value="precaire">CDD, intérim</option><option value="independant">Indépendant</option><option value="etudiant">Étudiant</option><option value="retraite">Retraité</option></select></div>
+            <fieldset id="bloc-independant" class="champs" hidden>
+              <legend class="note" style="padding:0">Ton activité d'indépendant</legend>
+              <div class="champ"><label for="p-ind-forme">Forme d'exercice</label><select id="p-ind-forme" data-p="independant.forme"><option value="">À préciser</option><option value="microBnc">Micro BNC (profession libérale)</option><option value="microBicServices">Micro BIC prestations de services</option><option value="microBicVente">Micro BIC vente de marchandises</option><option value="sasu">SASU (président assimilé salarié)</option><option value="eurl">EURL à l'IS (gérant majoritaire TNS)</option></select></div>
+              <div class="champ" data-ind="micro"><label for="p-ind-ca">Chiffre d'affaires annuel</label><div class="saisie"><input id="p-ind-ca" type="number" min="0" step="1000" data-p="independant.ca"><span>€/an</span></div></div>
+              <label class="coche" data-ind="micro"><input id="p-ind-vl" type="checkbox" data-p="independant.vl"> Versement libératoire de l'impôt sur le revenu</label>
+              <div class="champ" data-ind="societe"><label for="p-ind-resultat">Résultat de la société avant ta rémunération</label><div class="saisie"><input id="p-ind-resultat" type="number" min="0" step="1000" data-p="independant.resultat"><span>€/an</span></div></div>
+              <div class="champ" data-ind="societe"><label for="p-ind-remu">Ta rémunération nette annuelle</label><div class="saisie"><input id="p-ind-remu" type="number" min="0" step="1000" data-p="independant.remunerationNette"><span>€/an</span></div></div>
+              <div class="champ" data-ind="eurl"><label for="p-ind-capital">Capital, primes d'émission et comptes courants d'associés</label><div class="saisie"><input id="p-ind-capital" type="number" min="0" step="1000" data-p="independant.capital"><span>€</span></div></div>
+              <div class="champ" data-ind="societe"><label for="p-ind-distribution">Part du bénéfice distribuée en dividendes</label><div class="saisie"><input id="p-ind-distribution" type="number" min="0" max="100" step="5" data-p="independant.distribution" placeholder="100"><span>%</span></div></div>
+              <div id="resultat-independant" class="champs" aria-live="polite"></div>
+            </fieldset>
             <div class="champ"><label for="p-pays">Résidence fiscale</label><select id="p-pays" data-p="pays"></select></div>
             <div class="champ" id="ligne-impot-pays"><label for="p-impot-pays">Impôt sur les gains dans ce pays</label><div class="saisie"><input id="p-impot-pays" type="number" min="0" max="60" step="0.5" data-p="impotGainsPays" placeholder="25"><span>%</span></div></div>
           </fieldset></div>

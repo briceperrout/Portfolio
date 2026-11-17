@@ -1,4 +1,4 @@
-import { decomposerSalaire, foyerFiscal, revenuImposableSalaires } from "./fiscal.js";
+import { decomposerSalaire, foyerFiscal, revenuImposableSalaires, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant } from "./fiscal.js";
 import { projetLocatifDe } from "./locatif.js";
 // =====================================================================
 //  MOTEUR — applique PLAN à un profil. Aucune valeur financière ici.
@@ -61,6 +61,7 @@ export function normaliserFoyer(plan, p) {
   const dates = peas.map((x) => x.dateOuverture).filter(Boolean).sort();
   const marie = p.foyer.statut !== "concubin";
   const estimPER = (sal) => plafondPEREstime(plan, sal);
+  const perPrincipal = plafondPERIndependantDe(plan, p) ?? estimPER(p.salaireNetMensuel);
   return {
     ...p, _foyer: true, personnes: 2, couple: true, marie, hausseSalaire10: hausseSur10Ans(plan, p, c), jeune: age1 <= 25 || age2 <= 25,
     age: ageRef, agePrincipal: age1, ageConjoint: age2, ageEmprunteur: Math.max(age1, age2),
@@ -70,7 +71,7 @@ export function normaliserFoyer(plan, p) {
     peaPrincipal: p.pea,
     pea: { ouvert: peas.length > 0, versements: peas.reduce((s, x) => s + (x.versements ?? 0), 0), dateOuverture: dates[dates.length - 1], etablissement: p.pea?.etablissement },
     // Marié ou pacsé : plafonds PER mutualisables ; concubinage : seul celui de la personne qui verse
-    plafondPEREstime: marie ? estimPER(p.salaireNetMensuel) + estimPER(c.salaireNetMensuel) : estimPER(p.salaireNetMensuel),
+    plafondPEREstime: marie ? perPrincipal + estimPER(c.salaireNetMensuel) : perPrincipal,
   };
 }
 
@@ -740,6 +741,38 @@ export function plafondPEREstime(plan, salaireNetApresImpot) {
   const netAvant = decomposerSalaire(Number(salaireNetApresImpot) || 0).netAvant;
   return Math.min(plan.per?.plafondMax ?? Infinity, Math.max(plan.per?.plafondMin ?? 0, 0.1 * 0.9 * netAvant * 12));
 }
+
+// Indépendant : simulation selon la forme choisie dans le profil (micro, SASU ou EURL à l'IS).
+// Renvoie null si le profil n'est pas celui d'un indépendant ou si la forme n'est pas renseignée.
+const FORMES_MICRO = { microBnc: "bnc", microBicServices: "bicServices", microBicVente: "bicVente" };
+export function simulerIndependant(plan, profil, optimiser = true) {
+  const I = profil?.independant;
+  if (profil?.statutPro !== "independant" || !I?.forme) return null;
+  const ff = foyerFiscal(profil);
+  const autres = ff.commun && ff.autresMensuels > 0 ? decomposerSalaire(ff.autresMensuels).netAvant * 12 * 0.9 : 0;
+  const pass = plan.retraitePublique?.pass ?? 48060, passN1 = (plan.per?.plafondMin ?? 4710) * 10;
+  const commun = { autresRevenusImposables: autres, parts: ff.parts, partsBase: ff.partsBase };
+  let resultat, formePER, optimisation = null;
+  if (FORMES_MICRO[I.forme]) {
+    resultat = microEntreprise({ ca: Number(I.ca) || 0, activite: FORMES_MICRO[I.forme], versementLiberatoire: !!I.vl, ...commun });
+    formePER = "micro";
+  } else if (I.forme === "sasu" || I.forme === "eurl") {
+    const saisie = {
+      forme: I.forme, resultatAvantRemuneration: Number(I.resultat) || 0, capitalEtCCA: Number(I.capital) || 0,
+      tauxDistribution: I.distribution === "" || I.distribution == null ? 100 : Number(I.distribution), ...commun,
+    };
+    resultat = remunerationSociete({ ...saisie, remunerationNette: Number(I.remunerationNette) || 0 });
+    if (optimiser) optimisation = optimiserRemuneration(saisie);
+    formePER = I.forme;
+  } else return null;
+  const plafondPER = plafondPERIndependant({ forme: formePER, revenuPro: resultat.revenuProPER, pass, passN1 });
+  return { ...resultat, plafondPER, optimisation };
+}
+// Plafond PER d'un indépendant (null pour un salarié : le calcul habituel s'applique)
+function plafondPERIndependantDe(plan, profil) {
+  return simulerIndependant(plan, profil, false)?.plafondPER.plafond ?? null;
+}
+
 export function tmiDe(profil) {
   return profil.tmi === "" || profil.tmi == null ? null : Number(profil.tmi);
 }
@@ -749,7 +782,7 @@ export function conseilPER(plan, profil, mouvements = []) {
   const tmi = tmiDe(profil);
   const salaireAn = (profil.salaireNetMensuel ?? 0) * 12;
   const plafondEstime = !(profil.plafondPER > 0);
-  const plafond = !plafondEstime ? profil.plafondPER : profil.plafondPEREstime ?? plafondPEREstime(plan, profil.salaireNetMensuel);
+  const plafond = !plafondEstime ? profil.plafondPER : profil.plafondPEREstime ?? plafondPERIndependantDe(plan, profil) ?? plafondPEREstime(plan, profil.salaireNetMensuel);
   const base = { tmi, plafond, plafondEstime, mensuel: 0, annuel: 0, economie: 0 };
   if (!resideEnFrance(profil)) return { ...base, actif: false, raison: "non-resident" };
   if (tmi == null) return { ...base, actif: false, raison: "tmi-inconnue" };

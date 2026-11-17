@@ -8,7 +8,7 @@ Ce fichier définit le cadre technique, métier et méthodologique obligatoire p
 
 **Plan Patrimoine** est une application web progressive (PWA) de simulation patrimoniale, fiscale, immobilière et retraite conçue pour les épargnants français, selon une approche **Local-First & Privacy-by-Design**.
 
-- **Stack Frontend :** HTML5 sémantique, CSS modulaire (`style.css`), JavaScript Vanilla **ES6 Modules** (`type="module"`), **sans framework ni bundler** (zéro dépendance React/Vue/Webpack). L'application doit pouvoir tourner en statique pur (Cloudflare Pages) ou via le serveur Python local.
+- **Stack Frontend :** HTML5 sémantique, CSS inline dans un `<style>` de `index.html` (pas de `style.css`), JavaScript Vanilla **ES6 Modules** (`type="module"`), **sans framework ni bundler** (zéro dépendance React/Vue/Webpack). L'application doit pouvoir tourner en statique pur (Cloudflare Pages) ou via le serveur Python local.
 - **Stack Backend / Edge :** `serveur.py` (serveur de développement local + proxy API sécurisé) et `worker.js` (Cloudflare Worker pour la production).
 - **Données locales :** `prix-m2.json` contient les références DVF et loyers de ~35 000 communes françaises.
 
@@ -27,7 +27,7 @@ Ce fichier définit le cadre technique, métier et méthodologique obligatoire p
 
 Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'un de ces fichiers :
 
-- `index.html` & `style.css` : Structure de l'interface, onglets, modales et thèmes (clair/sombre).
+- `index.html` (CSS inline inclus) : Structure de l'interface, onglets, modales et thèmes (clair/sombre).
 - `app.js` : Point d'entrée UI, gestion de l'état global (`etat`), écouteurs d'événements, exports et mode discrétion (`Alt+H`).
 - `plan.js` : Allocation d'actifs dynamique par paliers de patrimoine et profil de risque.
 - `moteur.js` : Cœur des calculs déterministes, capacité d'épargne, prêts, PTZ et enveloppes.
@@ -49,7 +49,7 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 - **Séparation Calculs / DOM :** Garde les fonctions financières et fiscales pures (entrée → sortie déterministe) dans les modules métier (`moteur.js`, `fiscal.js`, `projection.js`, etc.). Réserve la manipulation du DOM à `app.js` et aux composants UI dédiés.
 - **Indépendance vis-à-vis de `window.claude` :** L'application doit fonctionner à 100 % sur `localhost` et Cloudflare Pages. Tout export de fichier (`.json`, `.csv`, bilan HTML) doit impérativement implémenter un téléchargement navigateur standard (`Blob` + `URL.createObjectURL` + `<a download>`).
 - **Mode Discrétion (`Alt+H`) :** Tout nouvel composant affichant des montants en euros, des soldes ou des réponses de l'assistant IA doit respecter la classe CSS de masquage déclenchée par `Alt+H`.
-- **Domaine Fiscal Français (Référentiel 2026) :** Respecte strictement les règles françaises : PEA (exonération d'IR après 5 ans, prélèvements sociaux 17,2 %), Assurance-Vie (abattement 4 600 € / 9 200 € après 8 ans, articles 990 I et 757 B du CGI pour la succession), PER (déductibilité à l'entrée dans la limite du plafond épargne retraite), LMNP (amortissements au réel vs abattement micro-BIC).
+- **Domaine Fiscal Français (Référentiel 2026) :** Respecte strictement les règles françaises : PEA (exonération d'IR après 5 ans, prélèvements sociaux 18,6 % depuis la LFSS 2026 ; 17,2 % pour l'assurance-vie et les revenus fonciers — taux centralisés dans `PRELEVEMENTS` de `fiscal.js`), Assurance-Vie (abattement 4 600 € / 9 200 € après 8 ans, articles 990 I et 757 B du CGI pour la succession), PER (déductibilité à l'entrée dans la limite du plafond épargne retraite), LMNP (amortissements au réel vs abattement micro-BIC).
 
 ### Backend IA, Routage & Privacy-by-Design (`serveur.py` / `worker.js`)
 - **Routage des modèles OpenAI (optimisation quota Data Sharing 2,5M tokens/jour) :**
@@ -74,6 +74,6 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 1. **Planification :** Pour toute tâche touchant plus de 2 fichiers ou introduisant une logique fiscale/financière complexe, expose d'abord ton plan d'action concis et attends validation avant d'écrire du code.
 2. **Contrôles obligatoires avant de rendre la main :**
    - Vérifie la syntaxe JavaScript (`node --check` sur les fichiers modifiés) et Python (`python3 -m py_compile serveur.py` le cas échéant).
-   - Vérifie qu'aucun import ES6 n'est cassé et qu'aucun lien mort (ex. `favicon.svg`, `style.css`) ne génère d'erreur 404.
+   - Vérifie qu'aucun import ES6 n'est cassé et qu'aucun lien mort (ex. `favicon.svg`, `manifest.json`) ne génère d'erreur 404.
    - Vérifie avec `git diff` qu'aucune clé secrète, donnée personnelle ou régression n'a été introduite.
 3. **Granularité Git :** Termine chaque étape validée en proposant un message de commit clair et atomique (ex. `feat(fiscal): ajoute simulateur de réforme fiscale dynamique`).

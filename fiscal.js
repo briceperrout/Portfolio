@@ -8,6 +8,17 @@
 // =====================================================================
 
 export const BAREME = [[11600, 0], [29579, 11], [84577, 30], [181917, 41], [Infinity, 45]];
+// Taux de prélèvement : source unique pour plan.js, evolution-fiscale.js et locatif.js
+export const PRELEVEMENTS = Object.freeze({
+  IR_PFU: 12.8,           // part impôt sur le revenu du prélèvement forfaitaire unique
+  PS_CAPITAL: 18.6,       // LFSS 2026 : dividendes, intérêts, plus-values, PEA
+  PS_PATRIMOINE: 17.2,    // assurance-vie, revenus fonciers
+  IR_AV_8ANS: 7.5,        // assurance-vie de plus de 8 ans (après abattement)
+  CSG_CRDS_ACTIVITE: 9.7, // CSG et CRDS sur l'abondement et l'épargne salariale
+  VERIFIE_LE: "2026-11-16",
+});
+export const PFU = Math.round((PRELEVEMENTS.IR_PFU + PRELEVEMENTS.PS_CAPITAL) * 10) / 10; // 31,4 %
+
 const DECOTE = { seul: 897, couple: 1483, taux: 45.25 };
 
 // Parts pour enfants à charge : 0,5 pour chacun des deux premiers, 1 à partir du troisième
@@ -95,4 +106,145 @@ export function tauxSurRevenuEnPlus(profil, extra) {
   const saisi = profil.tmi === "" || profil.tmi == null ? null : Number(profil.tmi);
   const parSaisie = saisi != null && !profil.tmiEstimee && saisi > marginal + 0.5;
   return { taux: parSaisie ? saisi : marginal, tmiSans: sans.tmi, tmiAvec: avec.tmi, franchit: avec.tmi > sans.tmi, parSaisie, estimee: !!profil.tmiEstimee };
+}
+
+// =====================================================================
+//  INDÉPENDANTS — micro-entreprise, SASU, EURL à l'IS (barème 2026)
+//  Fonctions pures : entrée → sortie déterministe, montants annuels.
+//  Simplifications : taux effectifs, pas de déficit reportable, pas de
+//  chômage ni de prévoyance, réforme 2026 de l'assiette TNS non reproduite
+//  ligne à ligne.
+// =====================================================================
+export const INDEPENDANTS_2026 = Object.freeze({
+  micro: Object.freeze({
+    // cotisations : % du CA ; abattement : abattement forfaitaire de l'impôt ; vl : versement libératoire (% du CA)
+    // BNC 25,6 % : taux 2026 SSI non réglementé ; CIPAV (23,2 %) hors périmètre ; contribution formation professionnelle non incluse
+    bnc: Object.freeze({ cotisations: 25.6, abattement: 34, vl: 2.2, seuil: 83600 }),
+    bicServices: Object.freeze({ cotisations: 21.2, abattement: 50, vl: 1.7, seuil: 83600 }),
+    bicVente: Object.freeze({ cotisations: 12.3, abattement: 71, vl: 1.0, seuil: 203100 }),
+    abattementMin: 305,
+  }),
+  // Impôt sur les sociétés : 15 % jusqu'à 42 500 € de bénéfice (PME éligibles, art. 219 I-b du CGI), 25 % au-delà
+  is: Object.freeze({ tauxReduit: 15, plafondReduit: 42500, tauxNormal: 25 }),
+  // Président de SASU assimilé salarié (régime général, sans assurance chômage)
+  sasu: Object.freeze({ tauxSalarial: 22, tauxPatronal: 42, csgNonDeductible: 2.9, assietteCsg: 98.25 }),
+  // Gérant majoritaire d'EURL (TNS) : taux effectif simplifié sur la rémunération nette
+  tns: Object.freeze({ tauxSurNet: 45, csgNonDeductible: 2.9, abattementAssiette: 26 }),
+  // Frais professionnels forfaitaires de 10 % (plafond à vérifier chaque année) : salaires SASU et gérant EURL (art. 62)
+  abattement10: Object.freeze({ taux: 10, plafond: 14426 }),
+  // Dividendes d'EURL soumis aux cotisations TNS au-delà de 10 % du capital + primes d'émission + comptes courants d'associés
+  seuilDividendesEURL: 10,
+});
+
+const I = INDEPENDANTS_2026;
+
+// Impôt supplémentaire dû à un revenu d'indépendant : impôt(autres + revenu) − impôt(autres)
+function impotAttribue(revenuIndependant, autres, parts, partsBase) {
+  const a = Math.max(0, Number(autres) || 0), r = Math.max(0, Number(revenuIndependant) || 0);
+  const avec = impotBareme(a + r, parts, partsBase), sans = impotBareme(a, parts, partsBase);
+  return { impot: Math.max(0, avec.impot - sans.impot), impotFoyer: avec.impot, tmi: avec.tmi, tmiSans: sans.tmi };
+}
+
+export function microEntreprise({ ca, activite = "bnc", versementLiberatoire = false, autresRevenusImposables = 0, parts = 1, partsBase = parts }) {
+  const P = I.micro[activite] ?? I.micro.bnc;
+  const c = Math.max(0, Number(ca) || 0);
+  const cotisations = (c * P.cotisations) / 100;
+  const abattement = Math.min(c, Math.max(I.micro.abattementMin, (c * P.abattement) / 100));
+  const revenuImposable = c - abattement;
+  const alertes = [];
+  let impot, impotFoyer, tmi;
+  if (versementLiberatoire) {
+    const t = impotAttribue(0, autresRevenusImposables, parts, partsBase);
+    impot = (c * P.vl) / 100;
+    impotFoyer = t.impotFoyer + impot;
+    tmi = t.tmi;
+    alertes.push("Éligibilité au versement libératoire selon le revenu fiscal de référence N-2 non vérifiée.");
+  } else {
+    const t = impotAttribue(revenuImposable, autresRevenusImposables, parts, partsBase);
+    impot = t.impot; impotFoyer = t.impotFoyer; tmi = t.tmi;
+  }
+  if (c > P.seuil) alertes.push(`Dépassement du seuil micro (${P.seuil.toLocaleString("fr-FR")} €) : bascule vers le régime réel.`);
+  return {
+    forme: "micro", activite, ca: c, cotisations, abattement, revenuImposable, impot, impotFoyer, tmi,
+    netAnnuel: c - cotisations - impot, assietteRetraite: revenuImposable, revenuProPER: revenuImposable, alertes,
+  };
+}
+
+function impotsSociete(b) {
+  return (I.is.tauxReduit * Math.min(b, I.is.plafondReduit) + I.is.tauxNormal * Math.max(0, b - I.is.plafondReduit)) / 100;
+}
+export const impotSurLesSocietes = impotsSociete;
+
+export function remunerationSociete({ forme, resultatAvantRemuneration, remunerationNette, capitalEtCCA = 0, tauxDistribution = 100, autresRevenusImposables = 0, parts = 1, partsBase = parts }) {
+  const eurl = forme === "eurl";
+  const resultat = Number(resultatAvantRemuneration) || 0;
+  const net = Math.max(0, Number(remunerationNette) || 0);
+  const alertes = [];
+  let brut = null, cotisations, imposableAvantAbattement;
+  if (!eurl) {
+    brut = net / (1 - I.sasu.tauxSalarial / 100);
+    const cout = brut * (1 + I.sasu.tauxPatronal / 100);
+    cotisations = cout - net;
+    imposableAvantAbattement = net + (brut * I.sasu.assietteCsg / 100) * I.sasu.csgNonDeductible / 100;
+  } else {
+    cotisations = (net * I.tns.tauxSurNet) / 100;
+    const cout = net + cotisations;
+    imposableAvantAbattement = net + (I.tns.csgNonDeductible / 100) * cout * (1 - I.tns.abattementAssiette / 100);
+  }
+  const coutRemuneration = net + cotisations;
+  const abattement = Math.min((imposableAvantAbattement * I.abattement10.taux) / 100, I.abattement10.plafond);
+  const remunerationImposable = imposableAvantAbattement - abattement;
+  if (coutRemuneration > resultat) alertes.push("La rémunération dépasse le résultat : aucun déficit reportable n'est simulé.");
+  const beneficeAvantIS = Math.max(0, resultat - coutRemuneration);
+  const is = impotsSociete(beneficeAvantIS);
+  const dividendesBruts = ((beneficeAvantIS - is) * Math.max(0, Number(tauxDistribution))) / 100;
+  let pfu = 0, tns = 0, irSurExcedent = 0;
+  if (!eurl) {
+    pfu = (dividendesBruts * PFU) / 100;
+  } else {
+    const seuil = (I.seuilDividendesEURL / 100) * Math.max(0, Number(capitalEtCCA) || 0);
+    const partPFU = Math.min(dividendesBruts, seuil), exces = dividendesBruts - partPFU;
+    pfu = (partPFU * PFU) / 100;
+    tns = (exces * I.tns.tauxSurNet) / (100 + I.tns.tauxSurNet);
+    irSurExcedent = (exces * PRELEVEMENTS.IR_PFU) / 100;
+    if (exces > 0) alertes.push("Dividendes d'EURL au-delà de 10 % du capital soumis aux cotisations TNS.");
+  }
+  const dividendesNets = dividendesBruts - pfu - tns - irSurExcedent;
+  const t = impotAttribue(remunerationImposable, autresRevenusImposables, parts, partsBase);
+  if (!eurl && net === 0) alertes.push("Aucune cotisation retraite : aucun trimestre validé.");
+  const netEnPoche = net - t.impot + dividendesNets;
+  return {
+    forme, remunerationNette: net, brut, cotisations, coutRemuneration, remunerationImposable, beneficeAvantIS, is,
+    dividendesBruts, prelevementsDividendes: { pfu, tns, irSurExcedent }, dividendesNets,
+    impot: t.impot, impotFoyer: t.impotFoyer, tmi: t.tmi, netEnPoche,
+    tauxPrelevementGlobal: resultat > 0 ? (1 - netEnPoche / resultat) * 100 : 0,
+    assietteRetraite: eurl ? net : brut, revenuProPER: remunerationImposable, alertes,
+  };
+}
+
+// Courbe net en poche selon la rémunération nette, de 0 au maximum que le résultat permet de verser
+export function optimiserRemuneration(saisie, pas = 1000) {
+  const resultat = Math.max(0, Number(saisie.resultatAvantRemuneration) || 0);
+  const netMax = saisie.forme === "eurl" ? resultat / (1 + I.tns.tauxSurNet / 100)
+    : (resultat * (1 - I.sasu.tauxSalarial / 100)) / (1 + I.sasu.tauxPatronal / 100);
+  const points = [];
+  for (let n = 0; n < netMax; n += Math.max(1, pas)) points.push(n);
+  points.push(netMax);
+  const courbe = points.map((n) => {
+    const r = remunerationSociete({ ...saisie, remunerationNette: n });
+    return { remunerationNette: n, netEnPoche: r.netEnPoche, is: r.is, tmi: r.tmi };
+  });
+  const optimum = courbe.reduce((m, p) => (p.netEnPoche > m.netEnPoche ? p : m), courbe[0]);
+  return { courbe, optimum };
+}
+
+// Plafond de déductibilité des versements PER d'un indépendant
+export function plafondPERIndependant({ forme, revenuPro, pass, passN1 }) {
+  const rev = Math.max(0, Number(revenuPro) || 0);
+  if (forme === "eurl") {
+    const plafond = Math.max(0.1 * pass, 0.1 * Math.min(rev, 8 * pass) + 0.15 * Math.min(Math.max(0, rev - pass), 7 * pass));
+    return { plafond, regle: "154 bis", detail: "10 % du revenu (jusqu'à 8 PASS) + 15 % de la part entre 1 et 8 PASS, au moins 10 % du PASS" };
+  }
+  const plafond = Math.max(0.1 * passN1, 0.1 * Math.min(rev, 8 * passN1));
+  return { plafond, regle: "163 quatervicies", detail: "10 % du revenu professionnel (jusqu'à 8 PASS de l'an dernier), au moins 10 % du PASS" };
 }

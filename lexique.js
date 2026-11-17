@@ -65,6 +65,10 @@ export const LEXIQUE = [
   { mot: "Rééquilibrage", motifs: ["rééquilibrage", "rééquilibrer"], def: "Remettre chaque compte au montant prévu par le plan, surtout en orientant l'épargne du mois vers les comptes en retard." },
   { mot: "Arbitrage", motifs: ["arbitrage", "arbitrer"], def: "Déplacer de l'argent d'un support à un autre à l'intérieur d'une assurance-vie, sans impôt." },
   { mot: "Plafond de versements", motifs: ["plafond de versements"], def: "Montant maximum que l'on peut verser sur un compte (les gains, eux, peuvent le dépasser)." },
+  { mot: "TNS", motifs: ["TNS"], def: "Travailleur non salarié : indépendant ou gérant majoritaire de société. Cotisations sociales plus basses qu'un salarié (environ 45 % du net), mais protection moindre." },
+  { mot: "IS", motifs: ["IS"], def: "Impôt sur les sociétés : payé par la société sur son bénéfice, 15 % jusqu'à 42 500 € puis 25 %. Les dividendes versés ensuite sont encore taxés." },
+  { mot: "Madelin", motifs: ["Madelin", "154 bis"], def: "Régime (article 154 bis du CGI) qui permet à un indépendant de déduire de son revenu ses versements sur un PER ou une retraite complémentaire, dans une limite de plafond." },
+  { mot: "Micro-entreprise", motifs: ["micro-entreprise", "micro-entrepreneur"], def: "Régime simplifié d'indépendant : cotisations en pourcentage du chiffre d'affaires, impôt calculé après un abattement forfaitaire (34 %, 50 % ou 71 % selon l'activité)." },
   { mot: "Relevé", motifs: ["relevé"], def: "Dans l'onglet Suivi : le montant de chaque compte à une date donnée, recopié depuis ta banque, pour comparer au plan." },
 ];
 

@@ -6,9 +6,9 @@
 //  Montants annuels ; loyers et charges relevés de l'inflation.
 // =====================================================================
 
-import { tauxSurRevenuEnPlus } from "./fiscal.js";
+import { tauxSurRevenuEnPlus, PRELEVEMENTS } from "./fiscal.js";
 
-const PS_FONCIER = 17.2; // prélèvements sociaux sur les revenus fonciers et le LMNP (inchangés en 2026)
+const PS_FONCIER = PRELEVEMENTS.PS_PATRIMOINE; // prélèvements sociaux sur les revenus fonciers et le LMNP (inchangés en 2026)
 
 // Mensualité d'un prêt amortissable (assurance comprise, sur le capital emprunté)
 export function mensualitePret(capital, tauxAnnuel, ans, assuranceAnnuelle = 0) {

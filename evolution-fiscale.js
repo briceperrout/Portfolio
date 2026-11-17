@@ -6,6 +6,8 @@
 //  à quel point ton plan dépend de la fiscalité d'aujourd'hui.
 // =====================================================================
 
+import { PRELEVEMENTS, PFU as PFU_ACTUEL } from "./fiscal.js";
+
 // Réglages d'un changement :
 //  dPS     : prélèvements sociaux, en points (18,6 % aujourd'hui sur la plupart des placements, 17,2 % sur l'assurance-vie et les loyers)
 //  dIR     : part « impôt sur le revenu » de la flat tax, en points (12,8 % aujourd'hui)
@@ -50,23 +52,24 @@ export const SCENARIOS_FISCAUX = [
 const PFU = ["livretBancaire", "pel", "cto", "plateformeCrypto", "coldWallet", "per"];
 const AV = ["assuranceVie", "assuranceVieUC"];
 const LIVRETS = ["livretA", "ldds", "lep", "livretJeune"];
-export const IR_PFU = 12.8;
+const ECART_PS = Math.round((PRELEVEMENTS.PS_CAPITAL - PRELEVEMENTS.PS_PATRIMOINE) * 10) / 10; // 1,4 point
+export const IR_PFU = PRELEVEMENTS.IR_PFU;
 
 // Le plan avec les nouvelles règles (copie : le plan d'origine n'est pas modifié)
 export function planFiscal(plan, hSaisi) {
   const h = { ...NEUTRE, ...hSaisi };
   const F = plan.fiscalite ?? {}, G = F.gains ?? {};
-  const pfu = (G.cto ?? 31.4) + h.dPS + h.dIR;
+  const pfu = (G.cto ?? PFU_ACTUEL) + h.dPS + h.dIR;
   const gains = { ...G };
   for (const e of Object.keys(G)) {
     if (PFU.includes(e)) gains[e] = G[e] + h.dPS + h.dIR;
-    else if (AV.includes(e)) gains[e] = h.avFin ? pfu - 1.4 /* prélèvements de l'assurance-vie : 17,2 % */ : G[e] + h.dPS;
+    else if (AV.includes(e)) gains[e] = h.avFin ? pfu - ECART_PS /* prélèvements de l'assurance-vie : 17,2 % */ : G[e] + h.dPS;
     else if (e === "pea") gains[e] = G[e] + h.dPS + (h.peaIR ? IR_PFU + h.dIR : 0);
     else if (LIVRETS.includes(e)) gains[e] = h.livrets ? pfu : G[e];
     else if (G[e] > 0) gains[e] = G[e] + h.dPS;   // SCPI, autres
   }
   const or = F.or ? { ...F.or, plusValue: F.or.plusValue + h.dPS } : F.or;
-  const locatif = { ps: (F.locatif?.ps ?? 17.2) + h.dPS, amortissementLMNP: h.lmnp };
+  const locatif = { ps: (F.locatif?.ps ?? PRELEVEMENTS.PS_PATRIMOINE) + h.dPS, amortissementLMNP: h.lmnp };
   const per = { ...(plan.per ?? {}), ...(h.perSortie != null ? { tmiRetraite: h.perSortie } : {}) };
   return { ...plan, fiscalite: { ...F, gains, or, locatif }, per };
 }
@@ -86,7 +89,7 @@ export function comparerTaux(plan, hSaisi) {
     ["Livret A, LDDS, LEP", "livretA"], ["Livret bancaire, PEL", "livretBancaire"], ["PEA (après 5 ans)", "pea"],
     ["Assurance-vie (après 8 ans)", "assuranceVie"], ["Compte-titres, bitcoin", "cto"], ["PER (gains à la sortie)", "per"], ["SCPI (loyers et gains)", "scpi"],
   ].map(([nom, e]) => ({ nom, e, avant: a[e] ?? 0, apres: b[e] ?? 0 }));
-  lignes.push({ nom: "Loyers (prélèvements sociaux)", e: "locatif", avant: plan.fiscalite?.locatif?.ps ?? 17.2, apres: (plan.fiscalite?.locatif?.ps ?? 17.2) + h.dPS });
+  lignes.push({ nom: "Loyers (prélèvements sociaux)", e: "locatif", avant: plan.fiscalite?.locatif?.ps ?? PRELEVEMENTS.PS_PATRIMOINE, apres: (plan.fiscalite?.locatif?.ps ?? PRELEVEMENTS.PS_PATRIMOINE) + h.dPS });
   return lignes;
 }
 export const estNeutre = (h) => JSON.stringify({ ...NEUTRE, ...h }) === JSON.stringify(NEUTRE);

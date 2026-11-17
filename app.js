@@ -11,7 +11,7 @@ import { DEPARTEMENTS, chargerPrix, prixCharges, estimer, estimerLoyer, libelleC
 import { estimerPension, ageEnTexte } from "./pension.js";
 import { decomposerSalaire, foyerFiscal, impotBareme, BAREME } from "./fiscal.js";
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
-import { plafondPEREstime, endettementBancaire, lepEstime } from "./moteur.js";
+import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant } from "./moteur.js";
 import { monterAssistant } from "./assistant.js";
 
 // ---------------------------------------------------------------- outils
@@ -73,6 +73,7 @@ const PROFIL_EXEMPLE = {
   salaireDans10Ans: null, rythmeReequilibrage: "", avPartEuros: 100,
   logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
   abondement: { acces: "?", actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false },
+  independant: { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false },
   foyer: { actif: false, statut: "marie" },
   conjoint: { prenom: "", age: 31, salaireNetMensuel: 2400, pea: { ouvert: false, versements: 0, etablissement: "" } },
 };
@@ -86,9 +87,11 @@ const PROFIL_VIDE = {
   salaireDans10Ans: null, rythmeReequilibrage: "", avPartEuros: 100,
   logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
   abondement: { acces: "?", actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false },
+  independant: { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false },
   foyer: { actif: false, statut: "marie" },
   conjoint: { prenom: "", age: 30, salaireNetMensuel: 0, pea: { ouvert: false, versements: 0, etablissement: "" } },
 };
+const INDEPENDANT_VIDE = { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false };
 const COURANT_INITIAL = memo.get("profil-courant") ?? { col: "exemple", id: "exemple" };
 
 // Lien magique : « #mon-profil?p=<code> » (voir recap.js). Retourne { code, profil } ou null si absent ou invalide.
@@ -188,8 +191,13 @@ function normaliserProfil(source) {
   if (p.assuranceVie?.ouverte === false) p.assuranceVie = { ouverte: false, type: "" };
   if (p.proprietaire && (p.logement?.usage ?? "rp") === "rp") p.loyerMensuel = 0;
   if (!p.pea?.ouvert) p.pea = { ouvert: false, versements: 0 };
+  p.independant = { ...INDEPENDANT_VIDE, ...(p.independant ?? {}) };
   // Tranche d'imposition non saisie : estimée à partir des revenus (barème 2026)
-  if ((p.tmi === "" || p.tmi == null) && Number(p.salaireNetMensuel) > 0) {
+  const indep = (p.tmi === "" || p.tmi == null) && p.statutPro === "independant" ? simulerIndependant(etat.brouillon, p, false) : null;
+  if (indep) {
+    p.tmi = indep.tmi;
+    p.tmiEstimee = true;
+  } else if ((p.tmi === "" || p.tmi == null) && Number(p.salaireNetMensuel) > 0) {
     p.tmi = decomposerSalaire(p.salaireNetMensuel, foyerFiscal(p)).tmi;
     p.tmiEstimee = true;
   }
@@ -1319,10 +1327,11 @@ function majPension() {
   const agePension = Math.ceil(demande.age);
   const actuel = Number(rr.pension) || 0;
   out.innerHTML = `
-    <p class="small" style="margin:0 0 8px">Né(e) vers ${est.naissance} : âge légal <b>${ageEnTexte(est.regles.ageLegal)}</b>, <b>${est.regles.trimestres} trimestres</b> pour le taux plein. Avec un premier emploi à ${est.debut} ans et un arrêt à ${ageArret} ans : <b>${est.trimestres} trimestres</b>${manque ? `, soit ${manque} de moins que le taux plein` : ", assez pour le taux plein"}. Salaire annuel moyen retenu (25 meilleures années, brut, plafonné) : ${eur(est.sam)} ; ${est.points.toLocaleString("fr-FR")} points de complémentaire.</p>
+    <p class="small" style="margin:0 0 8px">Né(e) vers ${est.naissance} : âge légal <b>${ageEnTexte(est.regles.ageLegal)}</b>, <b>${est.regles.trimestres} trimestres</b> pour le taux plein. Avec un premier emploi à ${est.debut} ans et un arrêt à ${ageArret} ans : <b>${est.trimestres} trimestres</b>${manque ? `, soit ${manque} de moins que le taux plein` : ", assez pour le taux plein"}. ${est.regime === "ssi" ? "Revenu annuel moyen cotisé (25 meilleures années, plafonné au PASS)" : "Salaire annuel moyen retenu (25 meilleures années, brut, plafonné)"} : ${eur(est.sam)} ; ${est.points.toLocaleString("fr-FR")} points de complémentaire (${est.libelleComplementaire ?? "Agirc-Arrco"}).</p>
+    ${est.alertes?.length ? `<ul class="note attention" style="margin:0 0 8px">${est.alertes.map((a) => `<li>${echapper(a)}</li>`).join("")}</ul>` : ""}
     ${ageArret < est.regles.ageLegal ? `<p class="verdict ko" style="margin:0 0 8px"><b>Tu arrêtes à ${ageArret} ans : la retraite publique n'est versée qu'à partir de ${ageEnTexte(est.regles.ageLegal)} au plus tôt.</b> Entre les deux, tes placements doivent tout payer, et tu ne valides plus de trimestres.</p>` : ""}
-    <div class="table-wrap"><table><thead><tr><th>Si tu la demandes</th><th class="m">Taux</th><th class="m">Base (net)</th><th class="m">Complémentaire (net)</th><th class="m">Total net / mois</th><th class="m">Après impôt</th></tr></thead><tbody>${tab}</tbody></table></div>
-    <p class="note" style="margin:8px 0 0">En euros d'aujourd'hui. Approximations : 4 trimestres par année travaillée, salaires passés déduits de ton profil de carrière, trimestres pour enfants seulement si tu les indiques, pas de trimestres pour chômage ou maladie, complémentaire réduite comme la base en cas de décote. Surcote de 1,25 % par trimestre travaillé après l'âge légal au-delà de la durée requise ; +10 % sur la base et la complémentaire avec au moins 3 enfants (champ « Enfants à charge » de « Mon profil » ; compte aussi les enfants élevés, même plus à charge) ; plus de malus Agirc-Arrco depuis décembre 2023. « Après impôt » : barème 2026 pour une personne seule, abattement de 10 % compris (<a class="lien-fiche" href="#fiche-net-impot">net avant ou après impôt ?</a>). Les règles peuvent encore changer d'ici ta retraite.</p>
+    <div class="table-wrap"><table><thead><tr><th>Si tu la demandes</th><th class="m">Taux</th><th class="m">Base (net)</th><th class="m">${est.libelleComplementaire ?? "Agirc-Arrco"} (net)</th><th class="m">Total net / mois</th><th class="m">Après impôt</th></tr></thead><tbody>${tab}</tbody></table></div>
+    <p class="note" style="margin:8px 0 0">En euros d'aujourd'hui. Approximations : ${est.regime === "ssi" ? `trimestres validés selon le revenu (150 h au SMIC = ${eur(Math.round(((RP.independants?.smicHoraire ?? 12.02) * (RP.independants?.heuresParTrimestre ?? 150))))} par trimestre)` : "4 trimestres par année travaillée"}, salaires passés déduits de ton profil de carrière, trimestres pour enfants seulement si tu les indiques, pas de trimestres pour chômage ou maladie, complémentaire réduite comme la base en cas de décote. Surcote de 1,25 % par trimestre travaillé après l'âge légal au-delà de la durée requise ; +10 % sur la base et la complémentaire avec au moins 3 enfants (champ « Enfants à charge » de « Mon profil » ; compte aussi les enfants élevés, même plus à charge) ; plus de malus Agirc-Arrco depuis décembre 2023. « Après impôt » : barème 2026 pour une personne seule, abattement de 10 % compris (<a class="lien-fiche" href="#fiche-net-impot">net avant ou après impôt ?</a>). Les règles peuvent encore changer d'ici ta retraite.</p>
     <div class="ligne-actions" style="margin-top:10px">
       ${(rr.modePension ?? "auto") === "auto"
         ? `<span class="small"><b>✓ Comptée automatiquement</b> : ${eur(Math.round(demande.apres / 10) * 10)} par mois à partir de ${agePension} ans, recalculée si tu changes l'âge d'arrêt.</span><button type="button" class="lien" data-pension="0" data-age-pension="">Ne pas la compter (prudence)</button>`
@@ -2025,9 +2034,58 @@ function majSituation() {
   $("#bloc-conjoint").closest(".panneau").querySelector("legend").textContent = s === "seul" ? "Foyer" : "Foyer et conjoint";
 }
 
+// Indépendant : champs selon la forme, résultats de la simulation (cotisations, IS, dividendes, IR, net en poche, PER)
+function rendreIndependant() {
+  const p = etat.profil, bloc = $("#bloc-independant"), sortie = $("#resultat-independant");
+  if (!bloc || !sortie) return;
+  const actif = p.statutPro === "independant";
+  bloc.hidden = !actif;
+  if (!actif) { sortie.innerHTML = ""; return; }
+  const forme = p.independant?.forme ?? "", micro = forme.startsWith("micro"), societe = forme === "sasu" || forme === "eurl";
+  bloc.querySelectorAll('[data-ind="micro"]').forEach((el) => { el.hidden = !micro; });
+  bloc.querySelectorAll('[data-ind="societe"]').forEach((el) => { el.hidden = !societe; });
+  bloc.querySelectorAll('[data-ind="eurl"]').forEach((el) => { el.hidden = forme !== "eurl"; });
+  let r = null;
+  try { r = simulerIndependant(etat.brouillon, p); } catch (e) { console.error(e); }
+  if (!r) { sortie.innerHTML = `<p class="note" style="margin:0">Choisis ta forme d'exercice pour estimer ton revenu net, tes cotisations et ton impôt.</p>`; return; }
+  const net = micro ? r.netAnnuel : r.netEnPoche;
+  const chiffre = (valeur, libelle) => `<div><b class="num">${valeur}</b><span>${libelle}</span></div>`;
+  const lignes = micro
+    ? [chiffre(eur(r.cotisations), "cotisations sociales"), chiffre(eur(r.impot), p.independant.vl ? "impôt (versement libératoire)" : "impôt sur le revenu attribué"), chiffre(`${r.tmi} %`, "tranche d'imposition")]
+    : [chiffre(eur(r.cotisations), "cotisations sociales"), chiffre(eur(r.is), "impôt sur les sociétés"),
+       chiffre(eur(r.dividendesBruts), "dividendes bruts"), chiffre(eur(r.dividendesNets), "dividendes nets"),
+       chiffre(eur(r.impot), "impôt sur le revenu attribué"), chiffre(`${r.tmi} %`, "tranche d'imposition")];
+  const per = r.plafondPER;
+  const opt = r.optimisation?.optimum;
+  const alertes = r.alertes.length ? `<ul class="note attention">${r.alertes.map((a) => `<li>${echapper(a)}</li>`).join("")}</ul>` : "";
+  sortie.innerHTML = `
+    <div class="chiffres">
+      ${chiffre(eur(net), "net en poche par an")}${chiffre(eur(net / 12), "net en poche par mois")}
+      ${societe ? chiffre(pct(r.tauxPrelevementGlobal), "prélèvement global sur le résultat") : ""}
+    </div>
+    <div class="chiffres">${lignes.join("")}</div>
+    <p class="note" style="margin:0">Plafond de versement PER déductible : <b class="num">${eur(per.plafond)}</b> par an (article ${per.regle} du CGI).</p>
+    ${opt ? `<p class="note" style="margin:0">Rémunération qui maximise le net en poche (par pas de 1 000 €) : <b class="num">${eur(opt.remunerationNette)}</b> par an, soit <b class="num">${eur(opt.netEnPoche)}</b> en poche. Moins de rémunération, c'est moins de cotisations mais aussi moins de droits à la retraite.</p>` : ""}
+    ${alertes}
+    <div><button type="button" id="btn-net-independant">Utiliser ce net dans mon budget</button></div>
+    <p class="note" style="margin:0">Estimation simplifiée : taux effectifs, sans chômage ni prévoyance, sans déficit reportable.</p>`;
+}
+$("#resultat-independant")?.addEventListener("click", (e) => {
+  if (!e.target.closest("#btn-net-independant")) return;
+  let r = null;
+  try { r = simulerIndependant(etat.brouillon, etat.profil); } catch (err) { console.error(err); }
+  if (!r) return;
+  etat.profil.salaireNetMensuel = Math.max(0, Math.round((r.netAnnuel ?? r.netEnPoche) / 12));
+  completerBudget("salaireNetMensuel");
+  remplirProfil();
+  apresSaisieProfil();
+  rendreChoixProfil();
+});
+
 function majVisibiliteProfil() {
   const p = etat.profil;
   majSituation();
+  rendreIndependant();
   // Livret Jeune : seulement jusqu'à 25 ans (le tien, ou celui de ton conjoint si le calcul porte sur le couple)
   { const jeune = (Number(p.age) || 0) <= 25 || (p.foyer?.actif && !(p.foyer.statut === "concubin" && p.foyer.vue === "moi") && (Number(p.conjoint?.age) || 99) <= 25);
     const ch = $("#pl-livretJeune")?.closest(".champ"); if (ch) ch.hidden = !jeune && !(Number(p.placements?.livretJeune) > 0); }

@@ -11,6 +11,10 @@
 //     à remplacer par la tienne.
 // =====================================================================
 
+import { PRELEVEMENTS, PFU } from "./fiscal.js";
+
+const AV_8ANS = Math.round((PRELEVEMENTS.IR_AV_8ANS + PRELEVEMENTS.PS_PATRIMOINE) * 10) / 10; // 24,7 %
+
 export const PLAN = {
   version: 9,
   misAJourLe: "2026-11-11",
@@ -236,7 +240,7 @@ export const PLAN = {
     plafondPERCollectif: 7689.6,  // 16 % du PASS
     plafondPEE: 3844.8,           // 8 % du PASS
     tauxMax: 300,                 // au plus 3 fois le versement du salarié
-    prelevements: 9.7,            // CSG et CRDS sur l'abondement (pas d'impôt sur le revenu)
+    prelevements: PRELEVEMENTS.CSG_CRDS_ACTIVITE,            // CSG et CRDS sur l'abondement (pas d'impôt sur le revenu)
   },
 
   per: {
@@ -359,6 +363,14 @@ export const PLAN = {
     netSurBrutSalaire: 78,        // salaire net ≈ 78 % du brut (salarié du privé)
     netSurBrutPension: 90,        // pension nette ≈ 90 % de la brute (CSG, CRDS, CASA)
     ageDebutCarriere: 22,
+    // Indépendants (SSI) : validation des trimestres et complémentaire RCI
+    independants: {
+      smicHoraire: 12.02, heuresParTrimestre: 150, // 1 803 € de revenu par trimestre validé en 2026
+      assietteMinRetraitePct: 11.5,                // % du PASS : cotisation minimale retraite de base des TNS hors micro
+      rciTauxT1: 7, rciTauxT2: 8, rciPlafondPASS: 4,
+      rciValeurAchat: 21.532, rciValeurPoint: 1.335, // valeurs RCI 2025 (circulaire Cnav 2024-36), à revaloriser
+      verifieLe: "2026-11-16",
+    },
   },
 
   // -------------------------------------------------------------------
@@ -382,11 +394,11 @@ export const PLAN = {
   fiscalite: {
     verifieeLe: "2026-11-11",
     gains: {
-      livretA: 0, ldds: 0, lep: 0, livretJeune: 0, livretBancaire: 31.4, pel: 31.4,
-      assuranceVie: 24.7, assuranceVieUC: 24.7,
-      pea: 18.6, cto: 31.4,
-      plateformeCrypto: 31.4, coldWallet: 31.4,
-      scpi: 47.2, per: 31.4,
+      livretA: 0, ldds: 0, lep: 0, livretJeune: 0, livretBancaire: PFU, pel: PFU,
+      assuranceVie: AV_8ANS, assuranceVieUC: AV_8ANS,
+      pea: PRELEVEMENTS.PS_CAPITAL, cto: PFU,
+      plateformeCrypto: PFU, coldWallet: PFU,
+      scpi: 30 + PRELEVEMENTS.PS_PATRIMOINE /* TMI 30 % supposée */, per: PFU,
     },
     // Or : le moins cher des deux régimes
     or: { taxeForfaitaire: 11.5, plusValue: 37.6, abattementParAnApres2Ans: 5 },
