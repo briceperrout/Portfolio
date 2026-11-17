@@ -33,7 +33,8 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 - `moteur.js` : Cœur des calculs déterministes, capacité d'épargne, prêts, PTZ et enveloppes.
 - `fiscal.js` : Fiscalité française 2026 (barème progressif IR, décote, plafonnement du quotient familial, PFU/Flat Tax, IFI, plus-values, arbitrages rémunération/dividendes).
 - `pension.js` : Estimation des droits à la retraite (régime de base + complémentaire Agirc-Arrco) et stratégie de décumulation.
-- `projection.js` : Simulations long terme, tirages Monte-Carlo, Coast FIRE / règle des 4 %, et backtesting sur crises historiques (`CRISES` : 2000, 2008, 2022).
+- `projection.js` : Simulations long terme, tirages Monte-Carlo, Coast FIRE / règle des 4 %, backtesting sur crises historiques (`CRISES` : 2000, 2008, 2022), backtest sur fenêtres glissantes (`backtesterHistorique`), corrélations dynamiques par régime (`hypotheses.correlations`) et scénario d'inflation persistante (`scenarioInflation`).
+- `historique.js` : séries annuelles 1970–2025 (rendements par classe d'actifs et inflation) avec leurs sources, utilisées par `backtesterHistorique` et le bloc « Rejouer l'histoire réelle ». Données pures, aucun DOM.
 - `immobilier.js` & `locatif.js` : Recherche DVF (`prix-m2.json`), cash-flow locatif, échéancier d'emprunt, régimes micro-foncier / réel / LMNP et comparaison TRI vs PEA.
 - `entreprises.js` : Barèmes d'abondement salarial (PEE / PERECO) des grandes entreprises.
 - `calendrier.js` : Échéancier patrimonial et export `.csv`.

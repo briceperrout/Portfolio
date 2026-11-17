@@ -87,8 +87,10 @@ export const MATRICE = {
   // « tr-avenir » (data-seul="debutant") est la version simplifiée ; « bloc-liberte » est affiché dans l'onglet Retraite ; « tr-tranches » inclut les bascules du plan.
   trajectoire: {
     "achat-trajectoire": I, "t-achat": I, "t-reel": I, "tr-tuiles": I, "tr-objectifs": I, "tr-tranches": I, "tr-eventail": I, "tr-rapporte": I, "bloc-liberte": I,
-    "tr-composition": A, "bloc-crise": A, "tr-apres-impots": A, "bloc-ab": A, "bloc-fiscal": A,
+    "tr-composition": A, "bloc-crise": A, "bloc-historique": A, "bloc-inflation": I, "tr-apres-impots": A, "bloc-ab": A, "bloc-fiscal": A,
   },
+  // Mon plan (vue réservée au niveau avancé) : réglages avancés du gabarit de rendreReglages() (app.js)
+  plan: { "hyp-correlations": A },
   // Retraite : ids du gabarit de rendreRetraite() (app.js). En Débutant la page est remplacée par « ret-simple » + « ret-verdict-bloc » (data-seul).
   retraite: {
     "ret-hypotheses": I, "ret-objectifs": I, "ret-age": I, "bloc-liberte": I, "bloc-pension": I, "ret-resultat": I, "ret-capital": I,

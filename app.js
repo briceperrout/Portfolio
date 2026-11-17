@@ -1,7 +1,8 @@
 import { PLAN } from "./plan.js";
 import { analyser, capitalDe, GROUPES_PLACEMENTS, grouperAllocation, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer } from "./moteur.js";
 import { projetLocatifDe, analyseLocatif, mensualitePret } from "./locatif.js";
-import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, libertePatrimoine, moisPrecaution, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, capitalNecessaire, CRISES, simulerCrise, fluxLocatif } from "./projection.js";
+import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, libertePatrimoine, moisPrecaution, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, capitalNecessaire, CRISES, simulerCrise, fluxLocatif, backtesterHistorique, scenarioInflation, SCENARIO_INFLATION } from "./projection.js";
+import { HISTORIQUE } from "./historique.js";
 import { SCENARIOS_FISCAUX, NEUTRE, optionFiscale, comparerTaux } from "./evolution-fiscale.js";
 import { echeancesProfil, echeancesGenerales, versCSV } from "./calendrier.js";
 import { genererRecapHTML, encoderProfilPartage, decoderProfilPartage } from "./recap.js";
@@ -1015,11 +1016,27 @@ function rendreTrajectoire() {
       </div>
       <div id="crise-resultat" style="margin-top:10px"></div>
     </section>`)}
+    ${siNiveau("avance", () => `<section class="panneau" id="bloc-historique" data-min="avance"><h2>Rejouer l'histoire réelle (${HISTORIQUE.debut}–${HISTORIQUE.fin})</h2>
+      <p class="note" style="margin:4px 0 10px">On applique à ton plan, une fenêtre après l'autre, les rendements et l'inflation réellement observés depuis ${HISTORIQUE.debut}. Ce n'est pas une prévision : le passé ne se répète pas à l'identique.</p>
+      <div class="ligne-actions">
+        <label for="hist-longueur" class="small">Durée</label><select id="hist-longueur" style="width:auto">${[20, 30].map((n) => `<option value="${n}" ${n === uiHistorique.longueur ? "selected" : ""}>${n} ans</option>`).join("")}</select>
+        <label for="hist-depart" class="small">Départ</label><select id="hist-depart" style="width:auto"><option value="maintenant" ${uiHistorique.depart === "maintenant" ? "selected" : ""}>Maintenant</option><option value="retraite" ${uiHistorique.depart === "retraite" ? "selected" : ""}>À la retraite</option></select>
+      </div>
+      <div id="hist-resultat" style="margin-top:10px"></div>
+    </section>`)}
+    ${siNiveau("intermediaire", () => `<section class="panneau" id="bloc-inflation" data-min="intermediaire"><h2>Et si l'inflation restait à 4–6 % pendant 10 ans ?</h2>
+      <div class="ligne-actions">
+        <label for="infl-taux" class="small">Inflation</label><select id="infl-taux" style="width:auto">${[4, 5, 6].map((n) => `<option value="${n}" ${n === uiInflation.taux ? "selected" : ""}>${n} % par an</option>`).join("")}</select>
+      </div>
+      <div id="infl-resultat" style="margin-top:10px"></div>
+    </section>`)}
     ${siNiveau("intermediaire", panneauRapporte)}
     ${siNiveau("avance", panneauApresImpots)}
     ${siNiveau("avance", () => `<section class="panneau" id="bloc-ab" data-min="avance">${blocScenarios(r, reel)}</section>`)}
     ${siNiveau("avance", () => `<section class="panneau" id="bloc-fiscal" data-min="avance"></section>`)}`;
   rendreCrise();
+  rendreHistorique();
+  rendreInflation();
   rendreFiscal();
   try { performance.measure(`rendreTrajectoire:${niveauCourant()}`, { start: t0 }); } catch {} // mesure lisible via performance.getEntriesByType("measure")
 }
@@ -1251,6 +1268,104 @@ function rendreCrise() {
 $("#trajectoire").addEventListener("change", (e) => {
   if (e.target.id === "crise-choix") { uiCrise.id = e.target.value; memo.set("crise-id", uiCrise.id); rendreCrise(); }
   if (e.target.id === "crise-moment") { uiCrise.moment = e.target.value; memo.set("crise-moment", uiCrise.moment); rendreCrise(); }
+});
+// Histoire réelle rejouée (fenêtres glissantes sur HISTORIQUE) et inflation persistante
+const uiHistorique = { longueur: Number(memo.get("hist-longueur")) === 20 ? 20 : 30, depart: memo.get("hist-depart") === "maintenant" ? "maintenant" : "retraite" };
+const uiInflation = { taux: [4, 5, 6].includes(Number(memo.get("infl-taux"))) ? Number(memo.get("infl-taux")) : 5 };
+let cacheHistorique = { cle: null, r: null };
+let cacheInflation = { cle: null, r: null };
+function rendreHistorique() {
+  const out = $("#hist-resultat"); if (!out) return;
+  if (!HISTORIQUE.annees?.length) { out.innerHTML = `<p class="note">Données historiques indisponibles.</p>`; return; }
+  const plan = etat.brouillon, p = profilPourMoteur();
+  const retraiteDeja = (Math.round(normaliserProfil(p).age ?? 0)) >= (projectionCourante(achatInclus()).retraite?.age ?? plan.hypotheses.ageRetraite ?? 64);
+  const depart = retraiteDeja ? "maintenant" : uiHistorique.depart;
+  const sel = $("#hist-depart"); if (sel) { sel.disabled = retraiteDeja; sel.value = depart; }
+  const cle = JSON.stringify([plan, etat.profil, achatInclus(), uiHistorique.longueur, depart]);
+  let r;
+  try {
+    if (cacheHistorique.cle === cle) r = cacheHistorique.r;
+    else { r = backtesterHistorique(plan, p, { series: HISTORIQUE.annees, longueur: uiHistorique.longueur, depart, inclureAchat: achatInclus(), estimations: HISTORIQUE.estimations }); cacheHistorique = { cle, r }; }
+  } catch (e) { console.error(e); out.innerHTML = `<p class="erreur">Simulation impossible : ${echapper(e.message)}</p>`; return; }
+  if (!r.fenetres.length) { out.innerHTML = `<p class="note">Données historiques indisponibles pour cette durée.</p>`; return; }
+  const S = r.synthese, ages = r.fenetres[0].trajectoireReelle.map((pt) => pt.age);
+  const ymax = echelle(Math.max(1, ...r.fenetres.map((f) => Math.max(...f.trajectoireReelle.map((pt) => pt.valeur)))));
+  const { x, y, s } = cadre(ages, ymax);
+  const trace = (f, coul, larg, op) => `<path d="${f.trajectoireReelle.map((pt, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(pt.valeur).toFixed(1)}`).join("")}" fill="none" stroke="${coul}" stroke-width="${larg}" stroke-opacity="${op}" stroke-linejoin="round"/>`;
+  const cible = (R) => r.fenetres.find((f) => R && f.debut === R.debut && f.fin === R.fin);
+  const fPire = cible(S.pire), fMed = cible(S.mediane);
+  let svg = `<svg class="graphe" viewBox="0 0 ${GEOM.W} ${GEOM.H}" role="img" aria-label="Trajectoires du capital selon toutes les périodes historiques">${s}`;
+  svg += r.fenetres.map((f) => trace(f, "var(--s1)", 1, 0.22)).join("");
+  if (fMed) svg += trace(fMed, "var(--s1)", 2.5, 1);
+  if (fPire) svg += trace(fPire, "var(--s2)", 2.5, 1);
+  svg += colonnesSurvol(ages, x, (i) => `${ages[i]} ans\nPire période (${S.pire.debut}–${S.pire.fin}) : ${eur(fPire?.trajectoireReelle[i]?.valeur ?? 0)}\nPériode médiane (${S.mediane.debut}–${S.mediane.fin}) : ${eur(fMed?.trajectoireReelle[i]?.valeur ?? 0)}`, "curseur-hist");
+  svg += `</svg><div class="legende-g"><span><span class="trait" style="background:var(--s1);opacity:.4"></span>Chaque période historique</span><span><span class="trait" style="background:var(--s1)"></span>Période médiane</span><span><span class="trait" style="background:var(--s2)"></span>Pire période</span></div>`;
+  const estimeesDe = (f) => {
+    const L = r.estimationsLibelles ?? {};
+    const t = ["scpi", "prudent", "bitcoin"].filter((c) => f?.anneesEstimees?.[c] > 0 && L[c]).map((c) => `${f.anneesEstimees[c]} ${f.anneesEstimees[c] > 1 ? "ans" : "an"} ${L[c]}`);
+    return t.join(", ");
+  };
+  const ligneS = (lib, R) => {
+    if (!R) return "";
+    const e = estimeesDe(cible(R));
+    return `<li>${lib} : ${R.debut}–${R.fin}, capital réel en fin de fenêtre <b class="num">${eur(R.capitalReelFinFenetre)}</b>${e ? ` <span class="small">(${echapper(e)})</span>` : ""}</li>`;
+  };
+  const nbMesurees = r.fenetres.filter((f) => !(f.anneesEstimees?.scpi > 0) && !(f.anneesEstimees?.prudent > 0)).length;
+  const detientBtc = r.fenetres.some((f) => f.anneesEstimees?.bitcoin > 0);
+  const trois = [...r.fenetres].sort((a, b) => a.capitalReelFinFenetre - b.capitalReelFinFenetre).slice(0, 3);
+  const substit = r.fenetres.some((f) => f.anneesEstimees?.bitcoin > 0);
+  const sources = Object.entries(HISTORIQUE.sources ?? {}).filter(([, v]) => v);
+  const fiabilite = Object.entries(HISTORIQUE.fiabilite ?? {}).filter(([, v]) => v);
+  out.innerHTML = `<p style="margin:0 0 6px"><b>Dans ${Math.round(100 * (S.tauxSucces ?? 0))} % des périodes historiques, ton capital aurait tenu</b> (${S.nb} périodes de ${r.longueur} ans, départ à ${r.ageDepart} ans).</p>
+    ${svg}
+    <ul class="points" style="margin-top:6px">${ligneS("Pire", S.pire)}${ligneS("Médiane", S.mediane)}${ligneS("Meilleure", S.meilleure)}
+      <li>Scénario central du plan, au même horizon (patrimoine financier en euros d'aujourd'hui) : <b class="num">${eur(r.centralReelFinFenetre)}</b></li></ul>
+    <p class="note" style="margin:6px 0 0">${nbMesurees} période${nbMesurees > 1 ? "s" : ""} sur ${S.nb} ${nbMesurees > 1 ? "reposent" : "repose"} uniquement sur des données mesurées${detientBtc ? " (hors bitcoin, remplacé par les actions avant 2018)" : ""}.</p>
+    <div class="table-wrap"><table><caption class="small" style="text-align:left">Les 3 pires périodes</caption><thead><tr><th>Période</th><th>Inflation moyenne</th><th>Capital réel en fin de période</th><th>Capital épuisé à</th><th>Données estimées</th></tr></thead><tbody>
+      ${trois.map((f) => `<tr><td>${f.debut}–${f.fin}</td><td>${pct(f.inflationMoyenne)}</td><td class="num">${eur(f.capitalReelFinFenetre)}</td><td>${f.ageEpuisement != null ? `${f.ageEpuisement} ans` : "—"}</td><td>${echapper(estimeesDe(f)) || "—"}</td></tr>`).join("")}</tbody></table></div>
+    ${substit ? `<p class="note" style="margin:8px 0 0">Avant 2018, le bitcoin n'était pas accessible de façon réaliste et liquide à un épargnant français : sa part est remplacée par des actions pour les années concernées.</p>` : ""}
+    ${sources.length ? `<details style="margin-top:8px"><summary class="small">Sources</summary><ul class="points">${sources.map(([k, v]) => `<li><b>${echapper(k)}</b> : ${echapper(v)}</li>`).join("")}${fiabilite.map(([k, v]) => `<li><b>${echapper(k)}</b> : Données estimées : ${echapper(v)}</li>`).join("")}</ul></details>` : ""}`;
+}
+function rendreInflation() {
+  const out = $("#infl-resultat"); if (!out) return;
+  const plan = etat.brouillon, p = profilPourMoteur();
+  const cle = JSON.stringify([plan, etat.profil, achatInclus(), uiInflation.taux]);
+  let r;
+  try {
+    if (cacheInflation.cle === cle) r = cacheInflation.r;
+    else { r = scenarioInflation(plan, p, { taux: uiInflation.taux, inclureAchat: achatInclus() }); cacheInflation = { cle, r }; }
+  } catch (e) { console.error(e); out.innerHTML = `<p class="erreur">Simulation impossible : ${echapper(e.message)}</p>`; return; }
+  const classes = [["securite", "Livrets"], ["prudent", "Fonds euros"], ["bourse", "Actions"], ["or", "Or"], ["scpi", "SCPI"], ["bitcoin", "Bitcoin"]];
+  const L = 680, ligneH = 26, gauche = 110, droite = 56, H = classes.length * ligneH + 22;
+  const finale = (k) => { const s = r.indicesReels[k]; return Array.isArray(s) && s.length ? s[s.length - 1] : 0; };
+  const vmax = Math.max(120, ...classes.map(([k]) => finale(k))) * 1.05;
+  const xv = (v) => gauche + (v / vmax) * (L - gauche - droite);
+  let svg = `<svg class="graphe" viewBox="0 0 ${L} ${H}" role="img" aria-label="Pouvoir d'achat final par classe d'actifs, base 100">`;
+  classes.forEach(([k, lib], i) => {
+    const v = finale(k), yy = 8 + i * ligneH;
+    svg += `<text x="${gauche - 8}" y="${yy + 14}" text-anchor="end">${lib}</text><rect x="${gauche}" y="${yy + 2}" width="${Math.max(1, xv(v) - gauche).toFixed(1)}" height="${ligneH - 8}" fill="${v >= 100 ? "var(--s1)" : "var(--s2)"}" fill-opacity="0.85"/><text x="${xv(v) + 6}" y="${yy + 14}">${Math.round(v)}</text>`;
+  });
+  svg += `<line x1="${xv(100)}" x2="${xv(100)}" y1="4" y2="${H - 14}" stroke="var(--fg)" stroke-width="1.5" stroke-dasharray="4 4"/><text x="${xv(100)}" y="${H - 2}" text-anchor="middle">100 = pouvoir d'achat d'aujourd'hui</text></svg>`;
+  const E = r.patrimoine, R = r.retraite;
+  const ageTxt = (a) => (a == null ? "pas d'épuisement" : `${a} ans`);
+  const effet = R.ageEpuisementCentral !== R.ageEpuisementScenario
+    ? `<li>Effet sur la retraite : capital épuisé à ${ageTxt(R.ageEpuisementScenario)} au lieu de ${ageTxt(R.ageEpuisementCentral)} dans le scénario central.</li>` : "";
+  const S = SCENARIO_INFLATION;
+  out.innerHTML = `${svg}
+    <ul class="points" style="margin-top:6px">
+      <li>Dans ${r.duree} ans, ton patrimoine financier réel (hors résidence) serait de <b class="num">${eur(E.scenarioReel)}</b> contre <b class="num">${eur(E.centralReel)}</b> dans le scénario central, soit <b class="num">${E.ecart >= 0 ? "+" : "−"}${eur(Math.abs(E.ecart))}</b> (${E.ecart >= 0 ? "+" : "−"}${pct(Math.abs(E.ecartPct))}).</li>${effet}${achatInclus() ? `<li>Ce résultat inclut ton projet d'achat : avec un crédit à taux fixe, les mensualités ne bougent pas alors que le loyer évité suit l'inflation, ce qui amortit le choc.</li>` : ""}</ul>
+    <details style="margin-top:8px"><summary class="small">Hypothèses du scénario</summary><ul class="points">
+      <li>Ce sont des hypothèses de travail, pas des données mesurées.</li>
+      <li>Inflation constante à ${r.taux} % pendant ${r.duree} ans, à partir d'aujourd'hui.</li>
+      <li>Livrets : taux de l'inflation moins ${S.ecartLivrets} point (au minimum ${S.plancherLivrets} %).</li>
+      <li>Fonds euros : le rendement monte de ${S.prudentHausseParAn} point par an, sans dépasser l'inflation moins ${S.prudentEcartPlafond} point.</li>
+      <li>Actions : rendement réel moyen du plan, moins ${Math.abs(S.bourseChocReel)} points les ${S.bourseAnneesChoc} premières années (hausse des taux).</li>
+      <li>Or : plus ${S.orPrimeReelle} points de rendement réel (valeur refuge). SCPI : moins ${Math.abs(S.scpiPrimeReelle)} point (loyers indexés avec retard). Bitcoin : rendement réel inchangé.</li></ul></details>`;
+}
+$("#trajectoire").addEventListener("change", (e) => {
+  if (e.target.id === "hist-longueur") { uiHistorique.longueur = Number(e.target.value) === 20 ? 20 : 30; memo.set("hist-longueur", uiHistorique.longueur); rendreHistorique(); }
+  if (e.target.id === "hist-depart") { uiHistorique.depart = e.target.value === "maintenant" ? "maintenant" : "retraite"; memo.set("hist-depart", uiHistorique.depart); rendreHistorique(); }
+  if (e.target.id === "infl-taux") { uiInflation.taux = Number(e.target.value); memo.set("infl-taux", uiInflation.taux); rendreInflation(); }
 });
 function choisirAgeAchat(v) {
   etat.profil.projetRP ??= {};
@@ -2009,6 +2124,7 @@ function masquerDans(racine) {
   const noeuds = []; while (w.nextNode()) noeuds.push(w.currentNode);
   for (const n of noeuds) masquerDans(n);
   for (const el of racine.querySelectorAll?.("[title]") ?? []) if (/\d\s?k?€/.test(el.title)) el.title = el.title.replace(RE_MONTANT, "•••• €");
+  for (const el of [racine, ...(racine.querySelectorAll?.("[data-bulle]") ?? [])]) { if (!el.hasAttribute("data-bulle")) continue; const b = el.getAttribute("data-bulle"); if (/\d\s?k?€/.test(b)) el.setAttribute("data-bulle", b.replace(RE_MONTANT, "•••• €")); } // bulles de survol des graphiques
   for (const el of [racine, ...(racine.querySelectorAll?.("[aria-label]") ?? [])]) { if (!el.hasAttribute("aria-label")) continue; const a = el.getAttribute("aria-label"); if (/\d\s?k?€/.test(a)) el.setAttribute("aria-label", a.replace(RE_MONTANT, "•••• €")); } // lecteurs d'écran : barres de répartition, graphiques
 }
 const observateurDiscret = new MutationObserver((ms) => { for (const m of ms) { if (m.type === "characterData") masquerDans(m.target); else m.addedNodes.forEach(masquerDans); } });
@@ -3774,6 +3890,7 @@ const GROUPES = [
   { titre: "Hypothèses de projection", aide: "Rendements annuels moyens. Bourse, or, bitcoin et SCPI sont bruts ; livrets et assurance-vie sont nets. La volatilité fixe la largeur de l'éventail.", special: "rendements", champs: [
     { c: "hypotheses.fraisEntree.scpi", l: "Frais d'entrée SCPI", u: "%" },
     { c: "hypotheses.inflation", l: "Inflation", u: "%", pas: 0.1 },
+    { c: "hypotheses.correlations", id: "hyp-correlations", min: "avance", l: "Corrélations entre actifs", type: "choix", options: [["dynamiques", "Dynamiques (krachs : les actifs risqués chutent ensemble)"], ["independantes", "Indépendantes (modèle simple)"]] },
     { c: "carrieres.defaut", l: "Carrière par défaut", type: "choix", options: Object.keys(PLAN.carrieres).filter((k) => k !== "defaut").map((k) => [k, PLAN.carrieres[k].libelle.split(" :")[0]]) },
     { c: "carrieres.progressive.phases.0.1", l: "Progressive : hausse au-delà de l'inflation", u: "%/an" },
     { c: "carrieres.progressive.phases.0.0", l: "Progressive : jusqu'à", u: "ans" },
@@ -3900,7 +4017,7 @@ function rendreReglages() {
         const v = lire(plan, f.c);
         return `<div class="champ champ-texte"><label for="${id}">${f.l}</label><input id="${id}" type="text" class="texte" data-chemin="${f.c}" data-${f.type}="1" value="${echapper(Array.isArray(v) ? v.join(", ") : v ?? "")}"></div>`;
       }
-      if (f.type === "choix") return `<div class="champ champ-texte"><label for="${id}">${f.l}</label><select id="${id}" data-chemin="${f.c}" data-texte="1">${f.options.map(([v, t]) => `<option value="${v}" ${lire(plan, f.c) === v ? "selected" : ""}>${t}</option>`).join("")}</select></div>`;
+      if (f.type === "choix") return `<div class="champ champ-texte"${f.min ? ` data-min="${f.min}"` : ""}><label for="${id}">${f.l}</label><select id="${f.id ?? id}"${f.min ? ` data-min="${f.min}"` : ""} data-chemin="${f.c}" data-texte="1">${f.options.map(([v, t]) => `<option value="${v}" ${lire(plan, f.c) === v ? "selected" : ""}>${t}</option>`).join("")}</select></div>`;
       if (f.type === "coche") return `<label class="coche"><input id="${id}" type="checkbox" data-chemin="${f.c}" data-coche="1" ${lire(plan, f.c) ? "checked" : ""}> ${f.l}</label>`;
       return `<div class="champ"><label for="${id}">${f.l}</label>${saisie(`id="${id}" data-chemin="${f.c}" ${f.vide ? 'data-vide="1" placeholder="—"' : ""} step="${f.pas ?? 1}"`, f.u, lire(plan, f.c))}</div>`;
     }).join("");
