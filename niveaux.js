@@ -21,6 +21,32 @@ export const rang = (niveau) => { const i = NIVEAUX.indexOf(niveau); return i < 
 export const visible = (min, niveau) => !min || rang(niveau) >= rang(min);
 
 /**
+ * Libellés des vues par niveau : SEULE source des noms d'onglets, des bandeaux « Étape N sur 4 » et des boutons « Étape N : … ».
+ * Les ancres (#mon-profil, #reequilibrage, #trajectoire, #retraite…) ne changent jamais : seul le texte affiché varie.
+ *  - n : numéro d'étape (absent = onglet hors parcours) ;
+ *  - nom : libellé de la vue ; suite : texte du bouton « Étape N : <suite> → » qui y mène.
+ */
+const unique = (nom, suite) => ({ debutant: { nom, suite }, intermediaire: { nom, suite }, avance: { nom, suite } });
+export const LIBELLES_VUES = {
+  profil: { n: 1, debutant: { nom: "Ma situation", suite: "ta situation" }, intermediaire: { nom: "Mon profil", suite: "ton profil" }, avance: { nom: "Mon profil", suite: "ton profil" } },
+  reequilibrage: { n: 2, debutant: { nom: "Mon plan du mois", suite: "voir mon plan du mois" }, intermediaire: { nom: "Rééquilibrage", suite: "voir mon rééquilibrage" }, avance: { nom: "Rééquilibrage", suite: "voir mon rééquilibrage" } },
+  trajectoire: { n: 3, debutant: { nom: "Mon avenir", suite: "mon avenir" }, intermediaire: { nom: "Trajectoire", suite: "trajectoire" }, avance: { nom: "Trajectoire", suite: "trajectoire" } },
+  retraite: { n: 4, debutant: { nom: "Ma retraite", suite: "ma retraite" }, intermediaire: { nom: "Retraite", suite: "ta retraite" }, avance: { nom: "Retraite", suite: "ta retraite" } },
+  ideale: unique("Épargne idéale", "épargne idéale"),
+  suivi: unique("Suivi", "suivi"),
+  fiches: unique("Fiches", "fiches"),
+  plan: unique("Mon plan", "mon plan"),
+};
+
+const entree = (vue, niveau) => LIBELLES_VUES[vue]?.[NIVEAUX.includes(niveau) ? niveau : "avance"];
+/** Nom de la vue au niveau donné (« Mon plan du mois »). Vue inconnue : chaîne vide. */
+export const nomVue = (vue, niveau) => entree(vue, niveau)?.nom ?? "";
+/** Libellé de l'onglet : numéroté pour les 4 étapes (« 2. Mon plan du mois »), sinon le nom seul. */
+export const libelleOnglet = (vue, niveau) => { const n = LIBELLES_VUES[vue]?.n; return n ? `${n}. ${nomVue(vue, niveau)}` : nomVue(vue, niveau); };
+/** Texte du bouton « Étape N : … → » (sans l'« Étape N : » ni la flèche). */
+export const suiteVue = (vue, niveau) => entree(vue, niveau)?.suite ?? "";
+
+/**
  * Table de référence « élément → niveau minimal », par écran. Tout ce qui n'y figure pas = tous niveaux.
  * Les clés sont l'identifiant du champ ou du bloc dans index.html (ou, pour un <fieldset>, le début de sa légende).
  * Les valeurs doivent rester alignées sur les attributs data-min d'index.html (vérifié par test_niveaux.mjs).

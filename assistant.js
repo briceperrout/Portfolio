@@ -490,21 +490,37 @@ export const CONSIGNE_VOCALE = `MODE VOCAL (prioritaire sur la règle 5 : longue
 - Conserve les balises [[ACTION:{…}]] si la question est prospective.
 - OBLIGATOIRE, comme à l'écrit (règle 9) : termine par exactement 2 balises [[SUGGESTION:question courte]], chacune sur sa propre ligne, après les phrases. Elles s'affichent en boutons, ne comptent pas dans les 3 à 4 phrases et ne sont pas lues.`;
 
+/**
+ * Consigne de ton selon le niveau de lecture (le niveau ne change que la forme de la réponse, jamais les règles 1 à 4 ni les calculs).
+ * Texte fixe : aucune donnée personnelle. Intermédiaire = comportement historique, donc aucune consigne ajoutée.
+ */
+export const CONSIGNES_NIVEAU = {
+  debutant: `NIVEAU DÉBUTANT (la question vient d'une personne qui découvre la finance ; le mode vocal, s'il est actif, reste prioritaire sur la longueur).
+- Vocabulaire simple : aucun sigle ni terme technique sans l'expliquer en quelques mots.
+- 120 mots maximum, hors balises.
+- Propose une seule action concrète, la plus utile.
+- Renvoie vers la fiche la plus utile avec un lien Markdown exact [Titre](#fiche-id).
+- Garde toute ta rigueur : règles 1 à 4, mémo fiscal, pas d'invention.`,
+  avance: `NIVEAU AVANCÉ (la personne maîtrise les bases) : tu peux être plus technique, citer les articles du CGI utiles, détailler les chiffres et les hypothèses du calcul, et employer le vocabulaire fiscal sans le définir. Garde toute ta rigueur : règles 1 à 4, mémo fiscal, pas d'invention.`,
+};
+const REGLE_STYLE_DEBUTANT = "5. Style (niveau débutant) : français, tutoiement, direct, 120 mots maximum, vocabulaire simple, une seule action concrète. Pas d'introduction ni de conclusion creuses.";
+
 /** Silence complet (ms) après la dernière parole avant de clore la dictée et d'envoyer la question. */
 export const DELAI_SILENCE_MS = 2500;
 const REGLE_STYLE_VOCALE = "5. Style (mode vocal) : français oral, tutoiement, 3 à 4 phrases maximum, sans liste, sans titre, sans gras. Pas d'introduction ni de conclusion creuses.";
 /** Rappel ajouté à la fin de la question dictée (dernier message du fil) : c'est ce que le modèle lit en dernier. */
 const RAPPEL_VOCAL = "\n\n(Réponse à lire à voix haute : 3 à 4 phrases fluides, sans liste ni titre ni gras, chiffres avec leurs symboles % et € ; termine par exactement 2 balises [[SUGGESTION:question courte]] sur leurs propres lignes, et garde les balises [[ACTION]] si pertinent.)";
 
-export function construirePromptSysteme(plan, sections, { estVocal = false } = {}) {
+export function construirePromptSysteme(plan, sections, { estVocal = false, niveau } = {}) {
   const index = FICHES.map((f) => `- ${lien(f.id)}`).join("\n");
   const extraits = sections.length
     ? sections.map((s) => `### ${s.ficheTitre} — ${s.titre}  (source : ${lien(s.fiche)})\n${s.texte}`).join("\n\n")
     : "(aucun extrait pertinent : réponds avec le mémo et le profil, ou dis que l'information manque)";
   const vocal = estVocal ? `\n\n${CONSIGNE_VOCALE}` : "";
-  // En mode vocal, la règle 5 (120-200 mots, puces) est remplacée plutôt que contredite : un modèle rapide suit mal deux consignes opposées.
-  const base = estVocal ? INSTRUCTIONS.replace(/^5\. .*$/m, REGLE_STYLE_VOCALE) : INSTRUCTIONS;
-  return `${base}\n\nMÉMO FISCAL 2026 (prioritaire sur tes connaissances) :\n${memoFiscal(plan)}\n\nINDEX DES FICHES (seules citations autorisées) :\n${index}\n\nEXTRAITS DE FICHES :\n${extraits}\n\n(Fiches vérifiées le ${VERIFIE_LE}.)${vocal}`;
+  const consigneNiveau = Object.hasOwn(CONSIGNES_NIVEAU, niveau) ? `\n\n${CONSIGNES_NIVEAU[niveau]}` : ""; // niveau absent ou inconnu : comportement historique
+  // En mode vocal (ou débutant), la règle 5 (120-200 mots, puces) est remplacée plutôt que contredite : un modèle rapide suit mal deux consignes opposées.
+  const base = estVocal ? INSTRUCTIONS.replace(/^5\. .*$/m, REGLE_STYLE_VOCALE) : niveau === "debutant" ? INSTRUCTIONS.replace(/^5\. .*$/m, REGLE_STYLE_DEBUTANT) : INSTRUCTIONS;
+  return `${base}\n\nMÉMO FISCAL 2026 (prioritaire sur tes connaissances) :\n${memoFiscal(plan)}\n\nINDEX DES FICHES (seules citations autorisées) :\n${index}\n\nEXTRAITS DE FICHES :\n${extraits}\n\n(Fiches vérifiées le ${VERIFIE_LE}.)${consigneNiveau}${vocal}`;
 }
 
 // ---------------------------------------------------------------- synthèse vocale (fonctions pures)
@@ -572,7 +588,7 @@ export function preparerRequeteCloud(question, historique, ctx, { approfondi = f
   const montants = {}; // jeton → valeur : reste dans le navigateur, jamais envoyé
   const jeton = (t) => tokeniserMontants(t, montants);
   const requete = {
-    systeme: construirePromptSysteme(ctx?.plan, sections, { estVocal: estVocal === true }),
+    systeme: construirePromptSysteme(ctx?.plan, sections, { estVocal: estVocal === true, niveau: ctx?.niveau }),
     profil: resumerProfilPourLLM(ctx) || "(profil non disponible)",
     messages: [...avant.map((m) => ({ role: m.role === "ia" ? "assistant" : "user", content: jeton(m.texte) })), { role: "user", content: jeton(question) + (estVocal === true ? RAPPEL_VOCAL : "") }],
     modeApprofondi: approfondi === true,

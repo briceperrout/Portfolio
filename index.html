@@ -81,7 +81,7 @@ header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: 
 
 nav.onglets { display: flex; gap: 4px; overflow-x: auto; margin: 20px 0 16px; border-bottom: 1px solid var(--line); }
 nav.onglets a { padding: 10px 14px; color: var(--muted); text-decoration: none; font-weight: 600;
-  border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; flex: none; }
 nav.onglets a[aria-current="page"] { color: var(--fg); border-color: var(--accent); }
 nav.onglets a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, .seg:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -260,6 +260,7 @@ a.bouton:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; 
 details.autres-actions { margin-top: 12px; }
 details.autres-actions > summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 0.9rem; }
 details.autres-actions > ol.a-faire { margin-top: 12px; }
+details.toutes-fiches > summary { cursor: pointer; color: var(--accent); font-size: 1rem; }
 ul.familles { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 8px; font-size: 0.9rem; }
 ul.familles li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; align-items: baseline; }
 .compte-titre { display: flex; align-items: baseline; gap: 8px; }
@@ -550,7 +551,7 @@ html.discret .num { letter-spacing: 0.05em; }
 
   <!-- ===================== 1. MON PROFIL ===================== -->
   <section id="vue-profil">
-    <div class="etape"><p><b>Étape 1 sur 4.</b> Décris ta situation d'aujourd'hui. Les résultats se mettent à jour à chaque saisie, dans « Rééquilibrage » et « Trajectoire ».</p></div>
+    <div class="etape"><p><b>Étape 1 sur 4.</b> Décris ta situation d'aujourd'hui. Les résultats se mettent à jour à chaque saisie, dans « <span data-lib="reequilibrage">Rééquilibrage</span> » et « <span data-lib="trajectoire">Trajectoire</span> ».</p></div>
     <p class="conseil" data-seul="debutant" id="intro-debutant">Quelques questions suffisent : tout le reste est réglé avec des hypothèses prudentes. Tu pourras affiner plus tard en passant en mode Intermédiaire.</p>
     <div class="cta-decouverte" id="cta-decouverte" hidden>
       <p><b>Nouveau ici ?</b> Réponds à 5 questions rapides : ton profil est pré-rempli avec des hypothèses prudentes et ton plan d'action s'affiche tout de suite.</p>
@@ -733,7 +734,7 @@ html.discret .num { letter-spacing: 0.05em; }
           </fieldset></div>
           <div class="panneau" data-min="avance"><fieldset>
             <legend>Argent versé et frais réels</legend>
-            <p class="note" style="margin:0">Facultatif. L'argent versé (ton prix de revient) permet de calculer l'impôt sur tes vrais gains à la sortie ; tes frais réels sont retirés du rendement dans Trajectoire et Retraite. Tu les trouves sur ton relevé annuel.</p>
+            <p class="note" style="margin:0">Facultatif. L'argent versé (ton prix de revient) permet de calculer l'impôt sur tes vrais gains à la sortie ; tes frais réels sont retirés du rendement dans <span data-lib="trajectoire">Trajectoire</span> et <span data-lib="retraite">Retraite</span>. Tu les trouves sur ton relevé annuel.</p>
             <div class="champ"><label for="v-av">Total versé sur l'assurance-vie</label><div class="saisie"><input id="v-av" type="number" min="0" step="500" data-p="verses.assuranceVie" placeholder="inconnu"><span>€</span></div></div>
             <div class="champ"><label for="v-cto">Total versé sur le compte-titres</label><div class="saisie"><input id="v-cto" type="number" min="0" step="500" data-p="verses.cto" placeholder="inconnu"><span>€</span></div></div>
             <div class="champ"><label for="v-crypto">Total investi en bitcoin (plateforme + cold wallet)</label><div class="saisie"><input id="v-crypto" type="number" min="0" step="100" data-p="verses.crypto" placeholder="inconnu"><span>€</span></div></div>
@@ -763,7 +764,7 @@ html.discret .num { letter-spacing: 0.05em; }
               <div class="champ"><label for="p-ptz-pers">Personnes dans le foyer (facultatif)</label><div class="saisie"><input id="p-ptz-pers" type="number" min="1" max="10" step="1" data-p="projetRP.ptz.personnes" placeholder="selon ton foyer"><span>pers.</span></div></div>
               <p class="note" style="margin:0"><a class="lien-fiche" href="#fiche-ptz">Fiche : le prêt à taux zéro</a>. Vérifie ta zone et ta tranche sur le simulateur de l'ANIL (anil.org).</p>
             </div>
-            <p class="note" style="margin:0">L'âge idéal d'achat et l'apport nécessaire s'affichent dans « Trajectoire ».</p>
+            <p class="note" style="margin:0">L'âge idéal d'achat et l'apport nécessaire s'affichent dans « <span data-lib="trajectoire">Trajectoire</span> ».</p>
           </fieldset></div>
           <div class="panneau" data-min="avance"><fieldset>
             <legend>Projet d'investissement locatif</legend>
@@ -789,7 +790,7 @@ html.discret .num { letter-spacing: 0.05em; }
           </fieldset></div>
           <div class="panneau"><fieldset>
             <legend>Ta retraite</legend>
-            <p class="note" style="margin:0">Ces hypothèses servent dès maintenant dans Trajectoire et Retraite : à la retraite, le plan se verse ce revenu sur tes placements.</p>
+            <p class="note" style="margin:0">Ces hypothèses servent dès maintenant dans <span data-lib="trajectoire">Trajectoire</span> et <span data-lib="retraite">Retraite</span> : à la retraite, le plan se verse ce revenu sur tes placements.</p>
             <div class="champ"><label for="r0-revenu" data-terme="retraite par capitalisation">Retraite convenable (après impôt, en euros d'aujourd'hui)</label><div class="saisie"><input id="r0-revenu" type="number" min="0" step="100" data-p="retraite.revenu" placeholder="2000"><span>€/mois</span></div></div>
             <div class="champ"><label for="r0-age">Âge où tu veux arrêter de travailler</label><div class="saisie"><input id="r0-age" type="number" min="18" max="64" step="1" data-p="retraite.ageDepart" placeholder="64"><span>ans</span></div></div>
             <div class="champ" data-min="intermediaire"><label for="r0-mode">Retraite publique (Sécurité sociale et complémentaire)</label><select id="r0-mode" data-p="retraite.modePension"><option value="auto">Estimée automatiquement (suit l'âge où tu arrêtes)</option><option value="manuel">Montant que j'indique (relevé info-retraite.fr)</option><option value="zero">Ne pas la compter (prudence)</option></select></div>
@@ -800,7 +801,7 @@ html.discret .num { letter-spacing: 0.05em; }
           </fieldset></div>
           <div class="panneau" data-min="intermediaire"><fieldset>
             <legend>Événements de vie</legend>
-            <p class="note" style="margin:0">Les rentrées et les grosses dépenses prévues, en euros d'aujourd'hui. Elles s'ajoutent (ou se retirent) de tes placements dans Trajectoire et Retraite, à l'âge indiqué.</p>
+            <p class="note" style="margin:0">Les rentrées et les grosses dépenses prévues, en euros d'aujourd'hui. Elles s'ajoutent (ou se retirent) de tes placements dans <span data-lib="trajectoire">Trajectoire</span> et <span data-lib="retraite">Retraite</span>, à l'âge indiqué.</p>
             <div id="liste-evenements"></div>
             <div class="ligne-actions" id="ajout-evenements">
               <button type="button" class="lien" data-ajout-ev="heritage">+ Héritage ou donation</button>
@@ -815,7 +816,7 @@ html.discret .num { letter-spacing: 0.05em; }
       </div>
       <div class="panneau suite">
         <span>Capital total <b class="num" id="total-capital-bas">0 €</b></span>
-        <a class="bouton principal" href="#reequilibrage">Étape 2 : voir mon rééquilibrage →</a>
+        <a class="bouton principal" href="#reequilibrage">Étape 2 : <span data-lib-suite="reequilibrage">voir mon rééquilibrage</span> →</a>
       </div>
       <div class="panneau" id="bloc-donnees">
         <h2 style="margin:0 0 4px;font-size:1.05rem">Tes données</h2>
@@ -838,20 +839,20 @@ html.discret .num { letter-spacing: 0.05em; }
 
   <!-- ===================== 3. TRAJECTOIRE ===================== -->
   <section id="vue-trajectoire" hidden>
-    <div class="etape"><p><b>Étape 3 sur 4.</b> Quand acheter ta résidence principale, et comment ton patrimoine peut évoluer d'ici 70 ans, en suivant le plan.</p><a class="bouton" href="#reequilibrage">← Rééquilibrage</a></div>
+    <div class="etape"><p><b>Étape 3 sur 4.</b> Quand acheter ta résidence principale, et comment ton patrimoine peut évoluer d'ici 70 ans, en suivant le plan.</p><a class="bouton" href="#reequilibrage">← <span data-lib="reequilibrage">Rééquilibrage</span></a></div>
     <div class="pile" id="achat-trajectoire" data-min="intermediaire" style="margin-bottom:16px"></div>
     <div class="barre-actions">
       <label class="coche" data-min="intermediaire"><input type="checkbox" id="t-reel"> En euros d'aujourd'hui (inflation déduite)</label>
       <label class="coche" data-min="intermediaire"><input type="checkbox" id="t-achat" checked> Inclure l'achat de la résidence</label>
     </div>
     <div class="pile" id="trajectoire"></div>
-    <div class="etape" style="margin-top:16px"><a class="bouton" href="#reequilibrage">← Rééquilibrage</a><a class="bouton principal" href="#retraite">Étape 4 : ta retraite →</a></div>
+    <div class="etape" style="margin-top:16px"><a class="bouton" href="#reequilibrage">← <span data-lib="reequilibrage">Rééquilibrage</span></a><a class="bouton principal" href="#retraite">Étape 4 : <span data-lib-suite="retraite">ta retraite</span> →</a></div>
   </section>
 
   <!-- ===================== 4. RETRAITE ===================== -->
   <section id="vue-retraite" hidden>
-    <div class="etape" data-seul="debutant"><p><b>Étape 4 sur 4.</b> Une seule question : est-ce que ta retraite tient ? Tu choisis l'âge où tu veux arrêter de travailler et le revenu que tu veux par mois ; on te dit si l'argent suffit, et sinon ce qu'il faut changer.</p><a class="bouton" href="#trajectoire">← Trajectoire</a></div>
-    <div class="etape" data-min="intermediaire"><p><b>Étape 4 sur 4.</b> Ta retraite par capitalisation : à partir de 64 ans, tu te verses chaque mois un revenu pris sur tes placements, sans compter sur la retraite publique. Combien peux-tu te verser, combien de temps l'argent dure-t-il, et que restera-t-il à transmettre ?</p><a class="bouton" href="#trajectoire">← Trajectoire</a></div>
+    <div class="etape" data-seul="debutant"><p><b>Étape 4 sur 4.</b> Une seule question : est-ce que ta retraite tient ? Tu choisis l'âge où tu veux arrêter de travailler et le revenu que tu veux par mois ; on te dit si l'argent suffit, et sinon ce qu'il faut changer.</p><a class="bouton" href="#trajectoire">← <span data-lib="trajectoire">Trajectoire</span></a></div>
+    <div class="etape" data-min="intermediaire"><p><b>Étape 4 sur 4.</b> Ta retraite par capitalisation : à partir de 64 ans, tu te verses chaque mois un revenu pris sur tes placements, sans compter sur la retraite publique. Combien peux-tu te verser, combien de temps l'argent dure-t-il, et que restera-t-il à transmettre ?</p><a class="bouton" href="#trajectoire">← <span data-lib="trajectoire">Trajectoire</span></a></div>
     <div class="pile" id="retraite"></div>
   </section>
 

@@ -1,6 +1,6 @@
 // Tests des niveaux de lecture (niveaux.js) et de leur cohérence avec index.html — `node test_niveaux.mjs`
 import { readFileSync } from "node:fs";
-import { NIVEAUX, INFOS_NIVEAUX, MATRICE, rang, visible, reglagesAvancesActifs, niveauLePlusBas } from "./niveaux.js";
+import { NIVEAUX, INFOS_NIVEAUX, MATRICE, LIBELLES_VUES, nomVue, libelleOnglet, suiteVue, rang, visible, reglagesAvancesActifs, niveauLePlusBas } from "./niveaux.js";
 
 export const resultats = { ok: 0, echecs: [] };
 const verifier = (condition, message) => { if (condition) resultats.ok++; else resultats.echecs.push(message); };
@@ -87,6 +87,18 @@ egal(reglagesAvancesActifs(sansAutres, "debutant", VIDE), [], "CTO, assurance-vi
 for (const c of ["per", "scpi", "orPhysique", "plateformeCrypto", "coldWallet", "epargneSalariale", "pel"]) {
   verifier(reglagesAvancesActifs({ ...copie(VIDE), placements: { [c]: 1 } }, "debutant", VIDE).length === 1, `${c} non nul : compté dans les réglages avancés`);
 }
+
+// ---------------------------------------------------------------- libellés par niveau (une seule table)
+egal(["profil", "reequilibrage", "trajectoire", "retraite", "ideale", "fiches"].map((v) => libelleOnglet(v, "debutant")), ["1. Ma situation", "2. Mon plan du mois", "3. Mon avenir", "4. Ma retraite", "Épargne idéale", "Fiches"], "libellés d'onglets en débutant");
+for (const n of ["intermediaire", "avance"]) egal(["profil", "reequilibrage", "trajectoire", "retraite", "ideale", "suivi", "fiches", "plan"].map((v) => libelleOnglet(v, n)), ["1. Mon profil", "2. Rééquilibrage", "3. Trajectoire", "4. Retraite", "Épargne idéale", "Suivi", "Fiches", "Mon plan"], `libellés d'onglets en ${n} = libellés actuels`);
+egal([suiteVue("reequilibrage", "intermediaire"), suiteVue("trajectoire", "intermediaire"), suiteVue("retraite", "intermediaire")], ["voir mon rééquilibrage", "trajectoire", "ta retraite"], "boutons « Étape N » : textes actuels conservés");
+egal([suiteVue("reequilibrage", "debutant"), suiteVue("trajectoire", "debutant"), suiteVue("retraite", "debutant")], ["voir mon plan du mois", "mon avenir", "ma retraite"], "boutons « Étape N » en débutant");
+verifier(Object.values(LIBELLES_VUES).every((e) => NIVEAUX.every((n) => e[n]?.nom && e[n]?.suite)), "chaque vue a un nom et une suite aux 3 niveaux");
+egal([nomVue("inconnue", "debutant"), libelleOnglet("profil", "n'importe quoi")], ["", "1. Mon profil"], "vue inconnue vide ; niveau inconnu traité comme avancé");
+// Ancres et identifiants inchangés ; chaque data-lib du HTML désigne une vue de la table
+for (const [ancre, id] of [["#mon-profil", "lien-profil"], ["#reequilibrage", "lien-reequilibrage"], ["#trajectoire", "lien-trajectoire"], ["#retraite", "lien-retraite"], ["#epargne-ideale", "lien-ideale"], ["#fiches", "lien-fiches"]]) verifier(html.includes(`<a href="${ancre}" id="${id}"`), `ancre ${ancre} et id ${id} inchangés`);
+const refs = [...html.matchAll(/data-lib(?:-suite)?="([a-z]+)"/g)].map((m) => m[1]);
+verifier(refs.length >= 8 && refs.every((v) => LIBELLES_VUES[v]), "data-lib / data-lib-suite : toutes les vues existent dans la table");
 
 console.log(`test_niveaux : ${resultats.ok} vérifications OK, ${resultats.echecs.length} échec(s)`);
 for (const e of resultats.echecs) console.error("  ✗", e);

@@ -12,7 +12,7 @@ const ORDRE = ["bourse", "bitcoin", "prudent", "or", "projet", "securite", "scpi
 const signe = (v) => (Math.abs(v) < 0.5 ? "0 €" : `${v > 0 ? "+" : "−"}${eur(Math.abs(v))}`);
 const dateLongue = (d) => d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 
-export function genererRecapHTML({ plan, nom, profil, res, proj, echeances, fiches, planDate }) {
+export function genererRecapHTML({ plan, nom, profil, res, proj, echeances, fiches, planDate, niveauNom }) {
   const C = res.capital || 1;
   const env = (id) => plan.enveloppes[id]?.libelle ?? id;
   const lib = (c) => plan.classes[c]?.libelle ?? c;
@@ -120,7 +120,7 @@ export function genererRecapHTML({ plan, nom, profil, res, proj, echeances, fich
 </style></head>
 <body><div class="page">
   <div class="entete">
-    <div><h1>Plan d'action · ${e(nom)}</h1><div class="note">Établi le ${aujourdHui} · plan ${planDate ? `enregistré le ${e(planDate)}` : "par défaut"}</div></div>
+    <div><h1>Plan d'action · ${e(nom)}</h1><div class="note">Établi le ${aujourdHui} · plan ${planDate ? `enregistré le ${e(planDate)}` : "par défaut"}${niveauNom ? ` · Affichage : niveau ${e(niveauNom)}` : ""}</div></div>
     <button class="imprimer" onclick="window.print()">Imprimer ou enregistrer en PDF</button>
   </div>
   <div class="situation">${situation.map(([k, v]) => `<div><span>${e(k)}</span><b>${e(v)}</b></div>`).join("")}</div>

@@ -3,9 +3,10 @@
 // Aucun appel réseau : le `fetch` vers OpenAI est remplacé par un faux amont.
 
 import worker, { MODEL_FAST, MODEL_REASONING, choisirModele, choixRepli, corpsOpenAI, questionComplexe, tokensDuJour } from "./worker.js";
-import { CONSIGNE_VOCALE, DELAI_SILENCE_MS, choisirVoixFr, decouperPhrases, extraireBalises, libelleModele, preparerRequeteCloud, texteParle } from "./assistant.js";
+import { CONSIGNE_VOCALE, CONSIGNES_NIVEAU, DELAI_SILENCE_MS, choisirVoixFr, decouperPhrases, extraireBalises, libelleModele, preparerRequeteCloud, texteParle } from "./assistant.js";
 
 import { PLAN } from "./plan.js";
+import { FICHES, PARCOURS_DEBUTANT } from "./fiches.js";
 import { FAMILLES_ALLOCATION, grouperAllocation, GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent } from "./moteur.js";
 import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS, projeter, projeterCentral, libertePatrimoine, moisPrecaution, capitalNecessaire } from "./projection.js";
 
@@ -217,6 +218,33 @@ egal(libelleModele(undefined), "", "libellé absent");
   verifier(CONSIGNE_VOCALE.includes("exactement 2 balises [[SUGGESTION:") && vocal.messages.at(-1).content.includes("exactement 2 balises [[SUGGESTION:"), "vocal : 2 balises [[SUGGESTION]] exigées (consigne et rappel)");
   egal(DELAI_SILENCE_MS, 2500, "vocal : délai de silence de 2,5 s");
   verifier(CONSIGNE_VOCALE.includes("[[ACTION") && CONSIGNE_VOCALE.includes("[Titre](#fiche-id)"), "vocal : balises et citation conservées");
+}
+
+// ---------------------------------------------------------------- assistant.js : consigne selon le niveau de lecture
+{
+  const longue = "Explique-moi le PEA, l'assurance-vie, le PER, les livrets, les frais, l'impôt sur les plus-values, la succession et la retraite publique";
+  const prompt = (niveau, opts = {}, q = "Bonjour") => preparerRequeteCloud(q, [], { plan: {}, niveau }, opts).requete.systeme;
+  const sans = prompt(undefined), deb = prompt("debutant"), inter = prompt("intermediaire"), av = prompt("avance");
+  verifier(deb.includes(CONSIGNES_NIVEAU.debutant) && !sans.includes("NIVEAU DÉBUTANT") && !inter.includes("NIVEAU DÉBUTANT") && !av.includes("NIVEAU DÉBUTANT"), "niveau : consigne débutant présente uniquement en débutant");
+  verifier(av.includes(CONSIGNES_NIVEAU.avance) && !deb.includes("NIVEAU AVANCÉ") && !inter.includes("NIVEAU AVANCÉ") && !sans.includes("NIVEAU AVANCÉ"), "niveau : consigne avancé présente uniquement en avancé");
+  egal(inter, sans, "niveau : intermédiaire = comportement historique (prompt identique)");
+  egal(prompt("n'importe quoi"), sans, "niveau : niveau inconnu = comportement historique");
+  verifier(!deb.includes("120 à 200 mots") && sans.includes("120 à 200 mots"), "niveau : règle 5 remplacée (et non contredite) en débutant seulement");
+  verifier(CONSIGNES_NIVEAU.debutant.includes("120 mots maximum") && CONSIGNES_NIVEAU.debutant.includes("[Titre](#fiche-id)") && /sigle/.test(CONSIGNES_NIVEAU.debutant) && /une seule action/i.test(CONSIGNES_NIVEAU.debutant), "niveau : consigne débutant complète (120 mots, une action, sigles, lien fiche)");
+  verifier(/CGI/.test(CONSIGNES_NIVEAU.avance), "niveau : consigne avancé autorise les articles du CGI");
+  verifier(Object.values(CONSIGNES_NIVEAU).every((c) => c.length < 700 && !/@|\d{5,}|€|IBAN/.test(c)), "niveau : consignes courtes, sans donnée personnelle ni montant");
+  for (const niveau of [undefined, "debutant", "intermediaire", "avance"]) for (const estVocal of [false, true]) for (const q of ["Bonjour", longue]) {
+    const r = preparerRequeteCloud(q, [], { plan: {}, niveau }, { estVocal }).requete;
+    verifier(r.systeme.length < 24000, `niveau ${niveau} vocal=${estVocal} : systeme sous la limite serveur (${r.systeme.length})`);
+    verifier(r.systeme.includes(CONSIGNE_VOCALE) === estVocal && r.messages.at(-1).content.includes("voix haute") === estVocal, `niveau ${niveau} vocal=${estVocal} : mode vocal inchangé`);
+    if (estVocal) verifier(!r.systeme.includes("120 à 200 mots") && r.systeme.includes("MODE VOCAL"), `niveau ${niveau} : en vocal, la règle vocale remplace la règle 5`);
+  }
+}
+
+// ---------------------------------------------------------------- fiches.js : parcours « Par où commencer » (débutant)
+{
+  egal(PARCOURS_DEBUTANT.map((e) => e.id), ["mode-emploi", "livrets", "frais", "pea", "assurance-vie", "retraite-publique"], "parcours débutant : 6 fiches dans l'ordre");
+  verifier(PARCOURS_DEBUTANT.every((e) => FICHES.some((f) => f.id === e.id) && typeof e.phrase === "string" && e.phrase.length > 20), "parcours débutant : ids existants, une phrase par fiche");
 }
 
 // ---------------------------------------------------------------- projection.js : comparerFrais (simulateur « Impact des frais »)

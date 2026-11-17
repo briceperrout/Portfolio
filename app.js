@@ -5,7 +5,7 @@ import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, compa
 import { SCENARIOS_FISCAUX, NEUTRE, optionFiscale, comparerTaux } from "./evolution-fiscale.js";
 import { echeancesProfil, echeancesGenerales, versCSV } from "./calendrier.js";
 import { genererRecapHTML, encoderProfilPartage, decoderProfilPartage } from "./recap.js";
-import { FICHES as CONTENU_FICHES, VERIFIE_LE } from "./fiches.js";
+import { FICHES as CONTENU_FICHES, VERIFIE_LE, PARCOURS_DEBUTANT } from "./fiches.js";
 import { LEXIQUE, lierTermes } from "./lexique.js";
 import { DEPARTEMENTS, chargerPrix, prixCharges, estimer, estimerLoyer, libelleCommune, chercherCommunes, codeCommune } from "./immobilier.js";
 import { estimerPension, ageEnTexte } from "./pension.js";
@@ -13,7 +13,7 @@ import { decomposerSalaire, foyerFiscal, impotBareme, BAREME } from "./fiscal.js
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
 import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER } from "./moteur.js";
 import { monterAssistant } from "./assistant.js";
-import { NIVEAUX, INFOS_NIVEAUX, visible, reglagesAvancesActifs, niveauLePlusBas } from "./niveaux.js";
+import { NIVEAUX, INFOS_NIVEAUX, visible, reglagesAvancesActifs, niveauLePlusBas, nomVue, libelleOnglet, suiteVue } from "./niveaux.js";
 import { genererCode, extraireCode, formaterCode, creerLien, estCleSynchronisable, synchroniser, effacerDistant, oublierCles } from "./sync.js";
 
 // ---------------------------------------------------------------- outils
@@ -653,7 +653,7 @@ function rendreResultats() {
           <div class="table-wrap"><table><thead><tr><th>Compte</th><th class="m">Actuel</th><th class="m">Cible</th><th class="m">Écart</th></tr></thead><tbody>${comptes}</tbody></table></div></section>`)}
         <section class="panneau" id="res-repartition"><h2>Répartition cible</h2><p class="note" style="margin:4px 0 0">${deb ? "Comment le plan répartit ton capital en trois familles : l'argent à l'abri pour les imprévus et tes projets, une part prudente qui bouge peu, et une part dynamique pour le long terme." : "Comment le plan répartit ton capital entre les grandes familles de placements."}</p>${deb ? blocFamilles(res) : blocAllocation(res)}</section>
         ${deb ? ligneBourseDebutant : siNiveau("intermediaire", () => blocPocheBourse(res))}
-        <div class="etape" style="margin:0"><a class="bouton" href="#mon-profil">← Mon profil</a><a class="bouton principal" href="#trajectoire">Étape 3 : trajectoire →</a></div>
+        <div class="etape" style="margin:0"><a class="bouton" href="#mon-profil">← ${nomVue("profil", niveauCourant())}</a><a class="bouton principal" href="#trajectoire">Étape 3 : ${suiteVue("trajectoire", niveauCourant())} →</a></div>
       </div>
       ${colDroite ? `<div class="pile">${colDroite}</div>` : ""}
     </div>`;
@@ -703,7 +703,7 @@ $("#resultats").addEventListener("click", async (e) => {
     const { suivi } = suiviCourant();
     const echeances = [...echeancesProfil(plan, profilPourMoteur(), { releves: suivi?.releves ?? [] }), ...echeancesGenerales(plan)].sort((a, b) => a.date - b.date);
     const planDate = etat.source === "partage" && etat.majLe ? new Date(etat.majLe).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }) : null;
-    const html = genererRecapHTML({ plan, nom, profil: res.profil, res, proj, echeances, fiches: CONTENU_FICHES, planDate });
+    const html = genererRecapHTML({ plan, nom, profil: res.profil, res, proj, echeances, fiches: CONTENU_FICHES, planDate, niveauNom: INFOS_NIVEAUX[niveauCourant()].nom });
     const d = new Date();
     await etat.downloads.save({ filename: `plan-action-${slug(nom)}-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}.html`, data: new Blob([html], { type: "text/html" }) });
     recapMessage = "Fichier enregistré : ouvre-le dans un navigateur, puis « Imprimer ou enregistrer en PDF ».";
@@ -2004,6 +2004,15 @@ setTimeout(() => { if (memo.get("discret")) appliquerDiscret(true); }, 0);
 // Produit le HTML d'un panneau seulement s'il est visible au niveau courant (rendreResultats est rappelée à chaque changement de niveau)
 function siNiveau(min, fn) { return visible(min, niveauCourant()) ? fn() : ""; }
 function niveauCourant() { const n = document.documentElement.dataset.niveau; return NIVEAUX.includes(n) ? n : "avance"; }
+// Libellés des onglets, des bandeaux « Étape N » et des boutons : une seule table (niveaux.js), les ancres ne changent pas
+function majLibelles() {
+  const n = niveauCourant();
+  for (const v of ["profil", "reequilibrage", "trajectoire", "retraite", "ideale", "suivi", "fiches", "plan"]) {
+    const lien = $(`#lien-${v}`); if (lien) lien.textContent = libelleOnglet(v, n);
+  }
+  document.querySelectorAll("[data-lib]").forEach((el) => { el.textContent = nomVue(el.dataset.lib, n); });
+  document.querySelectorAll("[data-lib-suite]").forEach((el) => { el.textContent = suiteVue(el.dataset.libSuite, n); });
+}
 function majSelecteurNiveau() {
   for (const b of document.querySelectorAll("#selecteur-niveau [data-niveau]")) {
     const actif = b.dataset.niveau === niveauCourant();
@@ -2025,6 +2034,7 @@ function appliquerNiveau(n, { memoriser = true } = {}) {
   document.documentElement.dataset.niveau = n;
   if (memoriser) memo.set("niveau", n);
   majSelecteurNiveau();
+  majLibelles();
   rendreResultats(); // met aussi à jour le badge
   rendreVue(); // redirige vers « Mon profil » si l'onglet courant est masqué à ce niveau
   planifierTrajectoire();
@@ -3097,6 +3107,7 @@ const fermerDecouverte = () => { const d = $("#decouverte"); if (typeof d.close 
 
 async function validerDecouverte() {
   const p = profilDepuisDecouverte(decouverte.rep);
+  const premierChoix = !NIVEAUX.includes(memo.get("niveau")); // niveau jamais choisi : la Découverte vaut choix du niveau Débutant
   let message;
   if (proches.auteur && proches.mode !== "lecture") {
     if (profilModifie()) sauverProfilCourant(); // les modifications en cours du profil actuel sont enregistrées avant de le quitter
@@ -3107,7 +3118,7 @@ async function validerDecouverte() {
       await ecrireDoc("profils", id, { nom, profil: clone(p), majLe: maj });
       if (!proches.liste.some((x) => x.id === id)) proches.liste.push({ id, nom, profil: clone(p), majLe: maj });
       choisirProfil({ col: "profils", id });
-      message = `Profil « ${nom} » créé : tes autres profils n'ont pas changé. Ajuste-le dans « 1. Mon profil ».`;
+      message = `Profil « ${nom} » créé : tes autres profils n'ont pas changé. Ajuste-le dans « ${libelleOnglet("profil", premierChoix ? "debutant" : niveauCourant())} ».`;
     } catch (err) {
       $("#dec-erreur").textContent = `Création impossible (${err?.code ?? "erreur"}). Réessaie dans un instant.`;
       return;
@@ -3117,6 +3128,10 @@ async function validerDecouverte() {
     choisirProfil({ col: "exemple", id: "exemple" });
     chargerDansFormulaire(p);
     message = "Profil de découverte chargé, non enregistré : il disparaîtra si tu changes de profil.";
+  }
+  if (premierChoix) {
+    appliquerNiveau("debutant");
+    message += " Tu es en mode Débutant : change de niveau à tout moment en haut de la page.";
   }
   proches.statut = message; rendreEtatProfil();
   fermerDecouverte();
@@ -3562,7 +3577,7 @@ function rendreSuivi() {
     html += `<section class="panneau"><h2>Le mois prochain · ${eur(resAuj.profil.epargneMensuelle)} à répartir</h2>
       <p class="note" style="margin:4px 0 8px">D'après ton dernier relevé, voici les virements qui rapprochent chaque compte de sa cible.</p>
       <div class="table-wrap"><table><tbody>${mvts.map((m) => `<tr><td>${texteLie(libMvt(m))}${m.note ? `<div class="note">${texteLie(m.note)}</div>` : ""}</td><td class="m"><span class="${m.sens === "retrait" ? "ecart-moins" : m.sens === "versement" ? "ecart-plus" : "muted"}">${m.sens === "retrait" ? "−" : m.sens === "versement" ? "+" : "⇄ "}${eur(m.montant)}</span></td></tr>`).join("") || '<tr><td class="muted">Aucun mouvement.</td></tr>'}</tbody></table></div>
-      <p class="small" style="margin:8px 0 0"><a class="lien-fiche" href="#reequilibrage">Voir le détail et les actions dans « Rééquilibrage » →</a></p></section>`;
+      <p class="small" style="margin:8px 0 0"><a class="lien-fiche" href="#reequilibrage">Voir le détail et les actions dans « ${nomVue("reequilibrage", niveauCourant())} » →</a></p></section>`;
   }
 
   if (releves.length && ref) {
@@ -4363,10 +4378,16 @@ function rendreFiches() {
   const f = CONTENU_FICHES.find((x) => x.id === id);
   const verifie = new Date(VERIFIE_LE + "T12:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
   if (!f) {
-    $("#fiches").innerHTML = `<p class="note" style="margin:0 0 12px">Un mémo par compte : ce que c'est, où l'ouvrir, comment faire, et ce que ton plan prévoit. Les mots compliqués sont expliqués dans le lexique. Informations vérifiées le ${verifie}.</p>
-      <div class="cartes">${CONTENU_FICHES.filter((x) => x.guide || HAUT_FICHES.includes(x.id)).map((x) => `<a class="carte carte-guide" href="#fiche-${x.id}"><span class="etiquette projet">${x.guide ? "À lire en premier" : x.id === "risques" ? "Se protéger" : x.id === "net-impot" ? "Comprendre sa paie" : x.id === "frais" ? "Attention aux frais" : "Les mots expliqués"}</span><h2>${x.titre}</h2><p>${echapper(x.accroche)}</p></a>`).join("")}</div>
+    const intro = `<p class="note" style="margin:0 0 12px">Un mémo par compte : ce que c'est, où l'ouvrir, comment faire, et ce que ton plan prévoit. Les mots compliqués sont expliqués dans le lexique. Informations vérifiées le ${verifie}.</p>`;
+    const tout = `<div class="cartes">${CONTENU_FICHES.filter((x) => x.guide || HAUT_FICHES.includes(x.id)).map((x) => `<a class="carte carte-guide" href="#fiche-${x.id}"><span class="etiquette projet">${x.guide ? "À lire en premier" : x.id === "risques" ? "Se protéger" : x.id === "net-impot" ? "Comprendre sa paie" : x.id === "frais" ? "Attention aux frais" : "Les mots expliqués"}</span><h2>${x.titre}</h2><p>${echapper(x.accroche)}</p></a>`).join("")}</div>
       <h3 class="annee" style="margin:20px 0 8px">Une fiche par compte</h3>
       <div class="cartes">${CONTENU_FICHES.filter((x) => !x.guide && !HAUT_FICHES.includes(x.id)).map((x) => `<a class="carte" href="#fiche-${x.id}"><h2>${x.titre}</h2><p>${echapper(x.accroche)}</p></a>`).join("")}</div>`;
+    const niv = niveauCourant();
+    if (niv !== "debutant") { $("#fiches").innerHTML = intro + tout; return; }
+    // Débutant : un parcours de 6 fiches d'abord, toutes les autres repliées (aucune fiche n'est retirée)
+    const parcours = PARCOURS_DEBUTANT.map((e, i) => { const x = CONTENU_FICHES.find((y) => y.id === e.id); return x ? `<a class="carte carte-guide" href="#fiche-${x.id}"><span class="etiquette projet">Étape ${i + 1} sur ${PARCOURS_DEBUTANT.length}</span><h2>${x.titre}</h2><p>${echapper(e.phrase)}</p></a>` : ""; }).join("");
+    $("#fiches").innerHTML = intro + `<h3 class="annee" style="margin:0 0 8px">Par où commencer</h3><div class="cartes" id="parcours-fiches">${parcours}</div>
+      <details class="toutes-fiches" style="margin-top:20px"><summary><b>Toutes les fiches</b></summary><div style="margin-top:12px">${tout}</div></details>`;
     return;
   }
   const res = etat.resultat;
@@ -4641,7 +4662,7 @@ apresChangementPlan();
 majBandeauScenario(); // lien partagé ouvert au chargement : bandeau « Scénario partagé »
 // Assistant : lit le plan, le profil et le dernier résultat à chaque question (aucun état dupliqué)
 monterAssistant({
-  getContexte: () => ({ plan: etat.brouillon, res: etat.resultat, profil: etat.profil }),
+  getContexte: () => ({ plan: etat.brouillon, res: etat.resultat, profil: etat.profil, niveau: niveauCourant() }), // le niveau règle seulement le ton de la réponse
   getCleProfil: cleProfilCourant, // historique du chat : une clé par profil (chat-hist:<col>:<id>)
   appliquerPatch: appliquerSimulation,
   annulerSimulation,
@@ -4649,4 +4670,5 @@ monterAssistant({
 brancherStockage();
 demarrerSynchro();
 majSelecteurNiveau();
+majLibelles();
 if (PREMIER_LANCEMENT) ouvrirChoixNiveau();

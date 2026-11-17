@@ -25,7 +25,9 @@ export const FICHES = [
       ["Raccourcis pratiques", "Alt + H (⌥ + H sur Mac) masque ou affiche tous les montants en euros d'un coup, par exemple pendant un partage d'écran. Le bouton ☀️ / 🌙 en haut passe en mode clair ou sombre. Cmd + P (Mac) ou Ctrl + P (PC) imprime proprement l'onglet ouvert, ou l'enregistre en PDF : sans les boutons ni la navigation, toujours en clair."],
     ],
     sections: [
-      { titre: "Les onglets", tableau: {
+      { titre: "Les onglets", points: [
+        "En mode Débutant, les quatre étapes s'appellent « Ma situation », « Mon plan du mois », « Mon avenir » et « Ma retraite » : ce sont les mêmes vues que « Mon profil », « Rééquilibrage », « Trajectoire » et « Retraite » du tableau ci-dessous.",
+      ], tableau: {
         entetes: ["Onglet", "À quoi il sert"],
         lignes: [
           ["1. Mon profil", "Choisir un profil et décrire sa situation : âge, profil de risque, pays, salaire, épargne, placements compte par compte, contrats, couple, projet d'achat, aide familiale. Salaire, épargne et dépenses se complètent : deux suffisent, le troisième se calcule. On peut aussi simuler un âge futur (« et si j'avais 30 ans ? »)."],
@@ -2136,4 +2138,17 @@ export const FICHES = [
       ["impots.gouv.fr – impôt sur les sociétés", "https://www.impots.gouv.fr"],
     ],
   },
+];
+
+/**
+ * Parcours « Par où commencer » de l'accueil des fiches en mode Débutant : 6 fiches, dans cet ordre, une phrase chacune.
+ * Chaque id doit exister dans FICHES (vérifié par test_js.mjs).
+ */
+export const PARCOURS_DEBUTANT = [
+  { id: "mode-emploi", phrase: "Comment le site fonctionne, en quelques minutes : à lire avant de commencer." },
+  { id: "livrets", phrase: "Où garder l'argent dont tu peux avoir besoin vite, et quel livret choisir." },
+  { id: "frais", phrase: "Les frais grignotent ton épargne sans qu'on les voie : vois ce qu'ils coûtent sur la durée." },
+  { id: "pea", phrase: "Le compte pour investir en bourse sur le long terme, avec un impôt allégé après 5 ans." },
+  { id: "assurance-vie", phrase: "Un placement souple pour épargner longtemps, avec des avantages fiscaux après 8 ans." },
+  { id: "retraite-publique", phrase: "Ce que la Sécurité sociale te versera, et pourquoi ton épargne doit la compléter." },
 ];
