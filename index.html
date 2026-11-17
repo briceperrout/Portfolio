@@ -641,6 +641,18 @@ html.discret .num { letter-spacing: 0.05em; }
             <label class="coche"><input id="p-rp-imp" type="checkbox" data-p="projetRP.imperatif"> Achat impératif à une date fixée</label>
             <div class="champ"><label for="p-rp-h">Achat dans</label><div class="saisie"><input id="p-rp-h" type="number" min="0" max="30" step="1" data-p="projetRP.horizonAnnees"><span>ans</span></div></div>
             <div class="champ"><label for="p-rp-aide" data-terme="apport">Aide de la famille pour l'apport (don, prêt familial)</label><div class="saisie"><input id="p-rp-aide" type="number" min="0" step="1000" data-p="projetRP.aideFamiliale"><span>€</span></div></div>
+            <div class="champ"><label for="p-rp-copro">Charges de copropriété non récupérables (facultatif)</label><div class="saisie"><input id="p-rp-copro" type="number" min="0" step="10" data-p="projetRP.chargesCoproMensuelles" placeholder="estimé"><span>€/mois</span></div></div>
+            <div class="champ"><label for="p-rp-loyer-eq">Loyer d'un logement équivalent (facultatif)</label><div class="saisie"><input id="p-rp-loyer-eq" type="number" min="0" step="10" data-p="projetRP.loyerEquivalent" placeholder="loyer estimé"><span>€/mois</span></div></div>
+            <label class="coche"><input id="p-rp-ptz" type="checkbox" data-p="projetRP.ptz.actif"> Primo-accédant éligible au PTZ (prêt à taux zéro)</label>
+            <div id="bloc-ptz" class="champs" hidden>
+              <div class="champ"><label for="p-ptz-zone">Zone du logement</label><select id="p-ptz-zone" data-p="projetRP.ptz.zone"><option value="A">A (ou Abis)</option><option value="B1">B1</option><option value="B2">B2</option><option value="C">C</option></select></div>
+              <div class="champ"><label for="p-ptz-tranche">Tranche de revenus</label><select id="p-ptz-tranche" data-p="projetRP.ptz.tranche"><option value="1">Tranche 1</option><option value="2">Tranche 2</option><option value="3">Tranche 3</option><option value="4">Tranche 4</option></select></div>
+              <p class="note" style="margin:0">La tranche dépend de ton revenu fiscal de référence N-2 et de ta zone.</p>
+              <div class="champ"><label for="p-ptz-type">Type d'opération</label><select id="p-ptz-type" data-p="projetRP.ptz.typeOperation"><option value="collectifNeuf">Appartement neuf (collectif)</option><option value="individuelNeuf">Maison neuve</option><option value="ancienTravaux">Ancien avec travaux d'au moins 25 %</option></select></div>
+              <div class="champ" id="ligne-ptz-travaux"><label for="p-ptz-travaux">Part des travaux dans le coût de l'opération</label><div class="saisie"><input id="p-ptz-travaux" type="number" min="0" max="100" step="1" data-p="projetRP.ptz.travauxPctCout"><span>%</span></div></div>
+              <div class="champ"><label for="p-ptz-pers">Personnes dans le foyer (facultatif)</label><div class="saisie"><input id="p-ptz-pers" type="number" min="1" max="10" step="1" data-p="projetRP.ptz.personnes" placeholder="selon ton foyer"><span>pers.</span></div></div>
+              <p class="note" style="margin:0"><a class="lien-fiche" href="#fiche-ptz">Fiche : le prêt à taux zéro</a>. Vérifie ta zone et ta tranche sur le simulateur de l'ANIL (anil.org).</p>
+            </div>
             <p class="note" style="margin:0">L'âge idéal d'achat et l'apport nécessaire s'affichent dans « Trajectoire ».</p>
           </fieldset></div>
           <div class="panneau"><fieldset>

@@ -431,5 +431,31 @@ export const PLAN = {
     partEpargneVersApport: 100,              // PROPOSITION
     fraisNotairePourcent: { ancien: 8, neuf: 2.5 },
     ageMaxFinPret: 65,                       // PROPOSITION
+    // Charges du propriétaire occupant (absentes quand on loue) : taxe foncière, copropriété, entretien
+    chargesProprietaire: {
+      taxeFonciereMoisDeLoyer: 1,            // PROPOSITION : taxe foncière ≈ 1 mois de loyer de marché
+      rendementLocatifBrutDefaut: 4,         // PROPOSITION : % du prix, loyer de marché si inconnu
+      coproNonRecuperableM2An: 15,           // PROPOSITION : €/m²/an, appartement seulement
+      surfaceDefaut: 60,                     // m², si la surface n'est pas saisie
+      entretienPctValeur: { appartement: 0.8, maison: 1.0 }, // PROPOSITION : % de la valeur du bien par an
+    },
+    fraisReventePct: 5,                      // agence et diagnostics, à déduire de la valeur de revente (comparaison acheter / louer)
+    fraisGarantiePctPret: 1.0,               // caution ou hypothèque, part non restituée (% du prêt)
+    fraisDossier: 1000,                      // frais de dossier bancaire (€)
+    // Prêt à taux zéro (PTZ) : décret 2025-299, barèmes à vérifier sur anil.org
+    ptz: {
+      verifieLe: "2026-11-16",
+      quotites: { collectifNeuf: [50, 40, 40, 20], individuelNeuf: [30, 20, 20, 10], ancienTravaux: [50, 40, 40, 20] }, // % du coût, tranches 1 à 4
+      zonesAncien: ["B2", "C"],
+      travauxMinPctCout: 25,
+      tranches: [ // durée du différé (ans) et du remboursement (ans), par tranche de revenus 1 à 4
+        { differe: 10, remboursement: 15 },
+        { differe: 8, remboursement: 12 },
+        { differe: 2, remboursement: 13 },
+        { differe: 0, remboursement: 10 },
+      ],
+      plafondOperationUnePersonne: { A: 150000, B1: 135000, B2: 110000, C: 100000 },
+      coefficientsFoyer: [1, 1.5, 1.8, 2.1, 2.4], // 1 à 5 personnes et plus
+    },
   },
 };

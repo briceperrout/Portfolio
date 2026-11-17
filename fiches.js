@@ -8,7 +8,7 @@
 
 import { LEXIQUE } from "./lexique.js";
 
-export const VERIFIE_LE = "2026-11-13";
+export const VERIFIE_LE = "2026-11-16";
 
 export const FICHES = [
   {
@@ -1953,6 +1953,182 @@ export const FICHES = [
       ["Meilleurtaux – PEA et non-résident fiscal", "https://placement.meilleurtaux.com/bourse/pea/autres-guides-pea/pea-non-resident-fiscal.html"],
       ["Assemblée nationale – livrets et PEA des expatriés", "https://questions.assemblee-nationale.fr/dyn/16/questions/QANR5L16QE7540.pdf"],
       ["Finalib – patrimoine d'un expatrié en 2026", "https://finalib.fr/blog/patrimoine-epargne/gestion-patrimoine-expatrie-2026-guide"],
+    ],
+  },
+
+  {
+    id: "ptz",
+    titre: "Le prêt à taux zéro (PTZ) en 2026",
+    accroche: "Un prêt sans intérêts ni frais de dossier pour un premier achat, sous conditions de revenus, de zone et de type de logement.",
+    role: "Case « Primo-accédant éligible au PTZ » du projet d'achat dans « Mon profil » : le PTZ est déduit du prêt bancaire et la mensualité est lissée dans « Trajectoire ».",
+    essentiel: [
+      ["Pour qui", "Un primo-accédant : ne pas avoir été propriétaire de sa résidence principale au cours des 2 dernières années, sauf exceptions (handicap, catastrophe). Le logement doit devenir ta résidence principale."],
+      ["Conditions de revenus", "Le revenu fiscal de référence de l'avant-dernière année ne doit pas dépasser un plafond qui dépend de la zone et de la taille du foyer. Il détermine aussi ta tranche, de 1 à 4."],
+      ["Logements éligibles depuis le 1er avril 2025", "Le neuf, en collectif ou en maison individuelle, partout en France (décret 2025-299). L'ancien avec des travaux d'au moins 25 % du coût total, seulement en zone B2 ou C."],
+      ["Coût du prêt", "Pas d'intérêts ni de frais de dossier sur le PTZ."],
+    ],
+    sections: [
+      { titre: "Quel pourcentage du coût de l'opération ?", tableau: {
+        entetes: ["Type de logement", "Tranche 1", "Tranche 2", "Tranche 3", "Tranche 4"],
+        lignes: [
+          ["Appartement neuf (collectif)", "50 %", "40 %", "40 %", "20 %"],
+          ["Maison neuve", "30 %", "20 %", "20 %", "10 %"],
+          ["Ancien avec travaux", "50 %", "40 %", "40 %", "20 %"],
+        ],
+      } },
+      { titre: "Différé et remboursement", tableau: {
+        entetes: ["Tranche", "Différé (sans rembourser)", "Remboursement"],
+        lignes: [
+          ["1", "10 ans", "15 ans"],
+          ["2", "8 ans", "12 ans"],
+          ["3", "2 ans", "13 ans"],
+          ["4", "0 an", "10 ans"],
+        ],
+      } },
+      { titre: "Le montant du PTZ", points: [
+        "Montant = pourcentage de ta tranche × coût de l'opération, dans la limite d'un plafond d'opération.",
+        "Plafond pour une personne : zone A 150 000 €, B1 135 000 €, B2 110 000 €, C 100 000 €.",
+        "Ce plafond est multiplié par 1 / 1,5 / 1,8 / 2,1 / 2,4 selon la taille du foyer (1 à 5 personnes et plus).",
+        "Le PTZ ne peut pas dépasser le montant des autres prêts.",
+      ] },
+      { titre: "Le lissage de la mensualité", points: [
+        "La banque ajuste le prêt principal pour que la mensualité totale reste constante pendant et après le différé.",
+        "Pendant le différé, tu ne rembourses que le prêt bancaire ; ensuite, la part du PTZ remplace une partie de la mensualité bancaire.",
+        "Dans « Trajectoire », la mensualité affichée avec PTZ est comparée à celle du même achat sans PTZ.",
+      ] },
+    ],
+    etapes: [
+      "Vérifier sur le simulateur de l'ANIL ta zone et ta tranche, avec ton revenu fiscal de référence de l'avant-dernière année.",
+      "Cocher « Primo-accédant éligible au PTZ » dans le projet d'achat de « Mon profil », puis choisir la zone, la tranche et le type de logement.",
+      "Demander le PTZ en même temps que le prêt principal : il est accordé par la banque qui finance l'achat.",
+    ],
+    attention: [
+      "Le zonage a changé pour les offres de prêt émises depuis le 30/09/2025 : vérifie ta commune.",
+      "En cas de vente du logement, le PTZ doit en principe être remboursé.",
+      "Le simulateur de l'application est indicatif : les barèmes sont à vérifier sur anil.org et service-public.fr.",
+    ],
+    sources: [
+      ["ANIL – prêt à taux zéro", "https://www.anil.org"],
+      ["Service-public.fr – prêt à taux zéro (PTZ)", "https://www.service-public.fr"],
+    ],
+  },
+
+  {
+    id: "acheter-louer",
+    titre: "Acheter ou louer : le point mort",
+    accroche: "À budget égal, au bout de combien d'années l'achat de ta résidence principale devient-il plus rentable que la location ?",
+    role: "Carte « Acheter ou louer ? » de « Trajectoire » : elle compare ton patrimoine si tu achètes et si tu loues en plaçant la différence.",
+    essentiel: [
+      ["Le principe", "À budget égal, on compare deux patrimoines année après année : celui du propriétaire (bien moins crédit restant, plus l'argent placé) et celui du locataire (tout placé)."],
+      ["Le point mort", "La première année où le patrimoine de l'acheteur rejoint celui du locataire. Avant, louer et placer fait mieux ; après, l'achat prend l'avantage."],
+      ["Ce que le propriétaire paie en plus", "Taxe foncière, charges de copropriété non récupérables, entretien, frais de notaire et assurance emprunteur."],
+    ],
+    sections: [
+      { titre: "Les coûts cachés du propriétaire", points: [
+        "Taxe foncière : de l'ordre d'un mois de loyer par an.",
+        "Charges de copropriété non récupérables, pour un appartement.",
+        "Entretien et gros travaux : environ 0,8 à 1 % de la valeur du bien par an.",
+        "Frais de notaire : environ 7 à 8 % dans l'ancien et 2 à 3 % dans le neuf.",
+        "Assurance emprunteur.",
+      ] },
+      { titre: "La méthode, à budget égal", points: [
+        "Le capital de départ est identique dans les deux cas : le locataire place tout l'argent que l'acheteur mobilise (apport et frais de notaire), aide familiale comprise.",
+        "Les frais de garantie du prêt (caution ou hypothèque, environ 1 % du prêt) et de dossier sont perdus dès l'achat : le locataire place ce capital, l'acheteur ne le retrouve dans aucun actif.",
+        "Le locataire place son apport et, chaque mois, la différence entre ce que coûte le fait d'être propriétaire et son loyer.",
+        "Inversement, le propriétaire place la différence quand son coût devient inférieur au loyer, par exemple une fois le crédit remboursé.",
+        "Le placement retenu est un PEA d'ETF, plafonné à 150 000 € de versements, puis un compte-titres.",
+        "À la sortie, 18,6 % de prélèvements sociaux sur les gains d'un PEA de plus de 5 ans, sinon un PFU de 31,4 %.",
+      ] },
+      { titre: "Pourquoi le point mort existe", points: [
+        "Les frais d'acquisition sont perdus.",
+        "Les intérêts pèsent surtout dans les premières années.",
+        "Ensuite, l'effet de levier, la revalorisation du bien et la hausse des loyers jouent en faveur de l'achat.",
+      ] },
+      { titre: "Ce qui fait varier le résultat", points: [
+        "Le rendement des marchés.",
+        "La revalorisation du bien.",
+        "Le rapport entre le prix et le loyer.",
+        "La durée de détention : une revente rapide pénalise l'achat.",
+      ] },
+    ],
+    etapes: [
+      "Renseigner le prix, la commune, la surface et, si tu le connais, le loyer d'un logement équivalent dans « Mon profil ».",
+      "Lire le point mort dans « Trajectoire », puis le comparer à la durée pendant laquelle tu comptes rester.",
+    ],
+    attention: [
+      "Frais de revente de 5 % déduits de la valeur du bien (agence, diagnostics) : à ajuster si tu vends sans agence.",
+      "Pas de mobilité professionnelle dans le modèle.",
+      "La plus-value sur la résidence principale est exonérée.",
+      "La taxe d'habitation sur la résidence principale est supprimée dans les deux scénarios.",
+      "Les hypothèses de rendement et de valorisation sont incertaines.",
+    ],
+    sources: [
+      ["Service-public.fr – impôts et frais du propriétaire", "https://www.service-public.fr"],
+      ["ANIL – acheter ou louer", "https://www.anil.org"],
+    ],
+  },
+
+  {
+    id: "independants",
+    titre: "Indépendant : micro-entreprise, SASU ou EURL ?",
+    accroche: "Les trois formes les plus courantes, ce qu'elles coûtent en cotisations et d'impôt, et ce qu'elles donnent pour la retraite.",
+    role: "Bloc « Indépendant » de « Mon profil » : net en poche, cotisations, impôt, plafond PER et rémunération optimale ; la retraite des indépendants est estimée dans « Retraite ».",
+    essentiel: [
+      ["Micro-entreprise", "Cotisations en pourcentage du chiffre d'affaires, abattement forfaitaire pour frais, charges réelles non déductibles. Plafonds de chiffre d'affaires : 83 600 € (services et BNC) et 203 100 € (vente)."],
+      ["SASU", "Le président est assimilé salarié (régime général et Agirc-Arrco, sans assurance chômage). Les dividendes paient le PFU de 31,4 %, sans cotisations sociales."],
+      ["EURL à l'IS", "Le gérant majoritaire est travailleur non salarié (TNS) : cotisations d'environ 45 % de la rémunération nette."],
+    ],
+    sections: [
+      { titre: "Micro-entreprise", points: [
+        "Plafonds de chiffre d'affaires : 83 600 € (services et BNC) et 203 100 € (vente).",
+        "Cotisations 2026 sur le chiffre d'affaires : BNC 25,6 %, BIC prestations 21,2 %, vente 12,3 %.",
+        "Abattement forfaitaire pour frais : 34 / 50 / 71 %, avec un minimum de 305 €.",
+        "Versement libératoire possible (2,2 / 1,7 / 1 %) sous condition de revenu fiscal de référence.",
+        "Les charges réelles ne sont pas déductibles.",
+      ] },
+      { titre: "SASU", points: [
+        "Le président est assimilé salarié : régime général et Agirc-Arrco, sans assurance chômage.",
+        "Les charges représentent environ 80 % du net (estimation simplifiée).",
+        "Les dividendes paient le PFU de 31,4 %, sans cotisations sociales.",
+      ] },
+      { titre: "EURL à l'IS", points: [
+        "Le gérant majoritaire est travailleur non salarié (TNS), avec des cotisations d'environ 45 % de la rémunération nette.",
+        "Les dividendes au-delà de 10 % du capital, des primes d'émission et des comptes courants d'associés supportent les cotisations TNS.",
+      ] },
+      { titre: "L'impôt sur les sociétés (IS)", points: [
+        "15 % jusqu'à 42 500 € de bénéfice, sous conditions : chiffre d'affaires inférieur à 10 M€, capital entièrement libéré et détenu à au moins 75 % par des personnes physiques.",
+        "25 % au-delà.",
+      ] },
+      { titre: "Le PER", points: [
+        "TNS, article 154 bis : 10 % du bénéfice dans la limite de 8 PASS, plus 15 % de la part comprise entre 1 et 8 PASS ; minimum 10 % du PASS, maximum environ 88 900 € en 2026 (PASS 48 060 €).",
+        "SASU et micro-entreprise : plafond salarié de l'article 163 quatervicies.",
+      ] },
+      { titre: "La retraite", points: [
+        "Les indépendants (EURL, micro) relèvent de la SSI, alignée sur le régime général.",
+        "Un trimestre est validé par tranche de 1 803 € de revenu cotisé en 2026, dans la limite de 4 par an.",
+        "Complémentaire RCI : 7 % jusqu'à 1 PASS, puis 8 % jusqu'à 4 PASS.",
+        "Les dividendes n'ouvrent aucun droit.",
+        "Une micro-entreprise à faible chiffre d'affaires valide peu de trimestres.",
+      ] },
+      { titre: "Rémunération ou dividendes ?", points: [
+        "L'optimum calculé par l'application maximise le net en poche immédiat, sans valoriser les droits à la retraite.",
+        "Se payer en dividendes réduit les cotisations, mais aussi la protection sociale.",
+      ] },
+    ],
+    etapes: [
+      "Choisir « Indépendant » comme statut dans « Mon profil », puis ta forme d'exercice.",
+      "Saisir le chiffre d'affaires (micro) ou le résultat et la rémunération (société).",
+      "Comparer le net en poche, puis regarder la retraite estimée avant de choisir.",
+    ],
+    attention: [
+      "Taux effectifs simplifiés.",
+      "La réforme 2026 de l'assiette TNS n'est pas détaillée.",
+      "Les professions libérales relevant de la CIPAV ne sont pas modélisées.",
+    ],
+    sources: [
+      ["Urssaf – indépendants", "https://www.urssaf.fr"],
+      ["Service-public.fr – micro-entrepreneur", "https://www.service-public.fr"],
+      ["impots.gouv.fr – impôt sur les sociétés", "https://www.impots.gouv.fr"],
     ],
   },
 ];

@@ -4,8 +4,9 @@
 //  Scénario central (rendements moyens) + éventail de scénarios tirés
 //  au hasard selon la volatilité de chaque classe.
 // =====================================================================
-import { fluxLocatif, projetLocatifDe } from "./locatif.js";
-import { allocationCible, actuelParClasse, repartirEnEnveloppes, capitalDe, achatResidence, analyser, normaliserFoyer, resideEnFrance, paysDe, facteurSalaire, interessementPlace, locatifFinancable } from "./moteur.js";
+import { fluxLocatif, projetLocatifDe, echeancier } from "./locatif.js";
+import { PRELEVEMENTS, PFU } from "./fiscal.js";
+import { allocationCible, actuelParClasse, repartirEnEnveloppes, capitalDe, achatResidence, analyser, chargesProprietaire, normaliserFoyer, resideEnFrance, paysDe, facteurSalaire, interessementPlace, locatifFinancable } from "./moteur.js";
 
 const somme = (o) => Object.values(o).reduce((s, x) => s + x, 0);
 
@@ -43,7 +44,10 @@ export function achatPourProjection(plan, profil) {
   if (!a) return null;
   const p = a.imperatif && a.horizon ? a.horizon : a.choisi && !a.choisi.horsLimite ? a.choisi : a.ideal;
   if (!p || !(p.duree >= 1)) return null;
-  return { annees: p.annees, age: p.age, prix: a.prix, apportRequis: p.apportRequis, pret: p.pret, mensualite: p.mensualite, duree: p.duree, imperatif: a.imperatif, epargneApport: a.epargneApport, aide: a.aide ?? 0 };
+  const pr = profil.projetRP ?? {};
+  const charges = chargesProprietaire(plan, { prix: a.prix, typeLogement: pr.typeLogement, surface: pr.surface, loyerMarcheMensuel: pr.loyerEquivalent || pr.loyerEstime || null, chargesCoproMensuelles: pr.chargesCoproMensuelles ?? null });
+  return { annees: p.annees, age: p.age, prix: a.prix, apportRequis: p.apportRequis, pret: p.pret, mensualite: p.mensualite, duree: p.duree, imperatif: a.imperatif, epargneApport: a.epargneApport, aide: a.aide ?? 0,
+    mensualites: p.mensualites, restantDu: p.restantDu, lissageImpossible: !!p.lissageImpossible, ptz: p.ptz ?? null, pretBancaire: p.pretBancaire, typeLogement: pr.typeLogement, surface: pr.surface ?? null, charges, loyerMarche: pr.loyerEquivalent || pr.loyerEstime || null };
 }
 
 // Impôt si tout était vendu : % des gains selon le compte, régime le plus favorable pour l'or
@@ -118,6 +122,13 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
   const nb = Math.max(0, (H.ageFinProjection ?? 70) - profil.age);
   const loyer = profil.proprietaire && (profil.logement?.usage ?? "rp") === "rp" ? 0 : profil.loyerMensuel ?? 0;
   let bien = 0, dette = 0, mensualite = 0, credit = 0, finPret = -1, achete = false;
+  // Euros courants comme le reste de la simulation (événements, retraite) : le loyer d'aujourd'hui et les charges suivent l'inflation
+  const mensAn = (y) => achat?.mensualites?.[y - achat.annees] ?? achat?.mensualite ?? 0;
+  const chargesAn = (y) => {
+    const C = achat?.charges;
+    if (!achete || !C) return 0;
+    return (C.taxeFonciere + C.copro) * Math.pow(1 + infl, y - achat.annees) + (achat.prix > 0 ? (C.entretien * bien) / achat.prix : 0);
+  };
   let cumulPER = 0; // versements PER déduits, imposés au barème à la sortie
   const interAn = interessementPlace(profil);
   // Logement déjà détenu : ta part de sa valeur, et ta part du crédit restant (remboursée en ligne droite)
@@ -167,7 +178,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
         verse -= pris;
         bien = achat.prix; dette = achat.pret; mensualite = achat.mensualite;
         credit = mensualiteCredit(plan, achat.pret, achat.duree);
-        finPret = y + achat.duree; achete = true; evenement = "achat";
+        finPret = y + (achat.mensualites ? achat.mensualites.length : achat.duree); achete = true; evenement = "achat";
       } else evenement = "achat-impossible";
     }
 
@@ -197,7 +208,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
       point.classes = { ...v };
       const actif = age < (H.ageRetraite ?? 64);
       point.salaire = actif ? profil.salaireNetMensuel * facteur : 0;
-      point.epargne = actif ? profil.epargneMensuelle * (H.epargneSuitLeSalaire ? facteur : 1) + (achete ? loyer - (y < finPret ? mensualite : 0) : 0) : -(achete && y < finPret ? mensualite : 0);
+      point.epargne = actif ? profil.epargneMensuelle * (H.epargneSuitLeSalaire ? facteur : 1) + (achete ? loyer * Math.pow(1 + infl, y) - (y < finPret ? mensAn(y) : 0) - chargesAn(y) / 12 : 0) : -(achete ? (y < finPret ? mensAn(y) : 0) + chargesAn(y) / 12 : 0);
       point.retraitNet = retraite && age >= retraite.age ? besoinA(retraite, age) * Math.pow(1 + (H.inflation ?? 0) / 100, y) : 0;
       point.cumulPER = cumulPER;
       point.impotPlacements = impotsSortie(planT(y), v, base, y, profil);
@@ -235,7 +246,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
     // Fin du crédit en cours (résidence, secondaire) ou revente : la mensualité redevient de l'épargne
     if (actif && mensualiteEx > 0 && !locatif && (y >= anneesCreditEx || (venduA != null && y >= venduA))) ep += mensualiteEx * facteurEp;
     // Après l'achat : le loyer économisé s'ajoute à l'épargne tant qu'on travaille ; le crédit reste à payer
-    if (achete) ep += (actif ? loyer * 12 : 0) - (y < finPret ? mensualite * 12 : 0);
+    if (achete) ep += (actif ? loyer * 12 * Math.pow(1 + infl, y) : 0) - (y < finPret ? mensAn(y) * 12 : 0) - chargesAn(y);
     // PER : versements (déjà inclus dans l'épargne) et économie d'impôt réépargnée
     if (per?.actif && age < Math.min(H.ageRetraite ?? 64, 70)) {
       const versePER = per.annuel * facteurEp;
@@ -302,7 +313,8 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
     // 3. Crédit et valeur du bien
     if (achete && y < finPret) {
       const i = plan.achatRP.tauxCredit / 100 / 12;
-      dette = i === 0 ? Math.max(0, dette - credit * 12) : Math.max(0, dette * Math.pow(1 + i, 12) - (credit * (Math.pow(1 + i, 12) - 1)) / i);
+      if (achat.restantDu) dette = achat.restantDu(y - achat.annees);
+      else dette = i === 0 ? Math.max(0, dette - credit * 12) : Math.max(0, dette * Math.pow(1 + i, 12) - (credit * (Math.pow(1 + i, 12) - 1)) / i);
       if (y + 1 >= finPret) dette = 0;
     }
     bien *= 1 + (H.valorisationImmobiliere ?? 0) / 100;
@@ -593,4 +605,96 @@ export function simulerCrise(planSaisi, profilSaisi, { crise, ageDebut, inclureA
     panique: simuler(plan, profil, { achat, per, retraite, choc: { ...choc, panique: true, decalagePanique: Math.max(0, C.annees.findIndex((a) => a.bourse >= 0) - 1) } }),
     debut, crise: C, ageRetraite: PR.age,
   };
+}
+
+// Acheter ou louer : deux patrimoines comparés mois par mois. Celui qui paie le moins chaque mois (crédit + charges
+// du propriétaire, ou loyer) place la différence sur SON portefeuille (PEA jusqu'à 150 000 € versés, puis compte-titres).
+// Le locataire démarre avec l'apport investi. Résidence principale : plus-value exonérée.
+export function acheterOuLouer(plan, { prix, apportInitial, mensualites = [], restantDu, charges = null, loyerMensuel = 0,
+  horizon = 30, fraisReventePct = plan.achatRP?.fraisReventePct ?? 0, rendement = plan.hypotheses.rendements.bourse,
+  valorisation = plan.hypotheses.valorisationImmobiliere, inflation = plan.hypotheses.inflation } = {}) {
+  const M = Array.isArray(mensualites) ? mensualites : [];
+  const credit = M.some((m) => Number(m) > 0);
+  if (credit && typeof restantDu !== "function") throw new Error("acheterOuLouer : restantDu (capital restant dû) est obligatoire quand il y a un crédit.");
+  const dette = (k) => {
+    if (typeof restantDu !== "function") return 0;
+    const v = restantDu(k);
+    if (!Number.isFinite(v)) throw new Error(`acheterOuLouer : restantDu(${k}) n'est pas un nombre fini.`);
+    return v;
+  };
+  const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : 0);
+  const P = Math.max(0, num(prix)), apport = Math.max(0, num(apportInitial)), loyer0 = Math.max(0, num(loyerMensuel));
+  const H = Math.max(1, Math.round(num(horizon)));
+  const infl = num(inflation) / 100, val = num(valorisation) / 100;
+  const rm = Math.pow(1 + num(rendement) / 100, 1 / 12) - 1;
+  const tf = num(charges?.taxeFonciere) + num(charges?.copro), ent = num(charges?.entretien);
+  const PLAFOND_PEA = 150000;
+  const nouveau = () => ({ pea: { v: 0, c: 0 }, cto: { v: 0, c: 0 } });
+  const verser = (pf, x) => {
+    if (!(x > 0)) return;
+    const place = Math.max(0, PLAFOND_PEA - pf.pea.c), dansPea = Math.min(x, place);
+    pf.pea.v += dansPea; pf.pea.c += dansPea;
+    pf.cto.v += x - dansPea; pf.cto.c += x - dansPea;
+  };
+  const croitre = (pf) => { pf.pea.v *= 1 + rm; pf.cto.v *= 1 + rm; };
+  const net = (pf, t) => {
+    const taxPea = (t >= 5 ? PRELEVEMENTS.PS_CAPITAL : PFU) / 100;
+    return pf.pea.v - Math.max(0, pf.pea.v - pf.pea.c) * taxPea + pf.cto.v - Math.max(0, pf.cto.v - pf.cto.c) * (PFU / 100);
+  };
+  const acheteur = nouveau(), locataire = nouveau();
+  verser(locataire, apport);
+  const fRev = num(fraisReventePct) / 100;
+  const serie = [];
+  let versAch = 0, versLoc = 0;
+  // Point de départ (t = 0) : l'acheteur détient le bien net de frais de revente et de dette ; le locataire, tout le capital placé
+  const dette0 = dette(-1);
+  serie.push({ annee: 0, patrimoineAcheteur: P * (1 - fRev) - dette0, patrimoineLocataire: net(locataire, 0), ecart: P * (1 - fRev) - dette0 - net(locataire, 0),
+    valeurBien: P, dette: dette0, fraisReventeDeduits: P * fRev, portefeuilleAcheteur: 0, portefeuilleLocataire: net(locataire, 0),
+    versementsAcheteurCumules: 0, versementsLocataireCumules: 0, coutProprioMensuelMoyen: num(M[0]) + tf / 12 + ent / 12, loyerMensuel: loyer0 });
+  for (let t = 1; t <= H; t++) {
+    const k = t - 1, ind = Math.pow(1 + infl, k);
+    const valeurDebut = P * Math.pow(1 + val, k);
+    let sommeCout = 0;
+    for (let m = 0; m < 12; m++) {
+      const valeurMois = valeurDebut * Math.pow(1 + val, m / 12);
+      const coutProprio = num(M[k]) + (tf / 12) * ind + (P > 0 ? (ent / 12) * (valeurMois / P) : 0);
+      const loyer = loyer0 * ind;
+      sommeCout += coutProprio;
+      croitre(acheteur); croitre(locataire);
+      if (coutProprio < loyer) { verser(acheteur, loyer - coutProprio); versAch += loyer - coutProprio; }
+      else { verser(locataire, coutProprio - loyer); versLoc += coutProprio - loyer; }
+    }
+    const valeurBien = P * Math.pow(1 + val, t);
+    const detteT = dette(k);
+    const portefeuilleAcheteur = net(acheteur, t), portefeuilleLocataire = net(locataire, t);
+    const patrimoineAcheteur = valeurBien * (1 - fRev) - detteT + portefeuilleAcheteur;
+    const patrimoineLocataire = portefeuilleLocataire;
+    serie.push({ annee: t, patrimoineAcheteur, patrimoineLocataire, ecart: patrimoineAcheteur - patrimoineLocataire,
+      valeurBien, dette: detteT, fraisReventeDeduits: valeurBien * fRev, portefeuilleAcheteur, portefeuilleLocataire,
+      versementsAcheteurCumules: versAch, versementsLocataireCumules: versLoc, coutProprioMensuelMoyen: sommeCout / 12, loyerMensuel: loyer0 * ind });
+  }
+  // Le point mort se cherche à partir de t = 1 : à t = 0 la perte initiale est visible mais ne compte pas comme un croisement
+  const iPM = serie.findIndex((x) => x.annee >= 1 && x.patrimoineAcheteur >= x.patrimoineLocataire);
+  const pointMort = iPM >= 0 ? serie[iPM].annee : null;
+  const recroise = iPM >= 0 && serie.slice(iPM + 1).some((x) => x.patrimoineLocataire > x.patrimoineAcheteur);
+  return { serie, pointMort, recroise, hypotheses: { rendement: num(rendement), valorisation: num(valorisation), inflation: num(inflation), fraisReventePct: num(fraisReventePct), horizon: H } };
+}
+
+// Comparaison acheter / louer pour l'achat retenu par la projection : même construction pour l'application et les tests.
+// Capital de départ identique : le locataire place tout l'apport requis (frais de notaire compris, aide familiale comprise).
+export function comparaisonAchatLocation(plan, profil, { horizon = 30 } = {}) {
+  const ap = achatPourProjection(plan, profil);
+  if (!ap) return null;
+  const A = plan.achatRP;
+  const loyer = ap.loyerMarche || profil.loyerMensuel || 0;
+  if (!(loyer > 0)) return { ap, loyer: 0, resultat: null };
+  const ech = ap.restantDu ? null : echeancier(ap.pret, A.tauxCredit, ap.duree, null);
+  const restantDu = ap.restantDu ?? ((k) => ech.restant(k));
+  // Frais annexes du prêt (garantie non restituée + dossier, sur le prêt total PTZ compris) : propres au comparatif.
+  // Ils ne modifient ni le financement ni la trajectoire de projection ; le locataire place ce même capital, l'acheteur le perd.
+  const fraisAnnexes = Math.max(0, ap.pret) * (A.fraisGarantiePctPret ?? 0) / 100 + (A.fraisDossier ?? 0);
+  const fraisNotaire = ap.prix * (A.fraisNotairePourcent?.[profil.projetRP?.type] ?? 0) / 100;
+  const apportInitial = Math.max(0, ap.apportRequis) + fraisAnnexes;
+  const resultat = acheterOuLouer(plan, { prix: ap.prix, apportInitial, mensualites: ap.mensualites ?? [], restantDu, charges: ap.charges, loyerMensuel: loyer, horizon });
+  return { ap, loyer, apportInitial, fraisAnnexes, fraisNotaire, restantDu, resultat };
 }

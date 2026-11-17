@@ -326,20 +326,110 @@ function mensualiteParEuro(tauxAnnuel, assuranceAnnuelle, annees) {
   return credit + assuranceAnnuelle / 100 / 12;
 }
 
-export function financement(plan, prix, type, ageAchat, salaire, autresCredits = 0) {
+// Charges du propriétaire occupant, en euros annuels de l'année d'achat (taxe foncière, copropriété non récupérable, entretien)
+export function chargesProprietaire(plan, { prix, typeLogement = "appartement", surface = null, loyerMarcheMensuel = null, chargesCoproMensuelles = null }) {
+  const c = plan.achatRP.chargesProprietaire;
+  const type = typeLogement === "maison" ? "maison" : "appartement";
+  const prixOk = Math.max(0, Number(prix) || 0);
+  const sourceLoyer = Number(loyerMarcheMensuel) > 0 ? "marche" : "defaut";
+  const loyerMarcheRetenu = sourceLoyer === "marche" ? Number(loyerMarcheMensuel) : (prixOk * c.rendementLocatifBrutDefaut) / 100 / 12;
+  const taxeFonciere = loyerMarcheRetenu * c.taxeFonciereMoisDeLoyer;
+  const copro = chargesCoproMensuelles != null && Number.isFinite(Number(chargesCoproMensuelles))
+    ? Math.max(0, Number(chargesCoproMensuelles)) * 12
+    : type === "appartement" ? (Number(surface) > 0 ? Number(surface) : c.surfaceDefaut) * c.coproNonRecuperableM2An : 0;
+  const entretien = (prixOk * (c.entretienPctValeur[type] ?? 0)) / 100;
+  const totalAnnuel = taxeFonciere + copro + entretien;
+  return { taxeFonciere, copro, entretien, totalAnnuel, totalMensuel: totalAnnuel / 12, loyerMarcheRetenu, sourceLoyer };
+}
+
+// Prêt à taux zéro : montant, durées et mensualité de remboursement (barèmes dans plan.achatRP.ptz)
+export function pretTauxZero(plan, { coutOperation, pretTotal, zone, tranche, typeOperation, personnes = 1, travauxPctCout = 0 }) {
+  const P = plan.achatRP.ptz;
+  const raisons = [];
+  const z = String(zone ?? "").toUpperCase().replace(/\s/g, "");
+  const zoneN = z === "ABIS" ? "A" : z;
+  const t = Math.round(Number(tranche));
+  const quotites = P.quotites[typeOperation];
+  if (!quotites) raisons.push("Type d'opération non reconnu.");
+  if (!(P.plafondOperationUnePersonne[zoneN] > 0)) raisons.push("Zone non reconnue (A, B1, B2 ou C).");
+  if (!(t >= 1 && t <= P.tranches.length)) raisons.push("Tranche de revenus hors barème (1 à 4).");
+  if (typeOperation === "ancienTravaux") {
+    if (P.plafondOperationUnePersonne[zoneN] > 0 && !P.zonesAncien.includes(zoneN)) raisons.push(`Logement ancien avec travaux : réservé aux zones ${P.zonesAncien.join(" et ")}.`);
+    if ((Number(travauxPctCout) || 0) < P.travauxMinPctCout) raisons.push(`Travaux inférieurs à ${P.travauxMinPctCout} % du coût de l'opération.`);
+  }
+  const nul = { eligible: false, montant: 0, quotite: 0, plafondOperation: 0, differe: 0, remboursement: 0, duree: 0, mensualiteRemboursement: 0, raisons };
+  if (raisons.length) return nul;
+  const quotite = quotites[t - 1];
+  const foyer = P.coefficientsFoyer[Math.min(Math.max(1, Math.round(Number(personnes) || 1)), P.coefficientsFoyer.length) - 1];
+  const plafondOperation = P.plafondOperationUnePersonne[zoneN] * foyer;
+  const base = Math.min(Math.max(0, Number(coutOperation) || 0), plafondOperation);
+  const montant = Math.floor(Math.min((quotite * base) / 100, Math.max(0, Number(pretTotal) || 0) / 2));
+  const { differe, remboursement } = P.tranches[t - 1];
+  if (!(montant > 0)) return { ...nul, quotite, plafondOperation, differe, remboursement, duree: differe + remboursement, raisons: ["Montant du prêt nul."] };
+  return { eligible: true, montant, quotite, plafondOperation, differe, remboursement, duree: differe + remboursement, mensualiteRemboursement: montant / (remboursement * 12), raisons };
+}
+
+// Lissage : la banque ajuste sa mensualité pour que le total (banque + PTZ) reste constant pendant le prêt
+export function lisserPTZ({ pretBancaire, tauxAnnuel, dureeMois, ptz, differeMois, remboursementMois, assuranceAnnuelle = 0 }) {
+  const B = Math.max(0, Number(pretBancaire) || 0), n = Math.max(0, Math.round(dureeMois));
+  const i = tauxAnnuel / 100 / 12;
+  const a = (k) => (i > 0 ? (1 - Math.pow(1 + i, -k)) / i : k);
+  const Z = Math.max(0, Number(ptz) || 0);
+  const d = Math.max(0, Math.round(differeMois)), r = Math.max(0, Math.round(remboursementMois));
+  const p = r > 0 ? Z / r : 0;
+  const e = d + r, e2 = Math.min(e, n);
+  const assMois = (B * assuranceAnnuelle) / 100 / 12;
+  const classique = n > 0 ? B / a(n) : 0;
+  let M = n > 0 ? (B + p * (a(e2) - a(d))) / a(n) : 0;
+  const lissageImpossible = M - p < 0;
+  if (lissageImpossible) M = classique;
+  const bancaireParMois = (m) => {
+    if (m < 1 || m > n) return 0;
+    if (lissageImpossible) return classique;
+    return m > d && m <= e2 ? M - p : M;
+  };
+  const ptzParMois = (m) => (m > d && m <= e ? p : 0);
+  const total = Math.max(n, e);
+  const soldeBanque = [B], soldePTZ = [Z];
+  for (let m = 1; m <= total; m++) {
+    const prec = soldeBanque[m - 1];
+    soldeBanque.push(m >= n ? 0 : Math.max(0, prec * (1 + i) - bancaireParMois(m)));
+    soldePTZ.push(m >= e ? 0 : Math.max(0, soldePTZ[m - 1] - ptzParMois(m)));
+  }
+  const mensualitesAnnuelles = [];
+  for (let k = 0; k * 12 < total; k++) {
+    let s = 0;
+    for (let m = k * 12 + 1; m <= Math.min(total, k * 12 + 12); m++) s += bancaireParMois(m) + ptzParMois(m) + (m <= n ? assMois : 0);
+    mensualitesAnnuelles.push(s / 12);
+  }
+  const restantDu = (k) => {
+    const m = Math.min(total, Math.max(0, Math.round((k + 1) * 12)));
+    return (soldeBanque[m] ?? 0) + (soldePTZ[m] ?? 0);
+  };
+  return { mensualiteLissee: M, mensualitesAnnuelles, bancaireParMois, ptzParMois, restantDu, lissageImpossible };
+}
+
+export function financement(plan, prix, type, ageAchat, salaire, autresCredits = 0, ptzSaisie = null) {
   const a = plan.achatRP;
   const duree = Math.min(a.dureeMaxAnnees, a.ageMaxFinPret - ageAchat);
   const frais = (prix * (a.fraisNotairePourcent[type] ?? 0)) / 100;
   const cout = prix + frais;
-  if (duree < 1) return { duree: 0, frais, cout, pretMax: 0, apportRequis: cout, mensualiteMax: 0 };
-  if (!(salaire * a.tauxEndettementMax / 100 - autresCredits > 0)) return { duree, frais, cout, pretMax: 0, apportRequis: cout, pret: 0, mensualite: 0, mensualiteMax: 0 };
+  if (duree < 1) return { duree: 0, frais, cout, pretMax: 0, apportRequis: cout, mensualiteMax: 0, mensualites: [], ptz: null };
+  if (!(salaire * a.tauxEndettementMax / 100 - autresCredits > 0)) return { duree, frais, cout, pretMax: 0, apportRequis: cout, pret: 0, mensualite: 0, mensualiteMax: 0, mensualites: [], ptz: null };
   const parEuro = mensualiteParEuro(a.tauxCredit, a.tauxAssuranceEmprunteur, duree);
   const mensualiteMax = Math.max(0, (salaire * a.tauxEndettementMax) / 100 - autresCredits);
   const pretMax = mensualiteMax / parEuro;
   const apportMin = Math.max(frais, (cout * (a.apportMinPourcentCout ?? 0)) / 100);
   const apportRequis = Math.min(cout, Math.max(apportMin, cout - pretMax));
   const pret = cout - apportRequis;
-  return { duree, frais, cout, pretMax, apportRequis, pret, mensualite: pret * parEuro, mensualiteMax };
+  const mensualite = pret * parEuro;
+  const base = { duree, frais, cout, pretMax, apportRequis, pret, mensualite, mensualiteMax };
+  const ptz = ptzSaisie && pret > 0 ? pretTauxZero(plan, { coutOperation: cout, pretTotal: pret, ...ptzSaisie }) : null;
+  if (!ptz?.eligible) return { ...base, mensualites: Array.from({ length: duree }, () => mensualite), ptz: null };
+  const pretBancaire = pret - ptz.montant;
+  const L = lisserPTZ({ pretBancaire, tauxAnnuel: a.tauxCredit, dureeMois: duree * 12, ptz: ptz.montant, differeMois: ptz.differe * 12, remboursementMois: ptz.remboursement * 12, assuranceAnnuelle: a.tauxAssuranceEmprunteur });
+  const assurance = (pretBancaire * a.tauxAssuranceEmprunteur) / 100 / 12;
+  return { ...base, mensualite: L.mensualiteLissee + assurance, ptz, pretBancaire, mensualites: L.mensualitesAnnuelles, restantDu: L.restantDu, lissageImpossible: L.lissageImpossible };
 }
 
 // Salaire net AVANT impôt du foyer (les banques raisonnent avant impôt), à partir du net après impôt du foyer.
@@ -430,6 +520,7 @@ export function achatResidence(plan, profil) {
   const pr = profil.projetRP;
   if (!pr?.actif || !(pr.prix > 0)) return null;
   const a = plan.achatRP, h = plan.hypotheses;
+  const ptzSaisie = pr.ptz?.actif ? { zone: pr.ptz.zone, tranche: pr.ptz.tranche, typeOperation: pr.ptz.typeOperation, personnes: pr.ptz.personnes, travauxPctCout: pr.ptz.travauxPctCout } : null;
   const C = capitalDe(profil);
   const securite = montantSecurite(plan, { ...profil, capital: C });
   const livrets = (a.enveloppesApport ?? []).reduce((s, id) => s + (profil.placements?.[id] ?? 0), 0);
@@ -459,7 +550,7 @@ export function achatResidence(plan, profil) {
   for (let y = 0; ageEmp + y < a.ageMaxFinPret && y <= 40; y++) {
     const salaire = profil.salaireNetMensuel * facteurSalaire(plan, profil, y);
     const B = banque(y, salaire);
-    const f = financement(plan, pr.prix, pr.type, ageEmp + y, B.revenus, B.charges);
+    const f = financement(plan, pr.prix, pr.type, ageEmp + y, B.revenus, B.charges, ptzSaisie);
     const vente = venteA(y);
     const point = { annees: y, age: agePers + y, salaire, apport: apport + aide + vente, aide, vente, autresPlacements, ...f,
       banqueRevenus: B.revenus, banqueCharges: B.charges, banqueSalaireAvant: B.salaireAvant, banqueLoyers70: B.loyers70, faisable: apport + aide + vente >= f.apportRequis && f.duree >= 1 && f.pretMax + apport + aide + vente >= f.cout };
@@ -489,7 +580,7 @@ export function achatResidence(plan, profil) {
         for (let k = 0; k < 40; k++) {
           const mil = (bas + haut) / 2;
           const BH = banque(H, p.salaire);
-          if (apportMax >= financement(plan, mil, pr.type, ageEmp + H, BH.revenus, BH.charges).apportRequis) bas = mil; else haut = mil;
+          if (apportMax >= financement(plan, mil, pr.type, ageEmp + H, BH.revenus, BH.charges, ptzSaisie).apportRequis) bas = mil; else haut = mil;
         }
         prixMax = bas;
       }

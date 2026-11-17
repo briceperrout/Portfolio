@@ -145,7 +145,7 @@ export function analyseLocatif(plan, projet, n = 20) {
   };
   const tri = triDe(cf);
   // Même argent sur un PEA : l'apport, puis chaque année l'effort (cash-flow négatif) ; un cash-flow positif est retiré
-  const rb = (plan.hypotheses?.rendements?.bourse ?? 7) / 100;
+  const rb = (plan.hypotheses?.rendements?.bourse ?? 8) / 100;
   let pea = projet.apport, verse = projet.apport;
   const cfP = [-projet.apport];
   for (let k = 0; k < n; k++) {
@@ -154,7 +154,7 @@ export function analyseLocatif(plan, projet, n = 20) {
     if (c < 0) verse += -c; else verse -= Math.min(verse, c);
     cfP.push(c);
   }
-  const peaNet = pea - Math.max(0, pea - verse) * 0.186;
+  const peaNet = pea - Math.max(0, pea - verse) * (PRELEVEMENTS.PS_CAPITAL / 100);
   cfP[cfP.length - 1] += peaNet;
   return { n, tri, triPEA: triDe(cfP), final, vente, dette, impotPV, effortTotal, cashflow1: projet.flux(0).cashflow, peaNet };
 }

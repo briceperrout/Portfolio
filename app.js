@@ -1,7 +1,7 @@
 import { PLAN } from "./plan.js";
-import { analyser, eur, pct, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer } from "./moteur.js";
-import { projetLocatifDe, analyseLocatif } from "./locatif.js";
-import { projeter, projeterCentral, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, CRISES, simulerCrise, fluxLocatif } from "./projection.js";
+import { analyser, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer } from "./moteur.js";
+import { projetLocatifDe, analyseLocatif, mensualitePret } from "./locatif.js";
+import { achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, CRISES, simulerCrise, fluxLocatif } from "./projection.js";
 import { SCENARIOS_FISCAUX, NEUTRE, optionFiscale, comparerTaux } from "./evolution-fiscale.js";
 import { echeancesProfil, echeancesGenerales, versCSV } from "./calendrier.js";
 import { genererRecapHTML, encoderProfilPartage, decoderProfilPartage } from "./recap.js";
@@ -61,6 +61,7 @@ const texteLie = (t, exclure) => lierTermes(echapper(t), { exclure });
 const lienFiche = (id, texte) => (FICHES[id] ? `<a class="lien-fiche" href="#fiche-${id}">${texte ?? `Fiche ${FICHES[id]}`}</a>` : "");
 
 // ---------------------------------------------------------------- état
+const PTZ_DEFAUT = { actif: false, zone: "B1", tranche: 2, typeOperation: "collectifNeuf", personnes: null, travauxPctCout: 0 };
 const PROFIL_EXEMPLE = {
   age: 32, salaireNetMensuel: 3200, epargneMensuelle: 1000, depensesMensuelles: 1800, tmi: "30",
   pays: "FR", statutPro: "stable", eligibleLEP: false, creditsMensuels: 0,
@@ -69,7 +70,7 @@ const PROFIL_EXEMPLE = {
   placements: { livretA: 22950, ldds: 12000, livretBancaire: 5050, assuranceVie: 25000, assuranceVieUC: 0, pea: 30000, cto: 0, orPhysique: 0, plateformeCrypto: 5000, coldWallet: 0, scpi: 0, per: 0 },
   pea: { ouvert: true, dateOuverture: "2023-03", versements: 26000, etablissement: "Banque traditionnelle" },
   assuranceVie: { ouverte: true, dateOuverture: "2019-06", type: "Banque traditionnelle" },
-  projetRP: { actif: true, prix: 320000, type: "ancien", imperatif: false, horizonAnnees: 3, aideFamiliale: 0, ageChoisi: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
+  projetRP: { actif: true, prix: 320000, type: "ancien", imperatif: false, horizonAnnees: 3, aideFamiliale: 0, ageChoisi: null, departement: "", commune: "", typeLogement: "appartement", surface: null, ptz: { ...PTZ_DEFAUT }, loyerEquivalent: null, chargesCoproMensuelles: null },
   salaireDans10Ans: null, rythmeReequilibrage: "", avPartEuros: 100,
   logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
   abondement: { acces: "?", actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false },
@@ -83,7 +84,7 @@ const PROFIL_VIDE = {
   pays: "FR", statutPro: "", eligibleLEP: false, creditsMensuels: 0,
   futur: { actif: false, age: null, capital: null, salaire: null, epargne: null },
   placements: {}, pea: { ouvert: false, versements: 0, etablissement: "" }, assuranceVie: { ouverte: false, type: "" },
-  projetRP: { actif: false, prix: 0, type: "ancien", imperatif: false, horizonAnnees: 0, aideFamiliale: 0, ageChoisi: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
+  projetRP: { actif: false, prix: 0, type: "ancien", imperatif: false, horizonAnnees: 0, aideFamiliale: 0, ageChoisi: null, departement: "", commune: "", typeLogement: "appartement", surface: null, ptz: { ...PTZ_DEFAUT }, loyerEquivalent: null, chargesCoproMensuelles: null },
   salaireDans10Ans: null, rythmeReequilibrage: "", avPartEuros: 100,
   logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
   abondement: { acces: "?", actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false },
@@ -139,7 +140,7 @@ function completerProfil(p) {
   if (p.conjoint) p.conjoint.age = borne(p.conjoint.age);
   if (p.futur?.age != null) p.futur.age = borne(p.futur.age);
   p.logement = { usage: "rp", origine: "achat", part: 100, typeLogement: "appartement", ...(p.logement ?? {}) };
-  p.projetRP = { typeLogement: "appartement", ...(p.projetRP ?? {}) };
+  p.projetRP = { typeLogement: "appartement", loyerEquivalent: null, chargesCoproMensuelles: null, ...(p.projetRP ?? {}), ptz: { ...PTZ_DEFAUT, ...(p.projetRP?.ptz ?? {}) } };
   const acces0 = p.abondement?.acces ?? (p.abondement?.actif ? (p.abondement.plan === "pee" ? "pee" : "per") : "?");
   p.abondement = { actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false, ...(p.abondement ?? {}), acces: acces0 };
   p.assuranceVie ??= {};
@@ -192,6 +193,9 @@ function normaliserProfil(source) {
   if (p.proprietaire && (p.logement?.usage ?? "rp") === "rp") p.loyerMensuel = 0;
   if (!p.pea?.ouvert) p.pea = { ouvert: false, versements: 0 };
   p.independant = { ...INDEPENDANT_VIDE, ...(p.independant ?? {}) };
+  p.projetRP = { ...(p.projetRP ?? {}), ptz: { ...PTZ_DEFAUT, ...(p.projetRP?.ptz ?? {}) } };
+  // Personnes du foyer pour le plafond du PTZ, si non saisies : toi, ton conjoint s'il y en a un, et les enfants
+  if (!(Number(p.projetRP.ptz.personnes) > 0)) p.projetRP.ptz.personnes = 1 + (p.foyer?.actif ? 1 : 0) + Math.max(0, Math.round(Number(p.enfants) || 0));
   // Tranche d'imposition non saisie : estimée à partir des revenus (barème 2026)
   const indep = (p.tmi === "" || p.tmi == null) && p.statutPro === "independant" ? simulerIndependant(etat.brouillon, p, false) : null;
   if (indep) {
@@ -294,6 +298,95 @@ function graphiqueAchat(achat) {
   return `${svg}<div class="legende-g"><span><span class="trait" style="background:var(--s1)"></span>Apport disponible</span><span><span class="trait" style="background:var(--s2)"></span>Apport nécessaire</span></div>`;
 }
 
+// Coûts du propriétaire, prêt à taux zéro et comparaison acheter / louer, pour l'achat retenu
+function graphiqueAcheterLouer(r) {
+  const pts = r.serie;
+  if (pts.length < 2) return "";
+  const W = 640, H = 240, g = 58, d = 16, h = 14, b = 28;
+  const tous = pts.flatMap((p) => [p.patrimoineAcheteur, p.patrimoineLocataire]);
+  const ymax = Math.max(1, ...tous) * 1.08, ymin = Math.min(0, ...tous);
+  const x = (i) => g + (i * (W - g - d)) / (pts.length - 1);
+  const y = (v) => H - b - ((v - ymin) * (H - b - h)) / (ymax - ymin);
+  const ligne = (k) => pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p[k]).toFixed(1)}`).join("");
+  const pasX = Math.ceil(pts.length / 8);
+  let svg = `<svg class="graphe" viewBox="0 0 ${W} ${H}" role="img" aria-label="Patrimoine de l'acheteur et du locataire selon la durée">`;
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) { const v = ymin + ((ymax - ymin) * t) / 1.08; svg += `<line class="grille-l" x1="${g}" x2="${W - d}" y1="${y(v)}" y2="${y(v)}"/><text x="${g - 8}" y="${y(v) + 4}" text-anchor="end">${keur(v)}</text>`; }
+  pts.forEach((p, i) => { if (i === pts.length - 1 || (i % pasX === 0 && pts.length - 1 - i >= pasX)) svg += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${p.annee} ans</text>`; });
+  svg += `<line class="axe" x1="${g}" x2="${W - d}" y1="${y(0)}" y2="${y(0)}"/>`;
+  if (r.pointMort != null) {
+    const i = r.pointMort;
+    svg += `<line x1="${x(i)}" x2="${x(i)}" y1="${h}" y2="${H - b}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 4"/><text x="${Math.min(x(i) + 6, W - 130)}" y="${h + 10}" style="fill:var(--fg);font-weight:600">Point mort : ${r.pointMort} ans</text>`;
+  }
+  svg += `<path d="${ligne("patrimoineLocataire")}" fill="none" stroke="var(--s2)" stroke-width="2" stroke-linejoin="round"/>`;
+  svg += `<path d="${ligne("patrimoineAcheteur")}" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round"/>`;
+  svg += `<line id="curseur-al" class="curseur" x1="0" x2="0" y1="${h}" y2="${H - b}" stroke="var(--faint)" stroke-width="1" visibility="hidden"/>`;
+  pts.forEach((p, i) => {
+    const l = (W - g - d) / (pts.length - 1);
+    svg += `<rect x="${x(i) - l / 2}" y="${h}" width="${l}" height="${H - b - h}" fill="transparent" data-x="${x(i)}" data-curseur="curseur-al" data-bulle="${echapper(`${p.annee === 0 ? "Au départ" : `Après ${p.annee} an${p.annee > 1 ? "s" : ""}`} · acheteur ${eur(p.patrimoineAcheteur)} · locataire ${eur(p.patrimoineLocataire)}`)}"/>`;
+  });
+  svg += `</svg>`;
+  return `${svg}<div class="legende-g"><span><span class="trait" style="background:var(--s1)"></span>Patrimoine de l'acheteur</span><span><span class="trait" style="background:var(--s2)"></span>Patrimoine du locataire</span></div>`;
+}
+
+function blocCoutsEtAcheterLouer(res) {
+  const plan = etat.brouillon, A = plan.achatRP, p = res.profil;
+  let ap = null;
+  try { ap = achatPourProjection(plan, p); } catch (e) { console.error(e); }
+  if (!ap) return "";
+  const c = ap.charges;
+  const ligne = (lib, v) => `<tr><td>${lib}</td><td class="m"><span class="num">${eur(v)}</span></td><td class="m"><span class="num">${eur(v / 12)}</span></td></tr>`;
+  const couts = `<h3 style="margin:16px 0 4px">Ce que coûte d'être propriétaire</h3>
+    <div class="table-wrap"><table><thead><tr><th>Charge</th><th class="m">Par an</th><th class="m">Par mois</th></tr></thead><tbody>
+      ${ligne("Taxe foncière", c.taxeFonciere)}${ligne("Copropriété non récupérable", c.copro)}${ligne("Entretien", c.entretien)}
+      <tr><td><b>Total</b></td><td class="m"><b class="num">${eur(c.totalAnnuel)}</b></td><td class="m"><b class="num">${eur(c.totalMensuel)}</b></td></tr>
+    </tbody></table></div>
+    <p class="note" style="margin:6px 0 0">Loyer de référence pour la taxe foncière : <span class="num">${eur(c.loyerMarcheRetenu)}</span> par mois (${c.sourceLoyer === "marche" ? "loyer de marché" : `par défaut : ${String(A.chargesProprietaire.rendementLocatifBrutDefaut).replace(".", ",")} % du prix par an`}). ${lienFiche("acheter-louer", "Fiche : acheter ou louer")}</p>`;
+
+  // Prêt à taux zéro
+  let ptzHTML = "";
+  const saisie = p.projetRP?.ptz;
+  if (saisie?.actif) {
+    if (ap.ptz?.eligible) {
+      const z = ap.ptz, sans = mensualitePret(ap.pret, A.tauxCredit, ap.duree, A.tauxAssuranceEmprunteur);
+      ptzHTML = `<h3 style="margin:16px 0 4px">Financement avec le prêt à taux zéro</h3>
+        <div class="table-wrap"><table><thead><tr><th>Prêt</th><th class="m">Montant</th><th class="m">Taux</th><th class="m">Durée</th></tr></thead><tbody>
+          <tr><td>Prêt bancaire</td><td class="m"><span class="num">${eur(ap.pretBancaire)}</span></td><td class="m">${pct(A.tauxCredit)}</td><td class="m">${ap.duree} ans</td></tr>
+          <tr><td>Prêt à taux zéro (${z.quotite} % du coût)</td><td class="m"><span class="num">${eur(z.montant)}</span></td><td class="m">0 %</td><td class="m">${z.differe > 0 ? `différé ${z.differe} ans, puis ` : ""}${z.remboursement} ans</td></tr>
+        </tbody></table></div>
+        <p class="note" style="margin:6px 0 0">Mensualité lissée, assurance comprise : <b class="num">${eur(ap.mensualite)}</b> par mois, contre <span class="num">${eur(sans)}</span> sans PTZ. Plafond d'opération retenu : <span class="num">${eur(z.plafondOperation)}</span>. ${lienFiche("ptz", "Fiche : le prêt à taux zéro")}</p>
+        ${ap.lissageImpossible ? `<p class="verdict ko"><b>Lissage impossible</b> : la part du PTZ dépasse la mensualité du prêt principal. La banque garde une mensualité classique et le PTZ s'y ajoute : la mensualité totale n'est pas constante.</p>` : ""}`;
+    } else {
+      const cout = ap.apportRequis + ap.pret;
+      const z = pretTauxZero(plan, { coutOperation: cout, pretTotal: ap.pret, ...saisie });
+      ptzHTML = `<h3 style="margin:16px 0 4px">Prêt à taux zéro</h3>
+        <p class="verdict ko"><b>PTZ non applicable avec ces réglages.</b></p>
+        <ul class="points">${z.raisons.map((x) => `<li>${echapper(x)}</li>`).join("") || "<li>Aucun montant de PTZ possible sur ce prêt.</li>"}</ul>`;
+    }
+  }
+
+  // Acheter ou louer, à capital de départ égal : le locataire place tout l'apport requis (frais de notaire compris), aide familiale comprise
+  let comp = null;
+  try { comp = comparaisonAchatLocation(plan, p); } catch (e) { console.error(e); }
+  const loyer = comp?.loyer ?? 0;
+  let al = "";
+  if (!(loyer > 0) || !comp?.resultat) al = `<p class="note" style="margin:0">Indique le loyer d'un logement équivalent (ou ton loyer actuel) dans « Mon profil » pour comparer.</p>`;
+  else {
+    const r = comp.resultat;
+    const H = r.hypotheses;
+    const phrase = r.pointMort == null ? "Pas de point mort sur 30 ans : louer et placer la différence reste plus avantageux." : `L'achat devient plus rentable que la location au bout de <b>${r.pointMort} ans</b>.${r.recroise ? " Attention : plus tard, le locataire repasse devant." : ""}`;
+    const ligneAn = (q) => `<tr><td>${q.annee === 0 ? "Départ" : `${q.annee} an${q.annee > 1 ? "s" : ""}`}</td><td class="m"><span class="num">${eur(q.valeurBien)}</span></td><td class="m"><span class="num">${eur(q.dette)}</span></td><td class="m"><span class="num">${eur(q.fraisReventeDeduits)}</span></td><td class="m"><span class="num">${eur(q.portefeuilleAcheteur)}</span></td><td class="m"><b class="num">${eur(q.patrimoineAcheteur)}</b></td><td class="m"><span class="num">${eur(q.portefeuilleLocataire)}</span></td><td class="m"><b class="num">${eur(q.patrimoineLocataire)}</b></td><td class="m"><span class="num">${q.ecart >= 0 ? "+" : "−"}${eur(Math.abs(q.ecart))}</span></td></tr>`;
+    const detail = [0, 1, 2, 3, 5, 10, 20, 30].map((t) => r.serie.find((q) => q.annee === t)).filter(Boolean).map(ligneAn).join("");
+    al = `${graphiqueAcheterLouer(r)}
+      <p class="verdict ${r.pointMort == null ? "ko" : "ok"}">${phrase}</p>
+      <p class="note" style="margin:6px 0 0">Hypothèses : placement à ${pct(H.rendement)} par an (PEA puis compte-titres), bien qui prend ${pct(H.valorisation)} par an, inflation ${pct(H.inflation)} (loyers et charges), loyer de départ <span class="num">${eur(loyer)}</span> par mois, apport de départ <span class="num">${eur(Math.max(0, ap.apportRequis))}</span> frais de notaire compris, plus <span class="num">${eur(comp.fraisAnnexes)}</span> de frais de garantie (${pct(A.fraisGarantiePctPret ?? 0)} du prêt) et de dossier. Capital de départ identique dans les deux cas (aide familiale comprise). ${H.fraisReventePct > 0 ? `Frais de revente de ${pct(H.fraisReventePct)} déduits de la valeur du bien.` : "Sans frais de revente."} ${lienFiche("acheter-louer", "Fiche : acheter ou louer")}</p>
+      <details style="margin-top:8px"><summary>Détail année par année</summary>
+        <p class="note" style="margin:6px 0">Perdus dès l'achat : frais de notaire <span class="num">${eur(comp.fraisNotaire)}</span> et frais annexes du prêt (garantie, dossier) <span class="num">${eur(comp.fraisAnnexes)}</span>.</p>
+        <div class="table-wrap"><table><thead><tr><th>Année</th><th class="m">Valeur du bien</th><th class="m">Dette</th><th class="m">Frais de revente</th><th class="m">Portefeuille acheteur</th><th class="m">Patrimoine acheteur</th><th class="m">Portefeuille locataire</th><th class="m">Patrimoine locataire</th><th class="m">Écart</th></tr></thead><tbody>${detail}</tbody></table></div>
+      </details>`;
+  }
+  return `${couts}${ptzHTML}<h3 style="margin:16px 0 4px">Acheter ou louer ?</h3>${al}`;
+}
+
 function blocAchat(res) {
   const a = res.achat; if (!a) return "";
   const plan = etat.brouillon, A = plan.achatRP;
@@ -352,6 +445,7 @@ function blocAchat(res) {
     <div class="tuiles">${tuiles.map(([k, v]) => `<div class="tuile"><span>${k}</span><b class="num">${v}</b></div>`).join("")}</div>
     ${horizon}${test}
     ${graphiqueAchat(a)}
+    ${blocCoutsEtAcheterLouer(res)}
     <h3 style="margin:16px 0 4px">Et si j'achetais plus tôt ou plus tard ?</h3>
     <p class="note" style="margin:0 0 6px">Livrets, épargne, aide : livrets au-delà de la sécurité, épargne mise de côté chaque mois${a.aide > 0 ? ` et ${eur(a.aide)} d'aide familiale (comptée à chaque âge)` : " et aide familiale (aucune indiquée)"}. Autres placements : bourse, assurance-vie… vendables pour compléter (valeur d'aujourd'hui). Prêt possible : le maximum que la banque prêterait avec ton salaire à cet âge. Le même calcul sert pour l'âge choisi et l'achat impératif.</p>
     <div class="table-wrap"><table><thead><tr><th>Achat à</th><th class="m">Livrets, épargne, aide</th><th class="m">Autres placements</th><th class="m">Apport nécessaire</th><th class="m">Prêt possible</th><th class="m">Mensualité</th><th class="m">Verdict</th></tr></thead><tbody>${lignes}</tbody></table></div>
@@ -1836,7 +1930,7 @@ function saisieAV() {
 // Estimation du prix d'un logement (lieu, type, surface)
 const BASES_EST = ["projetRP", "logement", "projetLocatif"];
 function htmlEstimateur(base) {
-  const titre = { projetRP: "Estimer le prix d'après le lieu et la surface (facultatif)", logement: "Estimer sa valeur d'après le lieu et la surface (facultatif)", projetLocatif: "Estimer le prix et le loyer d'après le lieu (facultatif)" }[base];
+  const titre = { projetRP: "Estimer le prix et le loyer d'après le lieu et la surface (facultatif)", logement: "Estimer sa valeur d'après le lieu et la surface (facultatif)", projetLocatif: "Estimer le prix et le loyer d'après le lieu (facultatif)" }[base];
   return `<p class="titre-est">${titre}</p>
     <div class="champ"><label for="${base}-dep">Département</label><select id="${base}-dep" data-p="${base}.departement"><option value="">À choisir (ou tape directement la commune)</option>${DEPARTEMENTS.map(([c, n]) => `<option value="${c}">${c} · ${echapper(n)}</option>`).join("")}</select></div>
     <div class="champ champ-texte combo"><label for="${base}-commune">Commune ou arrondissement</label><input id="${base}-commune" type="text" class="texte commune-recherche" data-base="${base}" data-p="${base}.commune" placeholder="Tape les premières lettres ou le code postal" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sug-${base}"><ul class="suggestions" id="sug-${base}" role="listbox" hidden></ul></div>
@@ -1901,11 +1995,19 @@ function zoneLocative(rend) {
   return `Rendement brut de la zone : <b>${pct(rend)}</b> par an (${t}).`;
 }
 const depListe = {};
+// Loyer de marché du projet d'achat (valeur dérivée, hors charges) : sert à comparer acheter et louer
+function fixerLoyerEstime(valeur) {
+  const P = etat.profil.projetRP; if (!P) return;
+  const v = valeur > 0 ? valeur : null;
+  if ((P.loyerEstime ?? null) === v) return;
+  P.loyerEstime = v;
+  apresSaisieProfil();
+}
 function majEstimations() {
   for (const base of BASES_EST) {
     const lieu = etat.profil[base] ?? {};
     const out = $(`#est-${base}`); if (!out) continue;
-    if (!lieu.departement) { out.innerHTML = '<span class="muted small">Choisis un département ou tape directement la commune, puis le type et la surface.</span>'; continue; }
+    if (!lieu.departement) { out.innerHTML = '<span class="muted small">Choisis un département ou tape directement la commune, puis le type et la surface.</span>'; if (base === "projetRP") fixerLoyerEstime(null); continue; }
     const d = prixCharges();
     if (!d) {
       out.innerHTML = '<span class="muted small">Chargement des prix…</span>';
@@ -1918,8 +2020,8 @@ function majEstimations() {
       if (inp && document.activeElement !== inp) inp.value = lieu.commune ?? "";
     }
     const est = estimer(lieu);
-    const surfaceDeduite = base === "projetLocatif" && !(Number(lieu.surface) > 0) && est?.m2 && Number(etat.profil.projetLocatif?.prix) > 0 ? Math.round(Number(etat.profil.projetLocatif.prix) / est.m2) : null;
-    const loy = base === "projetLocatif" ? estimerLoyer(lieu, surfaceDeduite) : null;
+    const surfaceDeduite = (base === "projetLocatif" || base === "projetRP") && !(Number(lieu.surface) > 0) && est?.m2 && Number(etat.profil[base]?.prix) > 0 ? Math.round(Number(etat.profil[base].prix) / est.m2) : null;
+    const loy = base === "projetLocatif" || base === "projetRP" ? estimerLoyer(lieu, surfaceDeduite) : null;
     const morceaux = [];
     if (!est || est.introuvable) morceaux.push(`<span class="small">Pas de données de ventes ici (l'Alsace-Moselle et Mayotte ne sont pas couvertes) : indique le prix toi-même.</span>`);
     else {
@@ -1936,12 +2038,13 @@ function majEstimations() {
       const m2Txt = `${String(Math.round(loy.m2 * 10) / 10).replace(".", ",")} € le m² par mois charges comprises ${ouL}${fourchette}`;
       morceaux.push(loy.horsCharges
         ? `<span class="ligne-est">Loyer estimé : <b>${eur(loy.horsCharges)}</b> par mois hors charges</span><span class="small muted">${m2Txt} × ${loy.surface} m²${surfaceDeduite ? " (surface déduite du prix du bien)" : ""}, moins environ 10 % de charges. Source : carte des loyers 2025 du ministère du Logement (annonces du 3e trimestre 2025). Un meublé se loue en général 10 à 20 % plus cher.</span>
-           <button type="button" class="lien" data-utiliser-loyer="${loy.horsCharges}">Utiliser ce loyer</button>`
+           ${base === "projetLocatif" ? `<button type="button" class="lien" data-utiliser-loyer="${loy.horsCharges}">Utiliser ce loyer</button>` : ""}`
         : `<span class="small">${m2Txt}. Indique la surface ou le prix du bien pour estimer le loyer.</span>`);
       if (est?.m2 && est.echelle === "commune") morceaux.push(`<span class="small">${zoneLocative((100 * loy.m2 * 0.9 * 12) / est.m2)} Prix ${eur(est.m2)} le m², loyer ${String(Math.round(loy.m2 * 0.9 * 10) / 10).replace(".", ",")} € le m² hors charges.</span>`);
       else if (est?.m2) morceaux.push(`<span class="small muted">Rendement de la zone non calculé : pas assez de ventes dans cette commune pour un prix au m² fiable (le prix du département fausserait le calcul).</span>`);
     }
     out.innerHTML = morceaux.join("");
+    if (base === "projetRP") fixerLoyerEstime(loy?.horsCharges ?? null);
   }
 }
 $("#profil").addEventListener("click", (e) => {
@@ -2068,7 +2171,7 @@ function rendreIndependant() {
     ${opt ? `<p class="note" style="margin:0">Rémunération qui maximise le net en poche (par pas de 1 000 €) : <b class="num">${eur(opt.remunerationNette)}</b> par an, soit <b class="num">${eur(opt.netEnPoche)}</b> en poche. Moins de rémunération, c'est moins de cotisations mais aussi moins de droits à la retraite.</p>` : ""}
     ${alertes}
     <div><button type="button" id="btn-net-independant">Utiliser ce net dans mon budget</button></div>
-    <p class="note" style="margin:0">Estimation simplifiée : taux effectifs, sans chômage ni prévoyance, sans déficit reportable.</p>`;
+    <p class="note" style="margin:0">Estimation simplifiée : taux effectifs, sans chômage ni prévoyance, sans déficit reportable. ${lienFiche("independants", "Fiche : micro-entreprise, SASU ou EURL")}</p>`;
 }
 $("#resultat-independant")?.addEventListener("click", (e) => {
   if (!e.target.closest("#btn-net-independant")) return;
@@ -2126,6 +2229,11 @@ function majVisibiliteProfil() {
   $("#p-pea-date").disabled = $("#p-pea-vers").disabled = $("#p-pea-etab").disabled = !p.pea?.ouvert;
   const rp = !!p.projetRP?.actif;
   $("#p-rp-prix").disabled = $("#p-rp-type").disabled = $("#p-rp-imp").disabled = $("#p-rp-aide").disabled = !rp;
+  $("#p-rp-copro").disabled = $("#p-rp-loyer-eq").disabled = $("#p-rp-ptz").disabled = !rp;
+  $("#p-rp-loyer-eq").placeholder = p.projetRP?.loyerEstime > 0 ? `${Math.round(p.projetRP.loyerEstime)} (estimé)` : "loyer estimé";
+  { const ptz = p.projetRP?.ptz ?? {};
+    $("#bloc-ptz").hidden = !(rp && ptz.actif);
+    $("#ligne-ptz-travaux").hidden = ptz.typeOperation !== "ancienTravaux"; }
   $("#ligne-impot-pays").hidden = p.pays !== "AUTRE";
   const accesES = p.abondement?.acces ?? "?";
   $("#bloc-es").hidden = accesES === "non" || accesES === "?";
