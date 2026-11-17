@@ -13,6 +13,7 @@ import { decomposerSalaire, foyerFiscal, impotBareme, BAREME } from "./fiscal.js
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
 import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER } from "./moteur.js";
 import { monterAssistant } from "./assistant.js";
+import { NIVEAUX, INFOS_NIVEAUX, visible, reglagesAvancesActifs, niveauLePlusBas } from "./niveaux.js";
 import { genererCode, extraireCode, formaterCode, creerLien, estCleSynchronisable, synchroniser, effacerDistant, oublierCles } from "./sync.js";
 
 // ---------------------------------------------------------------- outils
@@ -46,6 +47,13 @@ const memo = {
     } catch {}
   },
 };
+
+// Niveau de lecture (Débutant / Intermédiaire / Avancé) : lu au plus tôt pour éviter un flash d'affichage complet.
+// Mémorisé par appareil (clé « niveau »), jamais synchronisé : estCleSynchronisable() ne l'accepte pas.
+const NIVEAU_MEMORISE = memo.get("niveau");
+const PREMIER_LANCEMENT = !NIVEAUX.includes(NIVEAU_MEMORISE);
+const DONNEES_EXISTANTES = PREMIER_LANCEMENT && [memo.get("profil-v2"), memo.get("local-profils")].some((v) => v && typeof v === "object" && Object.keys(v).length > 0);
+document.documentElement.dataset.niveau = PREMIER_LANCEMENT ? (DONNEES_EXISTANTES ? "avance" : "debutant") : NIVEAU_MEMORISE;
 // Profil sélectionné (« col:id »), lu dans ce navigateur : utilisable avant le chargement des profils des proches
 function cleProfilCourant() {
   try { if (etat.partage) return "partage:lien"; } catch { /* état pas encore créé */ }
@@ -554,6 +562,7 @@ function blocPocheBourse(res) {
 }
 const resideEnFranceUI = () => (etat.profil.pays ?? "FR") === "FR";
 function rendreResultats() {
+  majBadgeAvances();
   let res, sim;
   try { sim = profilSimule(); res = analyser(etat.brouillon, sim.profil); }
   catch (e) {
@@ -1762,6 +1771,62 @@ $("#btn-theme").addEventListener("click", () => appliquerTheme(themeEffectif() =
 { const t = memo.get("theme"); if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; majBoutonTheme(); }
 try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", majBoutonTheme); } catch (e) { /* navigateur ancien */ }
 setTimeout(() => { if (memo.get("discret")) appliquerDiscret(true); }, 0);
+
+// ---------------------------------------------------------------- niveaux de lecture (règles dans niveaux.js)
+// Le niveau ne change que l'affichage : jamais etat.profil, jamais les calculs.
+function niveauCourant() { const n = document.documentElement.dataset.niveau; return NIVEAUX.includes(n) ? n : "avance"; }
+function majSelecteurNiveau() {
+  for (const b of document.querySelectorAll("#selecteur-niveau [data-niveau]")) {
+    const actif = b.dataset.niveau === niveauCourant();
+    b.setAttribute("aria-checked", String(actif)); b.tabIndex = actif ? 0 : -1;
+  }
+}
+function majBadgeAvances() {
+  const el = $("#badge-avances"); if (!el) return;
+  const L = reglagesAvancesActifs(etat.profil, niveauCourant(), PROFIL_VIDE);
+  el.hidden = L.length === 0;
+  if (!L.length) { el.removeAttribute("title"); return; }
+  $("#badge-avances-titre").textContent = `⚙ ${L.length} réglage${L.length > 1 ? "s" : ""} avancé${L.length > 1 ? "s" : ""} actif${L.length > 1 ? "s" : ""}`;
+  $("#badge-avances-liste").textContent = L.map((r) => r.libelle).join(" · ");
+  el.title = L.map((r) => `• ${r.libelle}`).join("\n");
+  el.dataset.niveauCible = niveauLePlusBas(L);
+}
+function appliquerNiveau(n, { memoriser = true } = {}) {
+  if (!NIVEAUX.includes(n)) return;
+  document.documentElement.dataset.niveau = n;
+  if (memoriser) memo.set("niveau", n);
+  majSelecteurNiveau();
+  rendreResultats(); // met aussi à jour le badge
+  rendreVue(); // redirige vers « Mon profil » si l'onglet courant est masqué à ce niveau
+  planifierTrajectoire();
+  document.dispatchEvent(new CustomEvent("niveau:change", { detail: { niveau: n } }));
+}
+$("#selecteur-niveau").addEventListener("click", (e) => { const b = e.target.closest("[data-niveau]"); if (b) appliquerNiveau(b.dataset.niveau); });
+$("#selecteur-niveau").addEventListener("keydown", (e) => {
+  const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key]; if (!d) return;
+  e.preventDefault();
+  const n = NIVEAUX[(NIVEAUX.indexOf(niveauCourant()) + d + NIVEAUX.length) % NIVEAUX.length];
+  appliquerNiveau(n); $(`#selecteur-niveau [data-niveau="${n}"]`).focus();
+});
+$("#badge-avances-voir").addEventListener("click", () => {
+  appliquerNiveau($("#badge-avances").dataset.niveauCible || "avance");
+  if (location.hash.split("?")[0] !== "#mon-profil") location.hash = "#mon-profil"; else window.scrollTo(0, 0);
+});
+// Premier lancement : écran de choix (Avancé présélectionné pour qui a déjà des données, Débutant sinon)
+function ouvrirChoixNiveau() {
+  const pre = niveauCourant();
+  $("#choix-niveau-cartes").innerHTML = NIVEAUX.map((n) => `<label><input type="radio" name="niveau-choix" value="${n}"${n === pre ? " checked" : ""}><span><b>${INFOS_NIVEAUX[n].nom}${n === "avance" && DONNEES_EXISTANTES ? " (ton affichage actuel)" : ""}</b><span class="niv-desc">${INFOS_NIVEAUX[n].description}</span></span></label>`).join("");
+  const d = $("#choix-niveau");
+  if (typeof d.showModal === "function") { if (!d.open) d.showModal(); } else d.setAttribute("open", "");
+}
+$("#choix-niveau").addEventListener("cancel", (e) => e.preventDefault()); // un choix est attendu : Échap ne ferme pas l'écran
+$("#choix-niveau-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const n = $("#choix-niveau-form input[name='niveau-choix']:checked")?.value ?? niveauCourant();
+  const d = $("#choix-niveau"); if (typeof d.close === "function") d.close(); else d.removeAttribute("open");
+  appliquerNiveau(n);
+  if (n === "debutant" && (profilEstVierge(etat.profil) || !DONNEES_EXISTANTES)) ouvrirDecouverte(); // pas de données perso : on enchaîne sur la Découverte
+});
 
 // ---------------------------------------------------------------- événements de vie
 const MODELES_EV = {
@@ -4062,7 +4127,8 @@ function rendreFiches() {
 function rendreVue() {
   const vues = { "#epargne-ideale": "ideale", "#mon-profil": "profil", "#simulation": "profil", "#reequilibrage": "reequilibrage", "#trajectoire": "trajectoire", "#retraite": "retraite", "#suivi": "suivi", "#fiches": "fiches", "#mon-plan": "plan" };
   const chemin = location.hash.split("?")[0]; // « #mon-profil?p=… » : seule la partie avant « ? » désigne l'onglet
-  const vue = chemin.startsWith("#fiche-") ? "fiches" : vues[chemin] ?? "profil";
+  let vue = chemin.startsWith("#fiche-") ? "fiches" : vues[chemin] ?? "profil";
+  if (!visible($(`#lien-${vue}`)?.dataset.min, niveauCourant())) { vue = "profil"; history.replaceState(null, "", "#mon-profil"); } // onglet masqué à ce niveau
   const avant = document.querySelector("section[id^='vue-']:not([hidden])")?.id;
   for (const v of ["profil", "reequilibrage", "trajectoire", "retraite", "ideale", "suivi", "fiches", "plan"]) {
     $(`#vue-${v}`).hidden = v !== vue;
@@ -4318,3 +4384,5 @@ monterAssistant({
 });
 brancherStockage();
 demarrerSynchro();
+majSelecteurNiveau();
+if (PREMIER_LANCEMENT) ouvrirChoixNiveau();

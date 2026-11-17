@@ -40,6 +40,7 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 - `recap.js` : Génération du bilan patrimonial imprimable/exportable.
 - `fiches.js` & `lexique.js` : Fiches pédagogiques et infobulles automatiques du lexique financier.
 - `serveur.py` / `worker.js` / `assistant.js` : Couche assistant IA, streaming SSE, OCR/Vision et mode vocal.
+- `niveaux.js` : niveaux de lecture Débutant / Intermédiaire / Avancé (matrice « élément → niveau minimal », règles pures, détection des réglages avancés actifs). Aucun DOM, aucun calcul métier : le niveau ne change que l'affichage, jamais `etat.profil` ni les résultats. Niveau mémorisé par appareil (clé `niveau`), jamais synchronisé.
 - `sync.js` : synchronisation multi-appareils chiffrée de bout en bout (WebCrypto AES-GCM + PBKDF2, fusion par fiche, client `/api/sync`) ; routes serveur dans `worker.js` (Cloudflare KV, liaison `SYNC_KV`) et `serveur.py` (stockage dev `.sync_local/`, ignoré par Git). Le serveur ne doit jamais voir de données en clair.
 - `wrangler.toml` / `_headers` / `.assetsignore` : déploiement Cloudflare (Worker + assets), CSP stricte et liste des fichiers jamais publiés (secrets, sources serveur, tests) : tout fichier absent de `.assetsignore` est public.
 
@@ -50,6 +51,7 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 ### Frontend & Expérience Utilisateur
 - **Séparation Calculs / DOM :** Garde les fonctions financières et fiscales pures (entrée → sortie déterministe) dans les modules métier (`moteur.js`, `fiscal.js`, `projection.js`, etc.). Réserve la manipulation du DOM à `app.js` et aux composants UI dédiés.
 - **Indépendance vis-à-vis de `window.claude` :** L'application doit fonctionner à 100 % sur `localhost` et Cloudflare Pages. Tout export de fichier (`.json`, `.csv`, bilan HTML) doit impérativement implémenter un téléchargement navigateur standard (`Blob` + `URL.createObjectURL` + `<a download>`).
+- **Niveaux de lecture :** tout nouveau bloc d'interface (fieldset, champ, panneau, onglet) doit déclarer son niveau minimal avec `data-min="intermediaire"` ou `data-min="avance"` (sans attribut = visible à tous les niveaux) et, s'il est listé, figurer dans `MATRICE` de `niveaux.js`. Les versions simplifiées réservées aux débutants utilisent `data-seul="debutant"`.
 - **Mode Discrétion (`Alt+H`) :** Tout nouvel composant affichant des montants en euros, des soldes ou des réponses de l'assistant IA doit respecter la classe CSS de masquage déclenchée par `Alt+H`.
 - **Domaine Fiscal Français (Référentiel 2026) :** Respecte strictement les règles françaises : PEA (exonération d'IR après 5 ans, prélèvements sociaux 18,6 % depuis la LFSS 2026 ; 17,2 % pour l'assurance-vie et les revenus fonciers — taux centralisés dans `PRELEVEMENTS` de `fiscal.js`), Assurance-Vie (abattement 4 600 € / 9 200 € après 8 ans, articles 990 I et 757 B du CGI pour la succession), PER (déductibilité à l'entrée dans la limite du plafond épargne retraite), LMNP (amortissements au réel vs abattement micro-BIC).
 
