@@ -698,3 +698,40 @@ export function comparaisonAchatLocation(plan, profil, { horizon = 30 } = {}) {
   const resultat = acheterOuLouer(plan, { prix: ap.prix, apportInitial, mensualites: ap.mensualites ?? [], restantDu, charges: ap.charges, loyerMensuel: loyer, horizon });
   return { ap, loyer, apportInitial, fraisAnnexes, fraisNotaire, restantDu, resultat };
 }
+
+// =====================================================================
+//  IMPACT DES FRAIS — même placement (rendement brut), deux niveaux de frais annuels.
+//  Fonction pure : capital initial + versements mensuels (fin de mois), capitalisation mensuelle (taux annuel / 12),
+//  rendement net = rendement brut − frais (en points de pourcentage par an), en euros courants.
+// =====================================================================
+export const FRAIS_CHARGE = 2.0;    // % par an : assurance-vie bancaire, fonds actifs « maison »
+export const FRAIS_OPTIMISE = 0.2;  // % par an : PEA + ETF
+export const RENDEMENT_BRUT_FRAIS = 6; // % par an avant frais (même hypothèse que le tableau de la fiche « Les frais »)
+
+export function comparerFrais({ capital = 0, mensuel = 0, annees = 30, rendementBrut = RENDEMENT_BRUT_FRAIS, fraisCharge = FRAIS_CHARGE, fraisOptimise = FRAIS_OPTIMISE, depensesMensuelles = 0 } = {}) {
+  const C = Math.max(0, Number(capital) || 0), M = Math.max(0, Number(mensuel) || 0);
+  const N = Math.min(60, Math.max(1, Math.round(Number(annees) || 1)));
+  const rb = Number(rendementBrut) || 0;
+  const serie = (frais) => {
+    const m = (rb - frais) / 100 / 12; // taux mensuel proportionnel, comme le tableau de la fiche
+    let v = C;
+    const s = [C];
+    for (let a = 1; a <= N; a++) {
+      for (let i = 0; i < 12; i++) v = v * (1 + m) + M;
+      s.push(v);
+    }
+    return s;
+  };
+  const charge = serie(fraisCharge), optimise = serie(fraisOptimise);
+  const verse = C + M * 12 * N;
+  const ecart = Math.max(0, optimise[N] - charge[N]);
+  const depenses = Number(depensesMensuelles) > 0 ? Number(depensesMensuelles) : 0;
+  return {
+    annees: N, verse, charge, optimise,
+    capitalCharge: charge[N], capitalOptimise: optimise[N],
+    ecart,
+    ecartPct: optimise[N] > 0 ? (100 * ecart) / optimise[N] : 0,
+    anneesDepenses: depenses > 0 ? ecart / (12 * depenses) : null, // années de dépenses courantes que représente l'écart
+    renteMensuelle4pct: (ecart * 0.04) / 12,                         // revenu mensuel perdu selon la règle des 4 %
+  };
+}

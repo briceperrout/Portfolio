@@ -5,6 +5,8 @@
 import worker, { MODEL_FAST, MODEL_REASONING, choisirModele, choixRepli, corpsOpenAI, questionComplexe, tokensDuJour } from "./worker.js";
 import { CONSIGNE_VOCALE, DELAI_SILENCE_MS, choisirVoixFr, decouperPhrases, extraireBalises, libelleModele, preparerRequeteCloud, texteParle } from "./assistant.js";
 
+import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS } from "./projection.js";
+
 export const resultats = { ok: 0, echecs: [] };
 function verifier(condition, message) {
   if (condition) resultats.ok++;
@@ -213,6 +215,35 @@ egal(libelleModele(undefined), "", "libellé absent");
   verifier(CONSIGNE_VOCALE.includes("exactement 2 balises [[SUGGESTION:") && vocal.messages.at(-1).content.includes("exactement 2 balises [[SUGGESTION:"), "vocal : 2 balises [[SUGGESTION]] exigées (consigne et rappel)");
   egal(DELAI_SILENCE_MS, 2500, "vocal : délai de silence de 2,5 s");
   verifier(CONSIGNE_VOCALE.includes("[[ACTION") && CONSIGNE_VOCALE.includes("[Titre](#fiche-id)"), "vocal : balises et citation conservées");
+}
+
+// ---------------------------------------------------------------- projection.js : comparerFrais (simulateur « Impact des frais »)
+{
+  const arrondi = (x) => Math.round(x);
+  // Cas de référence de la fiche « Les frais » : 100 € par mois pendant 30 ans, 6 % brut, sans capital de départ
+  const ref = comparerFrais({ capital: 0, mensuel: 100, annees: 30, fraisCharge: 2, fraisOptimise: 0 });
+  egal(arrondi(ref.capitalOptimise), 100452, "frais : 0 % de frais, 100 €/mois, 30 ans (fiche : 100 500 €)");
+  egal(arrondi(ref.capitalCharge), 69405, "frais : 2 % de frais, 100 €/mois, 30 ans (fiche : 69 400 €)");
+  egal(arrondi(ref.ecart), 31047, "frais : écart 0 % / 2 % (fiche : 31 100 €)");
+  egal(ref.verse, 36000, "frais : total versé");
+  // Valeurs par défaut du simulateur : 2,0 % contre 0,2 %
+  egal([FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS], [2, 0.2, 6], "frais : constantes du simulateur");
+  const d = comparerFrais({ capital: 40000, mensuel: 700, annees: 30, depensesMensuelles: 2300 });
+  verifier(d.capitalOptimise > d.capitalCharge && d.ecart > 0, "frais : l'enveloppe optimisée finit au-dessus du contrat chargé");
+  verifier(Math.abs(d.ecart - (d.capitalOptimise - d.capitalCharge)) < 1e-6, "frais : écart = différence des capitaux finaux");
+  egal(arrondi(d.capitalOptimise), 903794, "frais : capital optimisé (40 000 € + 700 €/mois, 30 ans)");
+  egal(arrondi(d.capitalCharge), 618375, "frais : capital chargé (40 000 € + 700 €/mois, 30 ans)");
+  egal(Math.round(d.anneesDepenses * 10) / 10, 10.3, "frais : années de dépenses équivalentes à l'écart");
+  egal(arrondi(d.renteMensuelle4pct), 951, "frais : rente mensuelle perdue (règle des 4 %)");
+  egal([d.charge.length, d.optimise.length, d.charge[0], d.optimise[0]], [31, 31, 40000, 40000], "frais : séries annuelles de 0 à N, départ = capital");
+  // Cas limites
+  egal(comparerFrais({ capital: 5000, mensuel: 100, annees: 10, fraisCharge: 1, fraisOptimise: 1 }).ecart, 0, "frais : mêmes frais, aucun écart");
+  const zero = comparerFrais({ capital: 0, mensuel: 0, annees: 20 });
+  egal([zero.ecart, zero.ecartPct, zero.capitalOptimise], [0, 0, 0], "frais : rien placé, rien perdu");
+  egal(comparerFrais({ capital: 1000, mensuel: 0, annees: 5 }).anneesDepenses, null, "frais : sans dépenses connues, pas d'équivalent en années");
+  const borne = comparerFrais({ capital: -500, mensuel: -10, annees: 999 });
+  egal([borne.annees, borne.verse], [60, 0], "frais : entrées négatives ramenées à 0, horizon plafonné à 60 ans");
+  egal(comparerFrais({ capital: 1000, mensuel: 0, annees: 0 }).annees, 1, "frais : horizon minimal d'un an");
 }
 
 if (typeof process !== "undefined" && process.argv?.[1]?.endsWith("test_js.mjs")) {

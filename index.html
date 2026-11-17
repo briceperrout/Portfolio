@@ -52,7 +52,7 @@
   @page { margin: 12mm; }
   body { background: #fff; font-size: 10.5pt; }
   .wrap { max-width: none; padding: 0; }
-  nav.onglets, .bandeau-scenario, header.top .ligne-actions, .barre-actions, .etape, button, .bouton, .ligne-actions button, #btn-discret, #btn-theme { display: none !important; }
+  nav.onglets, .bandeau-scenario, #cta-decouverte, dialog.decouverte, .fs-saisie, header.top .ligne-actions, .barre-actions, .etape, button, .bouton, .ligne-actions button, #btn-discret, #btn-theme { display: none !important; }
   .panneau, .tuile, table, figure, svg { break-inside: avoid; }
   .panneau { box-shadow: none !important; border: 1px solid var(--line); }
   input, select, textarea { border: 0 !important; background: none !important; box-shadow: none !important; appearance: none; -webkit-appearance: none; }
@@ -365,6 +365,52 @@ ul.arguments.contre li::before { content: "−"; position: absolute; left: 4px; 
 .bandeau-frais h3 { margin: 0 0 4px; color: var(--warn); }
 .bandeau-frais table { background: transparent; }
 .bandeau-frais p { margin: 0 0 8px; }
+
+/* Parcours « Découverte en 60 s » : modale guidée en 5 étapes */
+#btn-decouverte { font-weight: 700; color: var(--accent); }
+.cta-decouverte { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 12px 14px; margin: 0 0 12px; border-radius: var(--r); background: var(--accent-soft); border: 1px solid var(--line); }
+.cta-decouverte p { margin: 0; font-size: 0.92rem; flex: 1 1 260px; }
+dialog.decouverte { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); color: var(--fg); padding: 0; width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+dialog.decouverte::backdrop { background: rgba(0, 0, 0, 0.5); }
+.dec-entete { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px 0; }
+.dec-entete h2 { margin: 0; font-family: var(--font-display); font-size: 1.1rem; }
+.dec-progres { display: flex; gap: 6px; padding: 10px 16px 0; }
+.dec-progres span { flex: 1; height: 5px; border-radius: 3px; background: var(--line); }
+.dec-progres span.fait { background: var(--accent); }
+.dec-corps { padding: 14px 16px; display: grid; gap: 10px; }
+.dec-corps h3 { margin: 0; font-size: 1rem; }
+.dec-corps input[type="number"] { width: 100%; box-sizing: border-box; font-size: 1.15rem; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font-family: inherit; }
+.dec-erreur { color: var(--warn); font-size: 0.85rem; margin: 0; min-height: 1.2em; }
+.dec-choix { display: grid; gap: 8px; }
+.dec-choix label { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; cursor: pointer; background: var(--bg); }
+.dec-choix label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.dec-choix input { margin-top: 3px; accent-color: var(--accent); }
+.dec-pied { display: flex; justify-content: space-between; gap: 8px; padding: 0 16px 14px; }
+.dec-recap { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 0.88rem; }
+.dec-recap li { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dashed var(--line); padding: 3px 0; }
+/* Simulateur « Impact des frais » (fiche Les frais) */
+.frais-sim { display: grid; gap: 12px; }
+.fs-saisie { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: start; }
+@media (max-width: 640px) { .fs-saisie { grid-template-columns: 1fr; } }
+.fs-saisie label { display: grid; gap: 4px; font-size: 0.82rem; color: var(--muted); }
+.fs-saisie input[type="number"] { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); padding: 8px; font: inherit; width: 100%; min-width: 0; box-sizing: border-box; }
+.fs-saisie input[type="range"] { width: 100%; accent-color: var(--accent); }
+.fs-cartes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 560px) { .fs-cartes { grid-template-columns: 1fr; } }
+.fs-carte { background: var(--bg); border-radius: 8px; padding: 10px 12px; display: grid; gap: 2px; border-left: 4px solid var(--line); }
+.fs-carte.cher { border-left-color: var(--warn); }
+.fs-carte.bon { border-left-color: var(--accent); }
+.fs-carte span { font-size: 0.78rem; color: var(--muted); }
+.fs-carte b { font-family: var(--font-display); font-size: 1.2rem; }
+.fs-ecart { background: var(--warn-soft); border-left: 4px solid var(--warn); border-radius: 8px; padding: 12px 14px; }
+.fs-ecart .gros { font-family: var(--font-display); font-size: 1.5rem; font-weight: 700; color: var(--warn); display: block; }
+.fs-ecart p { margin: 4px 0 0; font-size: 0.9rem; }
+.fs-graphe .c-cher { stroke: var(--warn); fill: none; stroke-width: 2.5; }
+.fs-graphe .c-bon { stroke: var(--accent); fill: none; stroke-width: 2.5; }
+.fs-graphe .c-ecart { fill: var(--warn-soft); opacity: 0.8; }
+.fs-graphe .axe { stroke: var(--line); }
+.fs-legende { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 0.82rem; color: var(--muted); }
+.fs-legende i { display: inline-block; width: 14px; height: 4px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
 .evenement { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) 70px minmax(0, 1.2fr) 70px auto; gap: 6px; align-items: end; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .evenement label { font-size: 0.72rem; color: var(--muted); display: block; margin-bottom: 2px; }
 .evenement input, .evenement select { width: 100%; }
@@ -453,7 +499,7 @@ html.discret .num { letter-spacing: 0.05em; }
       <h1>Plan Patrimoine</h1>
       <p class="sous-titre">Répartition cible d'un portefeuille selon le capital, l'âge et les projets, calculée uniquement à partir de mon plan.</p>
     </div>
-    <div class="ligne-actions"><button type="button" class="lien" id="btn-discret" aria-pressed="false" title="Masquer les montants en euros (les pourcentages restent visibles). Raccourci : Alt + H (⌥ + H sur Mac)" aria-keyshortcuts="Alt+H">👁 Masquer les montants</button><button type="button" class="lien" id="btn-theme" title="Passer en mode clair ou sombre">🌙 Mode sombre</button><a class="lien-fiche" href="#fiche-mode-emploi">Mode d'emploi</a><span id="indicateur-horsligne" class="indicateur-horsligne" role="status" title="Pas de connexion : les simulateurs et graphiques restent 100 % actifs, seul l'assistant IA en ligne est suspendu." hidden>Hors ligne</span><span id="statut" class="statut">Plan par défaut</span></div>
+    <div class="ligne-actions"><button type="button" class="lien" id="btn-decouverte" title="5 questions rapides : ton profil est pré-rempli avec des hypothèses prudentes et ton plan s'affiche tout de suite">⚡ Découverte en 60 s</button><button type="button" class="lien" id="btn-discret" aria-pressed="false" title="Masquer les montants en euros (les pourcentages restent visibles). Raccourci : Alt + H (⌥ + H sur Mac)" aria-keyshortcuts="Alt+H">👁 Masquer les montants</button><button type="button" class="lien" id="btn-theme" title="Passer en mode clair ou sombre">🌙 Mode sombre</button><a class="lien-fiche" href="#fiche-mode-emploi">Mode d'emploi</a><span id="indicateur-horsligne" class="indicateur-horsligne" role="status" title="Pas de connexion : les simulateurs et graphiques restent 100 % actifs, seul l'assistant IA en ligne est suspendu." hidden>Hors ligne</span><span id="statut" class="statut">Plan par défaut</span></div>
   </header>
 
   <nav class="onglets" aria-label="Vues">
@@ -480,6 +526,10 @@ html.discret .num { letter-spacing: 0.05em; }
   <!-- ===================== 1. MON PROFIL ===================== -->
   <section id="vue-profil">
     <div class="etape"><p><b>Étape 1 sur 4.</b> Décris ta situation d'aujourd'hui. Les résultats se mettent à jour à chaque saisie, dans « Rééquilibrage » et « Trajectoire ».</p></div>
+    <div class="cta-decouverte" id="cta-decouverte" hidden>
+      <p><b>Nouveau ici ?</b> Réponds à 5 questions rapides : ton profil est pré-rempli avec des hypothèses prudentes et ton plan d'action s'affiche tout de suite.</p>
+      <button type="button" class="principal" id="cta-decouverte-bouton">⚡ Découverte en 60 s</button>
+    </div>
     <form id="profil" autocomplete="off">
       <div class="panneau proches">
         <div class="champ"><label for="sel-profil"><b>Profil</b></label><select id="sel-profil"><option value="exemple:exemple">Exemple</option></select></div>
@@ -768,6 +818,15 @@ html.discret .num { letter-spacing: 0.05em; }
   </section>
 </div>
 <div class="bulle" id="bulle" hidden></div>
+
+<dialog class="decouverte" id="decouverte" aria-labelledby="decouverte-titre">
+  <form id="decouverte-form" novalidate>
+    <div class="dec-entete"><h2 id="decouverte-titre">⚡ Découverte en 60 s</h2><button type="button" class="lien" id="decouverte-fermer" aria-label="Fermer">✕</button></div>
+    <div class="dec-progres" id="decouverte-progres" aria-hidden="true"></div>
+    <div class="dec-corps" id="decouverte-corps" aria-live="polite"></div>
+    <div class="dec-pied"><button type="button" id="decouverte-retour">← Retour</button><button type="submit" class="principal" id="decouverte-suivant">Suivant →</button></div>
+  </form>
+</dialog>
 
 <aside class="assistant" id="assistant" data-ouvert="false" aria-label="Assistant Plan Patrimoine">
   <button type="button" class="assistant-bouton" id="assistant-bouton" aria-expanded="false" aria-controls="assistant-panneau">💬 Une question ?</button>

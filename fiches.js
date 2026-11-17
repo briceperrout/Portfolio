@@ -688,6 +688,11 @@ export const FICHES = [
       ["Où les trouver", "Dans le document d'informations clés (DIC) et l'annexe des frais du contrat, obligatoires avant de signer. Demande-les toujours"],
     ],
     sections: [
+      { titre: "Simule l'impact des frais sur TON capital", special: "simulateurFrais", points: [
+        "Même placement (6 % par an avant frais), mêmes versements : seul le niveau de frais change. Pour comparer, 2,0 % par an correspond à une assurance-vie de banque avec des fonds actifs, et 0,2 % par an à un PEA investi en ETF.",
+        "Les montants sont en euros courants (sans inflation) et le calcul est une simulation : les rendements réels varient d'une année à l'autre.",
+        "Le capital et le versement de départ sont ceux de ton profil actif ; change-les pour tester un autre cas.",
+      ] },
       { titre: "Ce que coûtent les frais : 100 € par mois pendant 30 ans", tableau: {
         entetes: ["Frais totaux par an", "Capital au bout de 30 ans", "Perdu à cause des frais"],
         lignes: [

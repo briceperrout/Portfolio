@@ -1,7 +1,7 @@
 import { PLAN } from "./plan.js";
-import { analyser, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer } from "./moteur.js";
+import { analyser, capitalDe, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer } from "./moteur.js";
 import { projetLocatifDe, analyseLocatif, mensualitePret } from "./locatif.js";
-import { achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, CRISES, simulerCrise, fluxLocatif } from "./projection.js";
+import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, CRISES, simulerCrise, fluxLocatif } from "./projection.js";
 import { SCENARIOS_FISCAUX, NEUTRE, optionFiscale, comparerTaux } from "./evolution-fiscale.js";
 import { echeancesProfil, echeancesGenerales, versCSV } from "./calendrier.js";
 import { genererRecapHTML, encoderProfilPartage, decoderProfilPartage } from "./recap.js";
@@ -2388,6 +2388,7 @@ function majVisibiliteProfil() {
 }
 function apresSaisieProfil() {
   memo.set("profil-v2", etat.profil);
+  majCtaDecouverte();
   majVisibiliteProfil();
   rendreResultats();
   planifierTrajectoire();
@@ -2555,6 +2556,7 @@ async function sauverProfilCourant() {
 }
 
 function rendreEtatProfil() {
+  majCtaDecouverte();
   const el = $("#etat-profil"); if (!el) return;
   const d = docCourant();
   let t;
@@ -2674,6 +2676,140 @@ async function brancherProches(db, user, auteur) {
   }
   rendreProches();
 }
+
+// ---------------------------------------------------------------- parcours « Découverte en 60 s »
+// 5 questions → un nouveau profil « Découverte » pré-rempli avec des hypothèses prudentes (les autres profils ne sont jamais modifiés).
+const OBJECTIFS_DECOUVERTE = [
+  { id: "rp", libelle: "Acheter ma résidence principale", detail: "Le plan met de côté l'apport et vérifie si l'achat est finançable (prix de départ prudent, modifiable ensuite)." },
+  { id: "epargne", libelle: "Faire fructifier mon épargne", detail: "Le plan répartit ton capital et ton épargne mensuelle selon ton âge et ton capital, sans projet particulier." },
+  { id: "retraite", libelle: "Préparer ma retraite / mon indépendance financière", detail: "Le plan vise un revenu égal à tes dépenses actuelles, avec un départ à 60 ans si ton âge le permet ; la retraite publique est estimée automatiquement (modifiable dans l'onglet Retraite)." },
+];
+const ETAPES_DECOUVERTE = [
+  { cle: "age", titre: "Quel âge as-tu ?", unite: "ans", min: 18, max: 80, pas: 1, aide: "Il sert à fixer la part de risque : plus on est jeune, plus le plan en accepte." },
+  { cle: "salaireNetMensuel", titre: "Quel est ton salaire net mensuel ?", unite: "€ par mois", min: 1, max: 100000, pas: 50, aide: "Net après impôt si possible (même approximatif). Il sert à estimer tes dépenses, ton impôt et ce que la banque te prêterait." },
+  { cle: "epargneMensuelle", titre: "Combien mets-tu de côté chaque mois ?", unite: "€ par mois", min: 0, max: 100000, pas: 50, aide: "Ce que tu peux épargner sans te priver. 0 est une réponse valable : le reste de ton salaire est compté comme dépenses." },
+  { cle: "capital", titre: "Quel capital financier as-tu aujourd'hui ?", unite: "€", min: 0, max: 100000000, pas: 500, aide: "Livrets, placements, assurance-vie… hors immobilier. Il sera réparti prudemment : 6 mois de dépenses en livrets, le reste en PEA." },
+  { cle: "objectif", titre: "Quel est ton objectif principal ?", choix: true },
+];
+const decouverte = { etape: 0, rep: {} };
+
+function profilEstVierge(p) { return !(Number(p.salaireNetMensuel) > 0) && capitalDe(p) === 0; } // fonction (et non const) : appelée dès le premier rendu du profil
+function majCtaDecouverte() { const el = $("#cta-decouverte"); if (el) el.hidden = !profilEstVierge(etat.profil); }
+
+// Fonction pure : réponses → profil complet (hypothèses prudentes)
+function profilDepuisDecouverte(r, aujourdhui = new Date()) {
+  const p = clone(PROFIL_VIDE);
+  const salaire = Math.max(0, Number(r.salaireNetMensuel) || 0);
+  const epargne = Math.min(Math.max(0, Number(r.epargneMensuelle) || 0), salaire);
+  const capital = Math.max(0, Number(r.capital) || 0);
+  const depenses = Math.max(0, salaire - epargne);
+  Object.assign(p, { age: Math.round(Number(r.age) || 30), salaireNetMensuel: salaire, epargneMensuelle: epargne, depensesMensuelles: depenses, statutPro: "stable", pays: "FR" });
+  // Capital : 6 mois de dépenses en épargne de précaution (Livret A, puis LDDS), le reste en PEA (plafond de versements 150 000 €, puis compte-titres)
+  const precaution = Math.min(capital, 6 * (depenses > 0 ? depenses : 1000));
+  const livretA = Math.min(precaution, 22950);
+  const ldds = Math.min(precaution - livretA, 12000);
+  const livretBancaire = precaution - livretA - ldds;
+  const reste = capital - precaution;
+  const pea = Math.min(reste, 150000);
+  const cto = reste - pea;
+  p.placements = { livretA, ldds, livretBancaire, pea, cto };
+  for (const k of Object.keys(p.placements)) p.placements[k] = Math.round(p.placements[k]);
+  if (pea > 0) p.pea = { ouvert: true, dateOuverture: `${aujourdhui.getFullYear()}-${String(aujourdhui.getMonth() + 1).padStart(2, "0")}`, versements: Math.round(pea), etablissement: "" };
+  if (r.objectif === "rp") {
+    p.loyerMensuel = Math.round((0.28 * salaire) / 10) * 10;
+    Object.assign(p.projetRP, { actif: true, prix: Math.max(100000, Math.round((80 * salaire) / 5000) * 5000), type: "ancien", imperatif: false, horizonAnnees: 5 });
+  } else if (r.objectif === "retraite") {
+    p.retraite = { revenu: Math.max(1000, Math.round(depenses / 50) * 50), ageDepart: p.age < 59 ? 60 : null };
+  }
+  return p;
+}
+
+function rendreDecouverte() {
+  const E = ETAPES_DECOUVERTE[decouverte.etape], n = ETAPES_DECOUVERTE.length, derniere = decouverte.etape === n - 1;
+  $("#decouverte-progres").innerHTML = ETAPES_DECOUVERTE.map((_, i) => `<span class="${i <= decouverte.etape ? "fait" : ""}"></span>`).join("");
+  let corps = `<p class="small muted" style="margin:0">Question ${decouverte.etape + 1} sur ${n}</p><h3>${echapper(E.titre)}</h3>`;
+  if (E.choix) {
+    corps += `<div class="dec-choix" role="radiogroup" aria-label="${echapper(E.titre)}">${OBJECTIFS_DECOUVERTE.map((o) => `<label><input type="radio" name="dec-objectif" value="${o.id}"${decouverte.rep.objectif === o.id ? " checked" : ""}><span><b>${echapper(o.libelle)}</b><br><span class="small muted">${echapper(o.detail)}</span></span></label>`).join("")}</div>`;
+  } else {
+    const v = decouverte.rep[E.cle];
+    corps += `<div><label for="dec-champ" class="small muted">${echapper(E.unite)}</label><input id="dec-champ" type="number" inputmode="decimal" min="${E.min}" max="${E.max}" step="${E.pas}" value="${v ?? ""}" placeholder="0"></div><p class="note" style="margin:0">${echapper(E.aide)}</p>`;
+  }
+  corps += `<p class="dec-erreur" id="dec-erreur" role="alert"></p>`;
+  $("#decouverte-corps").innerHTML = corps;
+  $("#decouverte-retour").style.visibility = decouverte.etape === 0 ? "hidden" : "visible";
+  $("#decouverte-suivant").textContent = derniere ? "Voir mon plan ✓" : "Suivant →";
+  setTimeout(() => ($("#dec-champ") ?? $("#decouverte-corps input:checked") ?? $("#decouverte-corps input"))?.focus(), 0);
+}
+
+// Lit et contrôle la réponse de l'étape courante ; renvoie un message d'erreur ou null
+function lireEtapeDecouverte() {
+  const E = ETAPES_DECOUVERTE[decouverte.etape];
+  if (E.choix) {
+    const v = $("#decouverte-corps input:checked")?.value;
+    if (!v) return "Choisis un objectif pour continuer.";
+    decouverte.rep.objectif = v; return null;
+  }
+  const brut = $("#dec-champ").value.trim().replace(",", ".");
+  if (brut === "" || !Number.isFinite(Number(brut))) return "Indique un nombre.";
+  const v = Number(brut);
+  if (v < E.min || v > E.max) return `Indique une valeur entre ${E.min.toLocaleString("fr-FR")} et ${E.max.toLocaleString("fr-FR")}.`;
+  if (E.cle === "epargneMensuelle" && v > decouverte.rep.salaireNetMensuel) return "Ton épargne mensuelle ne peut pas dépasser ton salaire.";
+  decouverte.rep[E.cle] = E.cle === "age" ? Math.round(v) : v;
+  return null;
+}
+
+function ouvrirDecouverte() {
+  decouverte.etape = 0; decouverte.rep = {};
+  rendreDecouverte();
+  const d = $("#decouverte");
+  if (typeof d.showModal === "function") { if (!d.open) d.showModal(); } else d.setAttribute("open", "");
+}
+const fermerDecouverte = () => { const d = $("#decouverte"); if (typeof d.close === "function") d.close(); else d.removeAttribute("open"); };
+
+async function validerDecouverte() {
+  const p = profilDepuisDecouverte(decouverte.rep);
+  let message;
+  if (proches.auteur && proches.mode !== "lecture") {
+    if (profilModifie()) sauverProfilCourant(); // les modifications en cours du profil actuel sont enregistrées avant de le quitter
+    let nom = "Découverte", i = 2;
+    while (proches.liste.some((x) => x.nom === nom)) nom = `Découverte ${i++}`;
+    const id = nouvelId(), maj = new Date().toISOString();
+    try {
+      await ecrireDoc("profils", id, { nom, profil: clone(p), majLe: maj });
+      if (!proches.liste.some((x) => x.id === id)) proches.liste.push({ id, nom, profil: clone(p), majLe: maj });
+      choisirProfil({ col: "profils", id });
+      message = `Profil « ${nom} » créé : tes autres profils n'ont pas changé. Ajuste-le dans « 1. Mon profil ».`;
+    } catch (err) {
+      $("#dec-erreur").textContent = `Création impossible (${err?.code ?? "erreur"}). Réessaie dans un instant.`;
+      return;
+    }
+  } else {
+    // Pas de sauvegarde possible (mode lecture) : on passe par le profil Exemple, qui n'est jamais enregistré
+    choisirProfil({ col: "exemple", id: "exemple" });
+    chargerDansFormulaire(p);
+    message = "Profil de découverte chargé, non enregistré : il disparaîtra si tu changes de profil.";
+  }
+  proches.statut = message; rendreEtatProfil();
+  fermerDecouverte();
+  if (location.hash === "#reequilibrage") rendreVue(); else location.hash = "#reequilibrage";
+}
+
+$("#decouverte-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const erreur = lireEtapeDecouverte();
+  if (erreur) { $("#dec-erreur").textContent = erreur; return; }
+  if (decouverte.etape < ETAPES_DECOUVERTE.length - 1) { decouverte.etape++; rendreDecouverte(); }
+  else validerDecouverte();
+});
+$("#decouverte-retour").addEventListener("click", () => {
+  const E = ETAPES_DECOUVERTE[decouverte.etape];
+  if (!E.choix) { const v = $("#dec-champ").value.trim().replace(",", "."); if (v !== "" && Number.isFinite(Number(v))) decouverte.rep[E.cle] = Number(v); } // garde la saisie en cours
+  if (decouverte.etape > 0) { decouverte.etape--; rendreDecouverte(); }
+});
+$("#decouverte-fermer").addEventListener("click", fermerDecouverte);
+$("#decouverte").addEventListener("click", (e) => { if (e.target.id === "decouverte") fermerDecouverte(); }); // clic sur le fond
+$("#btn-decouverte").addEventListener("click", ouvrirDecouverte);
+$("#cta-decouverte-bouton").addEventListener("click", ouvrirDecouverte);
 
 // ---------------------------------------------------------------- calendrier des échéances
 const calendrier = { vue: "profil", complet: false, message: "" };
@@ -3811,6 +3947,88 @@ document.addEventListener("click", (ev) => {
 });
 $("#ab-exemple").innerHTML = `<option value="">Choisir une entreprise…</option>${ENTREPRISES_TRIEES.filter((e) => e.profil).map((e) => `<option value="${echapper(e.nom)}">${echapper(e.nom)} : jusqu'à ${eur(e.max)} par an</option>`).join("")}`;
 $("#ab-exemple").addEventListener("change", (ev) => { const v = ev.target.value; ev.target.value = ""; if (v) appliquerEntreprise(v); });
+// ---------------------------------------------------------------- simulateur « Impact des frais » (fiche Les frais)
+// Valeurs de départ = profil actif ; null tant que l'utilisateur n'y a pas touché (elles suivent alors le profil).
+const fraisSim = { capital: null, mensuel: null, annees: null };
+document.addEventListener("profil:change", () => { fraisSim.capital = fraisSim.mensuel = fraisSim.annees = null; });
+function valeursFraisSim() {
+  const p = etat.profil;
+  const ageRetraite = etat.brouillon?.hypotheses?.ageRetraite ?? 64;
+  const parDefaut = Math.min(40, Math.max(10, ageRetraite - (Number(p.age) || 30)));
+  return {
+    capital: fraisSim.capital ?? Math.round(capitalDe(p)),
+    mensuel: fraisSim.mensuel ?? Math.round(Number(p.epargneMensuelle) || 0),
+    annees: fraisSim.annees ?? parDefaut,
+  };
+}
+function depensesPourFrais() {
+  const p = etat.profil;
+  if (Number(p.depensesMensuelles) > 0) return Number(p.depensesMensuelles);
+  const reste = (Number(p.salaireNetMensuel) || 0) - (Number(p.epargneMensuelle) || 0);
+  return reste > 0 ? reste : 0;
+}
+function graphiqueFrais(r) {
+  const W = 640, H = 240, g = { l: 56, r: 12, t: 12, b: 26 };
+  const max = Math.max(1, r.capitalOptimise);
+  const x = (a) => g.l + ((W - g.l - g.r) * a) / r.annees;
+  const y = (v) => H - g.b - ((H - g.t - g.b) * v) / max;
+  const ligne = (s) => s.map((v, a) => `${a ? "L" : "M"}${x(a).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const aire = `${ligne(r.optimise)} ${r.charge.map((v, a) => `L${x(r.annees - a).toFixed(1)},${y(r.charge[r.annees - a]).toFixed(1)}`).join(" ")} Z`;
+  let axes = "";
+  for (const f of [0, 0.5, 1]) axes += `<line class="axe" x1="${g.l}" x2="${W - g.r}" y1="${y(max * f)}" y2="${y(max * f)}"/><text x="${g.l - 6}" y="${y(max * f) + 4}" text-anchor="end">${keur(max * f)}</text>`;
+  for (const f of [0, 0.5, 1]) axes += `<text x="${x(r.annees * f)}" y="${H - 6}" text-anchor="${f === 0 ? "start" : f === 1 ? "end" : "middle"}">${f === 0 ? "départ" : `${Math.round(r.annees * f)} ans`}</text>`;
+  return `<svg class="graphe fs-graphe" viewBox="0 0 ${W} ${H}" role="img" aria-label="Évolution du capital sur ${r.annees} ans avec ${FRAIS_CHARGE} % de frais par an, comparée à ${FRAIS_OPTIMISE} % de frais par an">${axes}<path class="c-ecart" d="M${aire.slice(1)}"/><path class="c-cher" d="${ligne(r.charge)}"/><path class="c-bon" d="${ligne(r.optimise)}"/></svg>`;
+}
+function resultatFrais(v) {
+  const dep = depensesPourFrais();
+  const r = comparerFrais({ capital: v.capital, mensuel: v.mensuel, annees: v.annees, depensesMensuelles: dep });
+  const nbAnnees = (x) => `${(Math.round(x * 10) / 10).toLocaleString("fr-FR")} an${x >= 2 ? "s" : ""}`;
+  const equivalent = r.anneesDepenses != null
+    ? `Cela représente <b>${nbAnnees(r.anneesDepenses)} de dépenses</b> (${eur(dep)} par mois dans ton profil) : autant d'années de vie, ou de retraite, que les frais te prennent.`
+    : `Renseigne tes dépenses (ou ton salaire) dans « Mon profil » pour voir ce que cela représente en années de dépenses.`;
+  return `<div class="fs-cartes">
+      <div class="fs-carte cher"><span>Contrat chargé en frais · ${pct(FRAIS_CHARGE)} par an</span><b class="num">${eur(r.capitalCharge)}</b><span>assurance-vie bancaire, fonds actifs</span></div>
+      <div class="fs-carte bon"><span>Enveloppe optimisée · ${pct(FRAIS_OPTIMISE)} par an</span><b class="num">${eur(r.capitalOptimise)}</b><span>PEA + ETF</span></div>
+    </div>
+    <div class="fs-ecart" role="status"><span class="small">Capté par les frais en ${r.annees} an${r.annees > 1 ? "s" : ""}</span><span class="gros num">${eur(r.ecart)}</span>
+      <p>Soit ${pct(r.ecartPct)} du capital que tu aurais pu avoir, pour ${eur(r.verse)} versés en tout. ${equivalent}</p>
+      <p>Avec la règle des 4 %, cet écart aurait payé <b>${eur(r.renteMensuelle4pct)} par mois</b> de retraite en plus.</p></div>
+    ${graphiqueFrais(r)}
+    <div class="fs-legende"><span><i style="background:var(--warn)"></i>Frais ${pct(FRAIS_CHARGE)}</span><span><i style="background:var(--accent)"></i>Frais ${pct(FRAIS_OPTIMISE)}</span><span>La zone colorée est ce que les frais captent.</span></div>`;
+}
+function blocSimulateurFrais() {
+  const v = valeursFraisSim();
+  return `<div class="frais-sim" id="frais-sim">
+    <div class="fs-saisie">
+      <label><span>Capital de départ (€)</span><input type="number" inputmode="decimal" min="0" max="100000000" step="1000" value="${v.capital}" data-fs="capital"></label>
+      <label><span>Versement mensuel (€)</span><input type="number" inputmode="decimal" min="0" max="100000" step="50" value="${v.mensuel}" data-fs="mensuel"></label>
+      <label><span>Horizon : <b id="fs-annees-txt">${v.annees}</b> ans</span><input type="range" min="1" max="50" step="1" value="${v.annees}" data-fs="annees" aria-label="Horizon en années"><input type="number" inputmode="numeric" min="1" max="50" step="1" value="${v.annees}" data-fs="annees-nb" aria-label="Horizon en années (saisie)"></label>
+    </div>
+    <p class="small muted" style="margin:0">Valeurs de départ prises dans ton profil actif. <button type="button" class="lien" data-fs-reset>Revenir aux valeurs de mon profil</button></p>
+    <div id="fs-resultat" aria-live="polite">${resultatFrais(v)}</div>
+  </div>`;
+}
+$("#fiches").addEventListener("input", (e) => {
+  const cle = e.target.dataset?.fs;
+  if (!cle) return;
+  const racine = e.target.closest("#frais-sim");
+  const nombre = (min, max) => Math.min(max, Math.max(min, Number(String(e.target.value).replace(",", ".")) || 0));
+  if (cle === "capital") fraisSim.capital = nombre(0, 1e8);
+  else if (cle === "mensuel") fraisSim.mensuel = nombre(0, 1e5);
+  else {
+    fraisSim.annees = Math.round(nombre(1, 50));
+    // curseur et champ numérique restent synchronisés (sans réécrire le champ en cours de saisie)
+    for (const el of racine.querySelectorAll('[data-fs="annees"], [data-fs="annees-nb"]')) if (el !== e.target) el.value = fraisSim.annees;
+    racine.querySelector("#fs-annees-txt").textContent = fraisSim.annees;
+  }
+  racine.querySelector("#fs-resultat").innerHTML = resultatFrais(valeursFraisSim());
+});
+$("#fiches").addEventListener("click", (e) => {
+  if (!e.target.closest?.("[data-fs-reset]")) return;
+  fraisSim.capital = fraisSim.mensuel = fraisSim.annees = null;
+  rendreFiches();
+});
+
 function rendreFiches() {
   const id = location.hash.startsWith("#fiche-") ? location.hash.slice(7).split("?")[0] : null;
   const f = CONTENU_FICHES.find((x) => x.id === id);
@@ -3832,7 +4050,7 @@ function rendreFiches() {
     ${f.guide || f.id === "lexique" ? "" : `<p class="small muted" style="margin:0">Dans ton plan : ${L(f.role)}</p>
     <section class="panneau encart"><h3>Dans ton plan, pour ce profil</h3>${res ? blocDansTonPlan(f, res) : ""}</section>`}
     <section><h3>L'essentiel</h3><dl class="essentiel">${f.essentiel.map(([k, v]) => `<div><dt>${k}</dt><dd>${L(v)}</dd></div>`).join("")}</dl></section>
-    ${f.sections.map((sec) => `<section><h3>${sec.titre}</h3>${sec.special === "entreprises" ? blocEntreprises() : sec.special === "top3" ? blocTop3(f) : sec.special === "primes" ? blocPrimes() : ""}${sec.points ? `<${sec.ordonne ? "ol" : "ul"} class="points">${sec.points.map((p) => `<li>${L(p)}</li>`).join("")}</${sec.ordonne ? "ol" : "ul"}>` : ""}${sec.tableau ? `<div class="table-wrap"><table class="tableau-fiche"><thead><tr>${sec.tableau.entetes.map((h) => `<th>${echapper(h)}</th>`).join("")}</tr></thead><tbody>${sec.tableau.lignes.map((l) => `<tr>${l.map((c, i) => `<td${i === 0 ? ' class="fort"' : ""}>${L(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : ""}</section>`).join("")}
+    ${f.sections.map((sec) => `<section><h3>${sec.titre}</h3>${sec.special === "entreprises" ? blocEntreprises() : sec.special === "top3" ? blocTop3(f) : sec.special === "primes" ? blocPrimes() : sec.special === "simulateurFrais" ? blocSimulateurFrais() : ""}${sec.points ? `<${sec.ordonne ? "ol" : "ul"} class="points">${sec.points.map((p) => `<li>${L(p)}</li>`).join("")}</${sec.ordonne ? "ol" : "ul"}>` : ""}${sec.tableau ? `<div class="table-wrap"><table class="tableau-fiche"><thead><tr>${sec.tableau.entetes.map((h) => `<th>${echapper(h)}</th>`).join("")}</tr></thead><tbody>${sec.tableau.lignes.map((l) => `<tr>${l.map((c, i) => `<td${i === 0 ? ' class="fort"' : ""}>${L(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : ""}</section>`).join("")}
     ${f.videos?.length ? `<section><h3>En vidéo</h3><ul class="points">${f.videos.map(([t, u, n]) => `<li><a class="lien-video" href="${u}" target="_blank" rel="noopener">▶ ${echapper(t)}</a>${n ? ` <span class="muted small">${echapper(n)}</span>` : ""}</li>`).join("")}</ul></section>` : ""}
     ${f.etapes?.length ? `<section><h3>Étapes</h3><ol class="points">${f.etapes.map((p) => `<li>${L(p)}</li>`).join("")}</ol></section>` : ""}
     ${f.attention?.length ? `<section class="vigilance"><h3>Points de vigilance</h3><ul class="points">${f.attention.map((p) => `<li>${L(p)}</li>`).join("")}</ul></section>` : ""}
