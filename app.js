@@ -1,5 +1,5 @@
 import { PLAN } from "./plan.js";
-import { analyser, capitalDe, GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer } from "./moteur.js";
+import { analyser, capitalDe, GROUPES_PLACEMENTS, grouperAllocation, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer } from "./moteur.js";
 import { projetLocatifDe, analyseLocatif, mensualitePret } from "./locatif.js";
 import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, CRISES, simulerCrise, fluxLocatif } from "./projection.js";
 import { SCENARIOS_FISCAUX, NEUTRE, optionFiscale, comparerTaux } from "./evolution-fiscale.js";
@@ -536,7 +536,7 @@ function blocPocheBourse(res) {
   const celluleAchat = (x, i) => x.parts ? `<b>${x.parts[i]} part${x.parts[i] > 1 ? "s" : ""}</b><div class="small muted">${eur(x.montants[i])}</div>` : `<b>${eur(x.montants[i])}</b>${PARTS_ENTIERES.includes(x.c) ? '<div class="small muted">indique le prix d\'une part</div>' : ""}`;
   const restes = parC.filter((x) => x.parts && x.reste > 0.5);
   const noteCompte = parC.map((x) => PARTS_ENTIERES.includes(x.c) ? `Sur le ${NOM_COMPTE[x.c]}, on n'achète que des parts entières : ${x.parts ? "le nombre de parts est calculé avec le prix que tu as indiqué" : "indique le prix d'une part de chaque ETF (affiché chez ton courtier) pour obtenir le nombre de parts"}.` : x.c === "per" ? "Sur un PER d'assurance, on investit un montant en euros (fractions de parts possibles) ; sur un PER compte-titres, ce sont des parts entières comme au PEA." : "Sur l'assurance-vie, on investit un montant en euros (fractions de parts possibles).").join(" ");
-  return `<section class="panneau" id="poche-bourse"><h2>Ta poche bourse : quoi acheter ce mois-ci</h2>
+  return `<section class="panneau" id="poche-bourse" data-min="intermediaire"><h2>Ta poche bourse : quoi acheter ce mois-ci</h2>
     <p style="margin:4px 0 6px">Ce mois-ci, le plan prévoit ${ouAcheter} pour la partie bourse.</p>
     <p class="note" style="margin:0 0 8px">Indique combien tu as déjà sur chaque ETF (en euros, tous comptes confondus) : le site calcule combien en acheter avec le virement du mois pour te rapprocher des poids du plan, sans rien vendre.</p>
     <div class="ligne-actions" style="margin-bottom:8px"><label for="dca-montant" class="small">Montant à investir ce mois-ci</label><div class="saisie" style="max-width:160px"><input id="dca-montant" type="number" min="0" step="10" value="${M}"><span>€</span></div>${montantDCA != null ? `<button type="button" class="lien" id="dca-auto">Reprendre le montant du plan (${eur(duMois)})</button>` : `<span class="small muted">versements bourse du mois prévus par le plan</span>`}</div>
@@ -561,6 +561,27 @@ function blocPocheBourse(res) {
   </section>`;
 }
 const resideEnFranceUI = () => (etat.profil.pays ?? "FR") === "FR";
+const ACTIONS_DEBUTANT = 3; // actions affichées d'emblée en débutant
+let autresActionsOuvertes = false; // le <details> des autres actions reste ouvert d'un rendu à l'autre
+$("#resultats").addEventListener("toggle", (e) => { if (e.target.id === "res-autres-actions") autresActionsOuvertes = e.target.open; }, true);
+
+// Version débutant de « Répartition cible » : 3 familles (regroupement d'affichage, res.alloc n'est pas modifié)
+function blocFamilles(res) {
+  const COULEUR_FAMILLE = { abri: "--s6", prudent: "--s3", dynamique: "--s1" };
+  const DETAIL = { abri: "disponible tout de suite, sans risque de perte (livrets, apport de ton projet)", prudent: "évolue peu (assurance-vie, obligations, or)", dynamique: "fait grandir ton capital sur le long terme, avec des hauts et des bas (bourse, bitcoin, immobilier SCPI)" };
+  const F = grouperAllocation(res.alloc).filter((f) => f.montant > 0.5);
+  const parId = Object.fromEntries(F.map((f) => [f.id, f]));
+  const segs = F.map((f) => `<div class="seg" tabindex="0" style="flex-grow:${f.montant};background:var(${COULEUR_FAMILLE[f.id]})" data-bulle="${echapper(`${f.libelle} · ${eur(f.montant)} · ${pct(f.part)}`)}" aria-label="${echapper(`${f.libelle} : ${eur(f.montant)}, ${pct(f.part)}`)}"></div>`).join("");
+  return `
+    <div class="chiffres">
+      <div><b class="num">${eur(res.capital)}</b><span>capital</span></div>
+      <div><b class="num">${eur(parId.abri?.montant ?? 0)}</b><span>à l'abri</span></div>
+      <div><b class="num">${pct(parId.dynamique?.part ?? 0)}</b><span>en placements dynamiques</span></div>
+    </div>
+    ${F.length ? `<div class="barre" role="img" aria-label="Répartition cible en trois familles">${segs}</div>` : ""}
+    <ul class="familles">${F.map((f) => `<li><span class="pastille" style="background:var(${COULEUR_FAMILLE[f.id]})"></span><span><b>${f.libelle}</b> · <b class="num">${eur(f.montant)}</b> (${pct(f.part)})<span class="small muted"> : ${DETAIL[f.id]}</span></span></li>`).join("")}</ul>`;
+}
+
 function rendreResultats() {
   majBadgeAvances();
   let res, sim;
@@ -571,6 +592,7 @@ function rendreResultats() {
     $("#resultats").innerHTML = msg; $("#apercu").innerHTML = msg; return;
   }
   const plan = etat.brouillon;
+  const niveau = niveauCourant(), deb = niveau === "debutant";
   etat.resultat = res;
   if (!$("#vue-ideale").hidden) rendreEpargneIdeale();
   $("#total-capital").textContent = eur(res.capital);
@@ -591,40 +613,49 @@ function rendreResultats() {
   const parNiveau = (n) => res.consignes.filter((c) => c.niveau === n);
   const aFaire = parNiveau("action"), alertes = parNiveau("alerte"), infos = parNiveau("info");
   const titre = (t, n) => `<h2 class="compte-titre">${t} <span class="compteur">${n}</span></h2>`;
+  // Débutant : les 3 premières actions (déjà triées par importance), les autres dans un <details>
+  const liste = (L, debut = 0) => `<ol class="a-faire"${debut ? ` style="counter-reset: af ${debut}"` : ""}>${L.map(item).join("")}</ol>`;
+  const reste = aFaire.length - ACTIONS_DEBUTANT;
+  const aFaireHTML = !aFaire.length ? '<p class="muted small" style="margin:10px 0 0">Rien à faire de particulier : continue les versements du mois.</p>'
+    : deb && reste > 0
+      ? `${liste(aFaire.slice(0, ACTIONS_DEBUTANT))}<details class="autres-actions" id="res-autres-actions"${autresActionsOuvertes ? " open" : ""}><summary>${reste > 1 ? `Voir les ${reste} autres actions` : "Voir l'autre action"}</summary>${liste(aFaire.slice(ACTIONS_DEBUTANT), ACTIONS_DEBUTANT)}</details>`
+      : liste(aFaire);
 
   const nomProfil = proches.courant.col === "exemple" ? "Exemple" : docCourant()?.nom ?? "";
   const F = sim.futur;
-  const bandeauFutur = F ? `<div class="bandeau"><b>Situation simulée à ${res.profil.agePrincipal ?? res.profil.age} ans${F.annees ? `, dans ${F.annees} an(s)` : ""}</b> : capital ${eur(F.capital)} (${F.estime.capital ? "estimé en suivant le plan, rendements moyens" : "saisi"}), salaire ${eur(res.profil.salaireNetMensuel)} par mois${F.estime.salaire ? " (estimé)" : ""}, épargne ${eur(res.profil.epargneMensuelle)} par mois${F.estime.epargne ? " (estimée)" : ""}.${F.achatAvant ? " L'achat de la résidence, prévu avant cet âge, n'est pas pris en compte." : ""} Les résultats ci-dessous concernent cette situation future, pas celle d'aujourd'hui.</div>` : "";
+  const bandeauFutur = F && visible("avance", niveau) ? `<div class="bandeau" id="res-futur" data-min="avance"><b>Situation simulée à ${res.profil.agePrincipal ?? res.profil.age} ans${F.annees ? `, dans ${F.annees} an(s)` : ""}</b> : capital ${eur(F.capital)} (${F.estime.capital ? "estimé en suivant le plan, rendements moyens" : "saisi"}), salaire ${eur(res.profil.salaireNetMensuel)} par mois${F.estime.salaire ? " (estimé)" : ""}, épargne ${eur(res.profil.epargneMensuelle)} par mois${F.estime.epargne ? " (estimée)" : ""}.${F.achatAvant ? " L'achat de la résidence, prévu avant cet âge, n'est pas pris en compte." : ""} Les résultats ci-dessous concernent cette situation future, pas celle d'aujourd'hui.</div>` : "";
   etat.futur = F;
   const p = res.profil;
+  const rythme = siNiveau("avance", () => blocRythme(res));
+  // Débutant : une ligne à la place du détail « quoi acheter ce mois-ci » (visible seulement si le plan investit en bourse)
+  const ligneBourseDebutant = (res.alloc.bourse ?? 0) > 0.5 ? `<section class="panneau" id="res-bourse-debutant" data-seul="debutant"><p class="note" style="margin:0">Pour la partie bourse, le plan conseille des ETF à bas frais : voir la ${lienFiche("pea", "fiche PEA")}.</p></section>` : "";
+  const colDroite = (alertes.length ? `<section class="panneau attention">${titre("Attention", alertes.length)}<ul class="infos">${alertes.map(item).join("")}</ul></section>` : "")
+    + siNiveau("intermediaire", () => `<section class="panneau" id="res-infos" data-min="intermediaire">${titre("Bon à savoir", infos.length)}
+          ${infos.length ? `<ul class="infos">${infos.map(item).join("")}</ul>` : '<p class="muted small" style="margin:10px 0 0">Rien de plus à signaler.</p>'}</section>`);
   $("#resultats").innerHTML = `
-    <div class="etape" style="margin:0"><p><b>Étape 2 sur 4.</b> Ce que le plan demande pour ce profil : d'abord les actions, dans l'ordre, puis les versements du mois et le montant visé sur chaque compte.</p></div>
+    <div class="etape" style="margin:0"><p><b>Étape 2 sur 4.</b> Ce que le plan demande pour ce profil : d'abord les actions, dans l'ordre, puis les versements du mois${deb ? "" : " et le montant visé sur chaque compte"}.</p></div>
     ${bandeauFutur}
     <div class="panneau entete-res">
-      <div class="qui-res"><b>${echapper(nomProfil || "Profil")}</b><span class="small muted">${p.agePrincipal ?? p.age} ans · ${eur(res.capital)} placés · ${eur(p.epargneMensuelle)} d'épargne par mois · profil ${echapper(profilRisque(plan, p).libelle ?? "")}</span></div>
+      <div class="qui-res"><b>${echapper(nomProfil || "Profil")}</b><span class="small muted">${p.agePrincipal ?? p.age} ans · ${eur(res.capital)} placés · ${eur(p.epargneMensuelle)} d'épargne par mois<span id="res-profil-risque" data-min="intermediaire"> · profil ${echapper(profilRisque(plan, p).libelle ?? "")}</span></span></div>
       <div class="ligne-actions"><a class="bouton" href="#mon-profil">Modifier mon profil</a>${etat.downloads ? `<button type="button" id="btn-recap">Télécharger le récapitulatif</button>` : ""}</div>
       ${recapMessage ? `<p class="small muted" style="margin:0;flex-basis:100%">${echapper(recapMessage)}</p>` : ""}
     </div>
-    <div class="grille-res">
+    <div class="grille-res${colDroite ? "" : " une-colonne"}">
       <div class="pile">
         <section class="panneau">${titre("À faire", aFaire.length)}
           <p class="note" style="margin:4px 0 0">Les actions à mener, de la plus importante à la moins urgente. Les mots soulignés en pointillé mènent à leur fiche.</p>
-          ${aFaire.length ? `<ol class="a-faire">${aFaire.map(item).join("")}</ol>` : '<p class="muted small" style="margin:10px 0 0">Rien à faire de particulier : continue les versements du mois.</p>'}</section>
+          ${aFaireHTML}</section>
         <section class="panneau"><h2>Ce mois-ci · ${eur(p.epargneMensuelle)} d'épargne à répartir</h2>
           <p class="note" style="margin:4px 0 0">Les virements à faire ce mois-ci pour rapprocher chaque compte de sa cible.</p>
           <div class="table-wrap" style="margin-top:8px"><table><tbody>${mvts || '<tr><td class="muted">Aucun mouvement ce mois-ci.</td></tr>'}</tbody></table></div></section>
-        <section class="panneau"><h2>Montant visé sur chaque compte</h2><p class="note" style="margin:4px 0 8px">${eqTexte} L'argent déjà placé reste sur son compte quand le plan l'autorise ; l'épargne du mois comble les manques et les excédents sont déplacés petit à petit.</p>
-          ${blocRythme(res)}
-          <div class="table-wrap"><table><thead><tr><th>Compte</th><th class="m">Actuel</th><th class="m">Cible</th><th class="m">Écart</th></tr></thead><tbody>${comptes}</tbody></table></div></section>
-        <section class="panneau"><h2>Répartition cible</h2><p class="note" style="margin:4px 0 0">Comment le plan répartit ton capital entre les grandes familles de placements.</p>${blocAllocation(res)}</section>
-        ${blocPocheBourse(res)}
+        ${siNiveau("intermediaire", () => `<section class="panneau" id="res-montants" data-min="intermediaire"><h2>Montant visé sur chaque compte</h2><p class="note" style="margin:4px 0 8px">${eqTexte} L'argent déjà placé reste sur son compte quand le plan l'autorise ; l'épargne du mois comble les manques et les excédents sont déplacés petit à petit.</p>
+          ${rythme ? `<div id="res-rythme" data-min="avance">${rythme}</div>` : ""}
+          <div class="table-wrap"><table><thead><tr><th>Compte</th><th class="m">Actuel</th><th class="m">Cible</th><th class="m">Écart</th></tr></thead><tbody>${comptes}</tbody></table></div></section>`)}
+        <section class="panneau" id="res-repartition"><h2>Répartition cible</h2><p class="note" style="margin:4px 0 0">${deb ? "Comment le plan répartit ton capital en trois familles : l'argent à l'abri pour les imprévus et tes projets, une part prudente qui bouge peu, et une part dynamique pour le long terme." : "Comment le plan répartit ton capital entre les grandes familles de placements."}</p>${deb ? blocFamilles(res) : blocAllocation(res)}</section>
+        ${deb ? ligneBourseDebutant : siNiveau("intermediaire", () => blocPocheBourse(res))}
         <div class="etape" style="margin:0"><a class="bouton" href="#mon-profil">← Mon profil</a><a class="bouton principal" href="#trajectoire">Étape 3 : trajectoire →</a></div>
       </div>
-      <div class="pile">
-        ${alertes.length ? `<section class="panneau attention">${titre("Attention", alertes.length)}<ul class="infos">${alertes.map(item).join("")}</ul></section>` : ""}
-        <section class="panneau">${titre("Bon à savoir", infos.length)}
-          ${infos.length ? `<ul class="infos">${infos.map(item).join("")}</ul>` : '<p class="muted small" style="margin:10px 0 0">Rien de plus à signaler.</p>'}</section>
-      </div>
+      ${colDroite ? `<div class="pile">${colDroite}</div>` : ""}
     </div>`;
   if (!$("#vue-fiches").hidden) rendreFiches();
   if (!$("#vue-suivi").hidden) rendreSuivi();
@@ -1775,6 +1806,8 @@ setTimeout(() => { if (memo.get("discret")) appliquerDiscret(true); }, 0);
 
 // ---------------------------------------------------------------- niveaux de lecture (règles dans niveaux.js)
 // Le niveau ne change que l'affichage : jamais etat.profil, jamais les calculs.
+// Produit le HTML d'un panneau seulement s'il est visible au niveau courant (rendreResultats est rappelée à chaque changement de niveau)
+function siNiveau(min, fn) { return visible(min, niveauCourant()) ? fn() : ""; }
 function niveauCourant() { const n = document.documentElement.dataset.niveau; return NIVEAUX.includes(n) ? n : "avance"; }
 function majSelecteurNiveau() {
   for (const b of document.querySelectorAll("#selecteur-niveau [data-niveau]")) {

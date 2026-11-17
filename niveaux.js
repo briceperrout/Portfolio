@@ -55,7 +55,8 @@ export const MATRICE = {
   },
   onglets: { suivi: I, plan: A },
   // Complétés aux étapes 3 à 5
-  reequilibrage: {},
+  // Rééquilibrage : les clés sont les id générés dans rendreResultats() (app.js), qui portent aussi data-min
+  reequilibrage: { "res-futur": A, "res-profil-risque": I, "res-infos": I, "res-montants": I, "res-rythme": A, "poche-bourse": I },
   trajectoire: {},
   retraite: {},
 };

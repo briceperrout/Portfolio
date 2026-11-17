@@ -6,7 +6,7 @@ import worker, { MODEL_FAST, MODEL_REASONING, choisirModele, choixRepli, corpsOp
 import { CONSIGNE_VOCALE, DELAI_SILENCE_MS, choisirVoixFr, decouperPhrases, extraireBalises, libelleModele, preparerRequeteCloud, texteParle } from "./assistant.js";
 
 import { PLAN } from "./plan.js";
-import { GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent } from "./moteur.js";
+import { FAMILLES_ALLOCATION, grouperAllocation, GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent } from "./moteur.js";
 import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS } from "./projection.js";
 
 export const resultats = { ok: 0, echecs: [] };
@@ -334,6 +334,21 @@ egal(libelleModele(undefined), "", "libellé absent");
   egal(gains.pea, null, "PEA : versements différents du solde (gains réels), conservés");
   egal(contratsApresRepartition({ pea: { ouvert: true, versements: 30000, dateOuverture: "2015-03" } }, { pea: 35000 }, aujourdhui, { pea: 30000 }).pea, { ouvert: true, versements: 35000, dateOuverture: "2015-03" }, "PEA : versements = solde, ils suivent la saisie");
   egal(contratsApresRepartition({ pea: { ouvert: false, dateOuverture: "2020-01" } }, { pea: 100 }, aujourdhui).pea.dateOuverture, "2020-01", "PEA créé : date déjà saisie conservée");
+}
+
+// ---------------------------------------------------------------- moteur.js : allocation en 3 familles (niveau Débutant)
+{
+  const alloc = { securite: 10000, projet: 5000, prudent: 8000, or: 2000, bourse: 30000, bitcoin: 3000, scpi: 2000 };
+  const f = grouperAllocation(alloc);
+  egal(f.map((x) => [x.id, x.montant]), [["abri", 15000], ["prudent", 10000], ["dynamique", 35000]], "familles : À l'abri / Prudent / Dynamique");
+  egal(f.reduce((t, x) => t + x.montant, 0), Object.values(alloc).reduce((t, x) => t + x, 0), "familles : somme conservée");
+  egal(f.map((x) => Math.round(x.part)), [25, 17, 58], "familles : parts en %");
+  verifier(Math.abs(f.reduce((t, x) => t + x.part, 0) - 100) < 1e-9, "familles : parts = 100 %");
+  egal(FAMILLES_ALLOCATION.flatMap((x) => x.classes).sort(), Object.keys(PLAN.classes).sort(), "familles : toutes les classes du plan, une seule fois");
+  const vide = grouperAllocation({});
+  egal(vide.map((x) => [x.montant, x.part]), [[0, 0], [0, 0], [0, 0]], "familles : allocation vide");
+  egal(grouperAllocation(undefined).length, 3, "familles : allocation absente tolérée");
+  egal(grouperAllocation({ securite: "1000", bourse: null, inconnu: 99 })[0].montant, 1000, "familles : valeurs textuelles, classes inconnues ignorées");
 }
 
 if (typeof process !== "undefined" && process.argv?.[1]?.endsWith("test_js.mjs")) {

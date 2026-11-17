@@ -80,6 +80,22 @@ export function capitalDe(profil) {
   return profil.placements ? somme(profil.placements) : profil.capital ?? 0;
 }
 
+// ------------------------------------------------------------- allocation en 3 familles (niveau Débutant)
+// Simple regroupement d'affichage des classes d'actifs de l'allocation cible : il ne change aucun calcul.
+export const FAMILLES_ALLOCATION = [
+  { id: "abri", libelle: "À l'abri", classes: ["securite", "projet"] },
+  { id: "prudent", libelle: "Prudent", classes: ["prudent", "or"] },
+  { id: "dynamique", libelle: "Dynamique", classes: ["bourse", "bitcoin", "scpi"] },
+];
+/** [{ id, libelle, classes, montant, part }] : montant = somme des classes de la famille, part = % du total de l'allocation. */
+export function grouperAllocation(alloc) {
+  const total = FAMILLES_ALLOCATION.reduce((t, f) => t + f.classes.reduce((s, c) => s + (Number(alloc?.[c]) || 0), 0), 0);
+  return FAMILLES_ALLOCATION.map((f) => {
+    const montant = f.classes.reduce((s, c) => s + (Number(alloc?.[c]) || 0), 0);
+    return { ...f, montant, part: total > 0 ? (100 * montant) / total : 0 };
+  });
+}
+
 // ------------------------------------------------------------- placements regroupés (niveau Débutant)
 // Le débutant saisit 4 montants ; le détail compte par compte en découle. « autres » est trop hétérogène : lecture seule.
 export const GROUPES_PLACEMENTS = {

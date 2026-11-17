@@ -26,6 +26,14 @@ for (const [cle, min] of Object.entries(MATRICE.profil)) {
   const ligne = iLegende >= 0 && iId < 0 ? lignes[iLegende - 1] : lignes[iId];
   egal(dm(ligne), min, `data-min de « ${cle} » dans index.html`);
 }
+// Rééquilibrage : chaque clé de MATRICE.reequilibrage a son id et son data-min dans le gabarit de app.js
+const appJs = readFileSync(new URL("./app.js", import.meta.url), "utf8").split("\n");
+for (const [cle, min] of Object.entries(MATRICE.reequilibrage)) {
+  const ligne = appJs.find((l) => l.includes(`id="${cle}"`));
+  egal(ligne?.match(/data-min="([a-z]+)"/)?.[1], min, `data-min de « ${cle} » dans app.js`);
+}
+verifier(/siNiveau\("avance", \(\) => blocRythme\(res\)\)/.test(appJs.join("\n")) && /siNiveau\("intermediaire", \(\) => blocPocheBourse\(res\)\)/.test(appJs.join("\n")), "panneaux coûteux produits via siNiveau");
+verifier(appJs.some((l) => l.includes('id="res-bourse-debutant"') && l.includes('data-seul="debutant"')), "ligne bourse débutant (data-seul)");
 egal(dm(lignes.find((l) => l.includes('id="lien-suivi"'))), MATRICE.onglets.suivi, "data-min de l'onglet Suivi");
 egal(dm(lignes.find((l) => l.includes('id="lien-plan"'))), MATRICE.onglets.plan, "data-min de l'onglet Mon plan");
 const valeursHtml = [...html.matchAll(/data-min="([^"]*)"/g)].map((m) => m[1]);
