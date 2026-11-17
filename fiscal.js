@@ -52,6 +52,91 @@ function decoter(r, revenuImposable, partsBase) {
   return { impot, tmi: impot > 0 ? r.tmi : 0, tauxMoyen: revenuImposable > 0 ? (100 * impot) / (revenuImposable / 0.9) : 0 };
 }
 
+// =====================================================================
+// Décumulation : primitives fiscales pures (retraits par enveloppe)
+// =====================================================================
+export const ABATTEMENT_AV = Object.freeze({ seul: 4600, couple: 9200 });   // art. 125-0 A CGI, non indexé
+export const SEUIL_PRIMES_AV = 150000;                                       // primes nettes, non indexé
+export const ABATTEMENT_AV_DECES = 152500;                                   // art. 990 I, par bénéficiaire
+// Revenus 2025 (IR 2026) : plancher par pensionné, plafond par foyer ; la LF 2026 (19/02/2026) a conservé l'abattement de 10 %
+export const ABATTEMENT_PENSIONS = Object.freeze({ taux: 10, plancher: 454, plafond: 4439, VERIFIE_LE: "2026-11-17" });
+
+// PFU d'un jeu de prélèvements (scénarios de réforme) : part impôt + prélèvements sociaux sur le capital
+const pfuDe = (pr) => pr.IR_PFU + pr.PS_CAPITAL;
+const partGain = (valeur, prixDeRevient) => (valeur > 0 ? Math.max(0, 1 - prixDeRevient / valeur) : 0);
+
+// Barème indexé sur l'inflation simulée : le barème est homogène de degré 1 (seuils, décote, plafond du quotient familial).
+export function impotBaremeIndexe(revenu, parts = 1, partsBase = parts, indexation = 1) {
+  const k = indexation > 0 ? indexation : 1;
+  const r = impotBareme(revenu / k, parts, partsBase);
+  const impot = r.impot * k;
+  return { impot, tmi: r.tmi, tauxMoyen: revenu > 0 ? (100 * impot) / (revenu / 0.9) : 0 };
+}
+
+// Revenu imposable d'une pension après l'abattement de 10 % (plancher par pensionné, plafond par foyer)
+export function revenuImposablePension(pensionAnnuelle, { pensionnes = 1, indexation = 1 } = {}) {
+  const pension = Math.max(0, pensionAnnuelle);
+  const A = ABATTEMENT_PENSIONS;
+  const brut = (A.taux / 100) * pension;
+  const plancher = A.plancher * pensionnes * indexation, plafond = A.plafond * indexation;
+  const abattement = Math.min(Math.min(plafond, Math.max(plancher, brut)), pension);
+  return Math.max(0, pension - abattement);
+}
+
+// Plus grand revenu supplémentaire que le foyer peut encore recevoir sans dépasser la tranche cible
+export function margeTranche(revenuImposable, { parts, partsBase, indexation = 1, tmiCible }) {
+  const tmiDe = (x) => impotBaremeIndexe(revenuImposable + x, parts, partsBase, indexation).tmi;
+  if (tmiDe(0) > tmiCible) return 0;
+  let bas = 0, haut = 2000000;
+  if (tmiDe(haut) <= tmiCible) return haut;
+  for (let i = 0; i < 40; i++) {
+    const mil = (bas + haut) / 2;
+    if (tmiDe(mil) <= tmiCible) bas = mil; else haut = mil;
+  }
+  return bas;
+}
+
+// Rachat sur assurance-vie : PS toujours dus ; après 8 ans, abattement puis 7,5 % (12,8 % au-delà de 150 k€ de primes)
+export function impotRachatAV({ montant, valeur, primes, primesTotales = primes, ancien8, abattementRestant = 0 }, prelevements = PRELEVEMENTS) {
+  const P = prelevements;
+  const gain = montant * partGain(valeur, primes);
+  const ps = (gain * P.PS_PATRIMOINE) / 100;
+  let gainAbattu = 0, ir;
+  if (ancien8) {
+    gainAbattu = Math.min(gain, Math.max(0, abattementRestant));
+    const imposable = gain - gainAbattu;
+    const f = primesTotales > 0 ? Math.max(0, primesTotales - SEUIL_PRIMES_AV) / primesTotales : 0;
+    ir = (imposable * ((1 - f) * P.IR_AV_8ANS + f * P.IR_PFU)) / 100;
+  } else ir = (gain * P.IR_PFU) / 100;
+  const impot = ir + ps;
+  return { gain, gainAbattu, ir, ps, impot, net: montant - impot };
+}
+
+export function impotRetraitPEA({ montant, valeur, versements, ancien5 }, prelevements = PRELEVEMENTS) {
+  const gain = montant * partGain(valeur, versements);
+  // PEA_IR (scénario de réforme) : le PEA de plus de 5 ans paie aussi la part impôt
+  const taux = ancien5 ? prelevements.PS_CAPITAL + (prelevements.PEA_IR ? prelevements.IR_PFU : 0) : pfuDe(prelevements);
+  const impot = (gain * taux) / 100;
+  return { gain, impot, net: montant - impot };
+}
+
+export function impotRetraitCTO({ montant, valeur, base }, prelevements = PRELEVEMENTS) {
+  const gain = montant * partGain(valeur, base);
+  const impot = (gain * pfuDe(prelevements)) / 100;
+  return { gain, impot, net: montant - impot };
+}
+
+// Sortie en capital du PER : versements déduits au barème (sans abattement de 10 %), plus-values au PFU
+export function impotRetraitPER({ montant, valeur, versementsDeduits, revenuImposableAutre = 0, parts, partsBase, indexation = 1 }, prelevements = PRELEVEMENTS) {
+  const partVersements = valeur > 0 ? montant * Math.min(1, versementsDeduits / valeur) : 0;
+  const gain = montant - partVersements;
+  const R = revenuImposableAutre;
+  const ir = impotBaremeIndexe(R + partVersements, parts, partsBase, indexation).impot - impotBaremeIndexe(R, parts, partsBase, indexation).impot;
+  const pfu = (gain * pfuDe(prelevements)) / 100;
+  const impot = ir + pfu;
+  return { partVersements, gain, ir, pfu, impot, net: montant - impot };
+}
+
 // Du net après impôt (mensuel) au net avant impôt et au brut.
 // autresMensuels : net après impôt du conjoint quand le foyer est imposé ensemble
 // (remonté avec le même rapport que le tien).

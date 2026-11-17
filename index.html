@@ -731,6 +731,7 @@ html.discret .num { letter-spacing: 0.05em; }
             <label class="coche" data-terme="assurance-vie"><input id="p-av" type="checkbox" data-p="assuranceVie.ouverte"> Assurance-vie déjà ouverte</label>
             <div class="champ"><label for="p-av-type">Type d'assurance-vie</label><select id="p-av-type" data-p="assuranceVie.type"></select></div>
             <div class="champ"><label for="p-av-date">Assurance-vie ouverte en</label><input id="p-av-date" type="month" data-p="assuranceVie.dateOuverture"></div>
+            <div class="champ" data-min="avance"><label for="p-av-apres70">Dont versé après 70 ans</label><div class="saisie"><input id="p-av-apres70" type="number" min="0" step="500" data-p="assuranceVie.versementsApres70" placeholder="0"><span>€</span></div></div>
           </fieldset></div>
           <div class="panneau" data-min="avance"><fieldset>
             <legend>Argent versé et frais réels</legend>

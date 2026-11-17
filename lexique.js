@@ -28,6 +28,7 @@ export const LEXIQUE = [
   { mot: "Indivision", motifs: ["indivision"], def: "Situation où plusieurs personnes possèdent ensemble un même bien (souvent après un héritage), chacune pour une part." },
   { mot: "Garantie des dépôts", motifs: ["garantie des dépôts", "FGDR"], fiche: "risques", def: "Si une banque fait faillite, le FGDR rembourse jusqu'à 100 000 € par personne et par banque (Livret A, LDDS et LEP en plus)." },
   { mot: "FGAP", motifs: ["FGAP"], fiche: "risques", def: "Fonds de garantie des assurances de personnes : si un assureur fait faillite, jusqu'à 70 000 € par personne et par assureur sont garantis." },
+  { mot: "Décumulation", motifs: ["Décumulation", "décumulation"], def: "La phase où l'on retire petit à petit son épargne pour se verser un revenu. L'ordre des comptes retirés change l'impôt payé." },
   { mot: "Retraite par capitalisation", motifs: ["retraite par capitalisation"], def: "Se constituer soi-même un capital pendant sa vie active, puis se verser un revenu en le vendant petit à petit à la retraite." },
   { mot: "Abondement", motifs: ["abondement"], fiche: "epargne-salariale", def: "Argent que ton employeur ajoute à tes versements sur un PEE ou un PER d'entreprise (par exemple 1 € ajouté pour 1 € versé). Sans impôt sur le revenu, seulement 9,7 % de CSG et CRDS." },
   { mot: "Épargne salariale", motifs: ["épargne salariale"], fiche: "epargne-salariale", def: "Les plans d'épargne proposés par l'employeur (PEE, PER d'entreprise), souvent avec de l'argent offert (abondement)." },

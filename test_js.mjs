@@ -6,6 +6,8 @@ import worker, { MODEL_FAST, MODEL_REASONING, choisirModele, choixRepli, corpsOp
 import { CONSIGNE_VOCALE, CONSIGNES_NIVEAU, DELAI_SILENCE_MS, choisirVoixFr, decouperPhrases, extraireBalises, libelleModele, preparerRequeteCloud, texteParle } from "./assistant.js";
 
 import { PLAN } from "./plan.js";
+import { planifierRetraits, STRATEGIES_DECUMULATION } from "./pension.js";
+import { impotBaremeIndexe, margeTranche } from "./fiscal.js";
 import { FICHES, PARCOURS_DEBUTANT } from "./fiches.js";
 import { FAMILLES_ALLOCATION, grouperAllocation, GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent } from "./moteur.js";
 import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS, projeter, projeterCentral, libertePatrimoine, moisPrecaution, capitalNecessaire } from "./projection.js";
@@ -413,6 +415,99 @@ egal(libelleModele(undefined), "", "libellé absent");
   egal(vide.map((x) => [x.montant, x.part]), [[0, 0], [0, 0], [0, 0]], "familles : allocation vide");
   egal(grouperAllocation(undefined).length, 3, "familles : allocation absente tolérée");
   egal(grouperAllocation({ securite: "1000", bourse: null, inconnu: 99 })[0].montant, 1000, "familles : valeurs textuelles, classes inconnues ignorées");
+}
+
+// ---------------------------------------------------------------- décumulation : ordre de retrait optimal
+{
+  const REG = () => ({ livrets: { valeur: 50000 }, av: { apres70: { valeur: 0, primes: 0 }, avant70: { valeur: 100000, primes: 60000 }, ancien8: true }, pea: { valeur: 80000, versements: 50000, ancien5: true }, cto: { valeur: 40000, base: 30000 }, per: { valeur: 60000, versementsDeduits: 50000 }, autres: [] });
+  const CTX = { parts: 1, partsBase: 1, indexation: 1, couple: false, revenuImposableAutre: 18000, anneesRestantesPER: 20, reserveLivrets: 10000, garderOr: false };
+  egal(STRATEGIES_DECUMULATION, ["transmettre", "consommer", "prorata"], "décumulation : stratégies");
+  for (const strat of STRATEGIES_DECUMULATION) {
+    const reg = REG(), avant = JSON.stringify(reg);
+    const p = planifierRetraits(reg, 30000, CTX, strat);
+    verifier(Math.abs(p.brut - p.impots - (p.net + p.surplus)) < 1e-6, `décumulation ${strat} : brut − impôts = net + surplus`);
+    verifier(!p.insuffisant && Math.abs(p.net - 30000) < 1e-6, `décumulation ${strat} : net = besoin (${p.net})`);
+    verifier(JSON.stringify(reg) === avant, `décumulation ${strat} : entrée non mutée`);
+  }
+  // Petit besoin, PER vide : seule l'AV sous abattement, impôt = prélèvements sociaux
+  const sansPER = { ...REG(), per: { valeur: 0, versementsDeduits: 0 } };
+  const petit = planifierRetraits(sansPER, 2000, CTX, "transmettre");
+  verifier(petit.retraits.length === 1 && petit.retraits[0].id === "av_avant70" && petit.retraits[0].etape === 1, "décumulation : petit besoin = AV (étape 1) seule");
+  const gPetit = petit.retraits[0].montant * 0.4;
+  verifier(Math.abs(petit.impots - gPetit * 0.172) < 1e-6 && petit.abattementUtilise > 0, "décumulation : impôt = PS seuls sous abattement");
+  // PER lissé : la TMI reste dans la cible
+  const lisse = planifierRetraits({ ...REG(), per: { valeur: 20000, versementsDeduits: 20000 } }, 30000, CTX, "transmettre");
+  const e0 = lisse.retraits.find((r) => r.etape === 0);
+  const tmi0 = impotBaremeIndexe(18000, 1, 1, 1).tmi;
+  verifier(e0 && impotBaremeIndexe(18000 + e0.montant, 1, 1, 1).tmi <= Math.max(tmi0, 11), "décumulation : PER lissé dans la tranche");
+  // 'transmettre' : AV avant 70 ans non touchée au-delà de la purge
+  // Réserve de transmission : avant70 protégée en 'transmettre' (croissance nulle, 10 ans couverts par les autres poches)
+  {
+    const reg0 = () => ({ ...REG(), av: { apres70: { valeur: 0, primes: 0 }, avant70: { valeur: 150000, primes: 90000 }, ancien8: true } });
+    const fin = (strat) => {
+      let reg = reg0();
+      for (let a = 0; a < 10; a++) reg = planifierRetraits(reg, 15000, { ...CTX, reserveTransmissionAV: 100000, anneesRestantesPER: Math.max(1, 20 - a) }, strat).registre;
+      return reg.av.avant70.valeur;
+    };
+    const fT = fin("transmettre"), fC = fin("consommer");
+    verifier(fT >= 100000 - 1e-6, `décumulation : réserve de transmission respectée en 'transmettre' (${Math.round(fT)})`);
+    verifier(fC < fT, `décumulation : 'consommer' ignore la réserve (${Math.round(fC)} < ${Math.round(fT)})`);
+  }
+  const tr = planifierRetraits(REG(), 30000, CTX, "transmettre");
+  verifier(tr.retraits.every((r) => r.id !== "av_avant70" || r.etape === 1), "décumulation : avant70 seulement purgée");
+  // 20 années, croissance nulle : 'transmettre' ≤ 'prorata' (besoins de 15 000 € et 30 000 € par an)
+  const cumul = (strat, besoin) => {
+    let reg = REG(), total = 0;
+    for (let a = 0; a < 20; a++) {
+      const p = planifierRetraits(reg, besoin, { ...CTX, anneesRestantesPER: Math.max(1, 20 - a) }, strat);
+      total += p.impots; reg = p.registre;
+    }
+    const r = reg;
+    return { impots: total, reste: r.livrets.valeur + r.av.apres70.valeur + r.av.avant70.valeur + r.pea.valeur + r.cto.valeur + r.per.valeur };
+  };
+  for (const besoin of [15000, 30000]) {
+    const cT = cumul("transmettre", besoin), cP = cumul("prorata", besoin);
+    resultats.decumulation ??= [];
+    resultats.decumulation.push({ besoin, transmettre: cT, prorata: cP });
+    // Tolérance de 2 % : l'ordre « transmettre » garde l'assurance-vie et lisse le PER, il ne minimise pas à lui seul l'impôt cumulé
+    verifier(cT.impots <= cP.impots * 1.02 + 1e-6, `décumulation ${besoin} €/an : impôts transmettre ${Math.round(cT.impots)} ≤ prorata ${Math.round(cP.impots)} + 2 % (reste ${Math.round(cT.reste)} / ${Math.round(cP.reste)})`);
+  }
+  const vide = planifierRetraits({ livrets: { valeur: 0 }, av: { apres70: { valeur: 0, primes: 0 }, avant70: { valeur: 0, primes: 0 }, ancien8: false }, pea: { valeur: 0, versements: 0, ancien5: false }, cto: { valeur: 0, base: 0 }, per: { valeur: 0, versementsDeduits: 0 }, autres: [] }, 5000, CTX);
+  verifier(vide.insuffisant === true && vide.net === 0, "décumulation : registre vide = insuffisant");
+}
+
+// ---------------------------------------------------------------- projection.js : décumulation intégrée à la projection
+{
+  const profils = [
+    { age: 35, salaireNet: 3000, epargneMensuelle: 500, depensesMensuelles: 2000, placements: { livretA: 10000, pea: 20000 } },
+    { age: 55, salaireNet: 4000, epargneMensuelle: 800, depensesMensuelles: 2500, placements: { livretA: 20000, pea: 100000, assuranceVie: 80000 } },
+    { age: 45, salaireNet: 5000, epargneMensuelle: 1500, depensesMensuelles: 3000, placements: { livretA: 20000, pea: 60000, assuranceVie: 90000, cto: 40000, per: 30000 }, verses: { cto: 25000, assuranceVie: 60000 }, assuranceVie: { dateOuverture: "2012-01" }, pea: { versements: 40000, dateOuverture: "2015-01" } },
+  ];
+  // Plan sans rendement ni inflation : pas d'effet de report d'impôt, la comparaison des impôts est directe
+  const PLAN0 = structuredClone(PLAN);
+  for (const k of Object.keys(PLAN0.hypotheses.rendements)) PLAN0.hypotheses.rendements[k] = 0;
+  PLAN0.hypotheses.inflation = 0;
+  for (const p of profils) {
+    const nom = `décumulation ${p.age} ans`;
+    const c = projeterCentral(PLAN, p), complet = projeter(PLAN, p, { legere: true });
+    const D = c.decumulation;
+    verifier(!!D && !!complet.decumulation, `${nom} : présente dans projeterCentral et projeter`);
+    if (!D) continue;
+    egal(complet.decumulation, D, `${nom} : identique avec ou sans tirages`);
+    verifier(Number.isFinite(D.economie) && D.anneesComparees >= 0 && D.exemples.length >= 1, `${nom} : forme de la décumulation`);
+    verifier(D.patrimoineFinalOptimise >= D.patrimoineFinalProrata - 1 || D.patrimoineFinalProrata <= 1, `${nom} : patrimoine final optimisé ≥ prorata (${Math.round(D.patrimoineFinalOptimise)} / ${Math.round(D.patrimoineFinalProrata)})`);
+    const pts = c.central.filter((x, i) => i >= c.iR && x.retraits);
+    verifier(pts.length > 0 && pts.every((x) => x.impotRetraits >= 0 && Array.isArray(x.retraits)), `${nom} : retraits et impôts sur les points de retraite`);
+    verifier(pts.every((x) => x.ecartRegistre == null || x.ecartRegistre < 1), `${nom} : registre cohérent avec les classes (< 1 €)`);
+    egal(JSON.stringify(projeterCentral(PLAN, p)), JSON.stringify(c), `${nom} : déterminisme`);
+    const cons = projeterCentral(PLAN, { ...p, retraite: { priorite: "consommer" } });
+    verifier(cons.decumulation?.strategie === "consommer" && Number.isFinite(cons.decumulation.patrimoineFinalOptimise), `${nom} : stratégie « consommer »`);
+    const plus = projeterCentral(PLAN, { ...p, retraite: { revenu: (c.retraite?.revenu ?? 2000) + 500 } });
+    verifier(plus.central[plus.dernier].financier <= c.central[c.dernier].financier + 1, `${nom} : +500 €/mois de revenu, patrimoine final plus bas ou égal`);
+    verifier(["impotsOptimiseReel", "impotsProrataReel", "economieReel", "patrimoineFinalOptimiseReel", "patrimoineFinalProrataReel", "gainPatrimoineReel", "ageFinal"].every((k) => Number.isFinite(D[k])), `${nom} : champs en euros réels présents`);
+    verifier(D.gainPatrimoineReel >= -1, `${nom} : gain de patrimoine réel ≥ 0 (${Math.round(D.gainPatrimoineReel)})`);
+    if (p.placements.assuranceVie && D.ageEpuisementOptimise == null) verifier(D.avAvant70Final > 0, `${nom} : AV avant 70 ans transmissible conservée (${Math.round(D.avAvant70Final)})`);
+  }
 }
 
 if (typeof process !== "undefined" && process.argv?.[1]?.endsWith("test_js.mjs")) {

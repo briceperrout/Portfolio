@@ -10,7 +10,7 @@
 //  Ne remplace pas le relevé officiel (info-retraite.fr).
 // =====================================================================
 import { facteurSalaire, carriereDe, hausseReelle, normaliserFoyer, simulerIndependant } from "./moteur.js";
-import { decomposerSalaire, foyerFiscal, apresImpot } from "./fiscal.js";
+import { decomposerSalaire, foyerFiscal, apresImpot, ABATTEMENT_AV, PRELEVEMENTS, impotBaremeIndexe, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitCTO, impotRetraitPER } from "./fiscal.js";
 
 // Âge légal et trimestres requis selon l'année de naissance (réforme 2023,
 // suspendue par la loi de financement de la Sécurité sociale pour 2026)
@@ -131,4 +131,207 @@ export function estimerPension(plan, profilSaisi, { ageDebut, trimestresDeja = n
     annees: annees.length, auLegal: calcul(regles.ageLegal), aTauxPlein: calcul(R.ageTauxPlein ?? 67),
     demande: calcul(Number(ageDemande) || regles.ageLegal),
   };
+}
+
+// =====================================================================
+// Décumulation : ordre de retrait fiscalement optimal
+// =====================================================================
+export const STRATEGIES_DECUMULATION = ["transmettre", "consommer", "prorata"];
+
+const EPS = 1e-6;
+const gainRelatif = (valeur, prixDeRevient) => (valeur > 0 ? Math.max(0, 1 - prixDeRevient / valeur) : 0);
+const nb = (x) => (Number.isFinite(Number(x)) ? Math.max(0, Number(x)) : 0);
+
+// Copie profonde complète du registre (champs manquants = 0) : l'entrée n'est jamais mutée
+function normaliserRegistre(r = {}) {
+  const av = r.av ?? {};
+  const comp = (c = {}) => ({ valeur: nb(c.valeur), primes: nb(c.primes) });
+  return {
+    livrets: { valeur: nb(r.livrets?.valeur) },
+    av: { apres70: comp(av.apres70), avant70: comp(av.avant70), ancien8: !!av.ancien8 },
+    pea: { valeur: nb(r.pea?.valeur), versements: nb(r.pea?.versements), ancien5: !!r.pea?.ancien5 },
+    cto: { valeur: nb(r.cto?.valeur), base: nb(r.cto?.base) },
+    per: { valeur: nb(r.per?.valeur), versementsDeduits: nb(r.per?.versementsDeduits) },
+    autres: (Array.isArray(r.autres) ? r.autres : []).map((a) => ({ id: String(a.id ?? "autre"), valeur: nb(a.valeur), base: nb(a.base), taux: nb(a.taux) })),
+  };
+}
+
+// Moteur d'une année de retraits : état privé, une instance par simulation
+function moteurRetraits(registre, ctx) {
+  const s = normaliserRegistre(registre);
+  const parts = ctx.parts ?? 1;
+  const P = ctx.prelevements ?? PRELEVEMENTS;
+  const pfu = P.IR_PFU + P.PS_CAPITAL;
+  const fisc = { parts, partsBase: ctx.partsBase ?? parts, indexation: ctx.indexation ?? 1 };
+  let revenu = nb(ctx.revenuImposableAutre);
+  let abat = s.av.ancien8 ? (ctx.couple ? ABATTEMENT_AV.couple : ABATTEMENT_AV.seul) : 0;
+  const retraits = [];
+  let brut = 0, impots = 0, nets = 0, abattementUtilise = 0;
+
+  const poche = (cle) => {
+    if (cle === "livrets") return { p: s.livrets, prix: null, type: "livrets" };
+    if (cle === "av_apres70") return { p: s.av.apres70, prix: "primes", type: "av" };
+    if (cle === "av_avant70") return { p: s.av.avant70, prix: "primes", type: "av" };
+    if (cle === "pea") return { p: s.pea, prix: "versements", type: "pea" };
+    if (cle === "cto") return { p: s.cto, prix: "base", type: "cto" };
+    if (cle === "per") return { p: s.per, prix: "versementsDeduits", type: "per" };
+    return { p: s.autres[Number(cle.slice(6))], prix: "base", type: "autre" };
+  };
+  const clesAutres = () => s.autres.map((_, i) => `autre:${i}`);
+
+  // Fiscalité d'un retrait de m sur la poche, sans rien modifier
+  const evaluer = (cle, m) => {
+    const { p, type } = poche(cle);
+    const v = p.valeur;
+    if (type === "livrets") return { impot: 0, gainAbattu: 0, partVersements: 0 };
+    if (type === "av") {
+      const r = impotRachatAV({ montant: m, valeur: v, primes: p.primes, primesTotales: s.av.apres70.primes + s.av.avant70.primes, ancien8: s.av.ancien8, abattementRestant: abat }, P);
+      return { impot: r.impot, gainAbattu: r.gainAbattu, partVersements: 0 };
+    }
+    if (type === "pea") return { impot: impotRetraitPEA({ montant: m, valeur: v, versements: p.versements, ancien5: p.ancien5 }, P).impot, gainAbattu: 0, partVersements: 0 };
+    if (type === "cto") return { impot: impotRetraitCTO({ montant: m, valeur: v, base: p.base }, P).impot, gainAbattu: 0, partVersements: 0 };
+    if (type === "per") {
+      const r = impotRetraitPER({ montant: m, valeur: v, versementsDeduits: p.versementsDeduits, revenuImposableAutre: revenu, ...fisc }, P);
+      return { impot: r.impot, gainAbattu: 0, partVersements: r.partVersements };
+    }
+    return { impot: (m * gainRelatif(v, p.base) * p.taux) / 100, gainAbattu: 0, partVersements: 0 };
+  };
+
+  // Retire réellement m de la poche (valeur et prix de revient réduits au prorata)
+  const retirer = (cle, m, etape) => {
+    const { p, prix, type } = poche(cle);
+    const e = evaluer(cle, m);
+    const v = p.valeur;
+    const vide = m >= v - 1e-9;
+    if (prix) p[prix] = vide ? 0 : p[prix] * (1 - m / v);
+    p.valeur = vide ? 0 : v - m;
+    abat = Math.max(0, abat - e.gainAbattu);
+    abattementUtilise += e.gainAbattu;
+    revenu += e.partVersements;
+    brut += m; impots += e.impot; nets += m - e.impot;
+    retraits.push({ id: type === "autre" ? p.id : cle, etape, montant: m, impot: e.impot });
+    return m - e.impot;
+  };
+
+  // Montant à retirer pour obtenir `net`, borné par la valeur et par `limite`
+  const montantPourNet = (cle, net, limite = Infinity) => {
+    const { p, type } = poche(cle);
+    const vmax = Math.min(p.valeur, limite);
+    if (!(vmax > 1e-9) || !(net > 0)) return 0;
+    const netMax = vmax - evaluer(cle, vmax).impot;
+    if (netMax <= net) return vmax;
+    if (type !== "av" && type !== "per") return net / (1 - evaluer(cle, vmax).impot / vmax); // taux linéaire
+    let bas = 0, haut = vmax;
+    for (let i = 0; i < 40; i++) {
+      const mil = (bas + haut) / 2;
+      if (mil - evaluer(cle, mil).impot >= net) haut = mil; else bas = mil;
+    }
+    return haut;
+  };
+
+  return {
+    s, fisc, retraits, P, pfu,
+    revenu: () => revenu,
+    abattement: () => abat,
+    valeur: (cle) => poche(cle).p.valeur,
+    clesAutres,
+    evaluer, retirer, montantPourNet,
+    gain: (cle) => { const { p, prix } = poche(cle); return gainRelatif(p.valeur, prix ? p[prix] : p.valeur); },
+    totaux: () => ({ brut, impots, nets, abattementUtilise }),
+  };
+}
+
+// Plan de retraits d'une année pour obtenir `besoinNet` (net d'impôt) avec le moins d'impôt possible.
+// strategie : 'transmettre' (AV avant 70 ans gardée pour la fin), 'consommer' (AV avant PER hors tranche),
+// 'prorata' (référence : on retire au prorata de chaque poche, mêmes règles fiscales).
+export function planifierRetraits(registre, besoinNet, ctx = {}, strategie = "transmettre") {
+  const besoin = Math.max(0, Number(besoinNet) || 0);
+  let m;
+  let reste = besoin;
+
+  if (strategie === "prorata") {
+    const cles = ["livrets", "av_apres70", "av_avant70", "pea", "cto"];
+    const depart = moteurRetraits(registre, ctx);
+    // Comme dans les autres stratégies, l'or physique gardé n'est vendu qu'en dernier recours
+    const estOr = (c) => c.startsWith("autre:") && depart.s.autres[Number(c.slice(6))].id === "orPhysique";
+    const gardes = ctx.garderOr ? depart.clesAutres().filter(estOr) : [];
+    const toutes = [...cles, ...depart.clesAutres().filter((c) => !gardes.includes(c)), "per"];
+    const valeurs = toutes.map((c) => depart.valeur(c));
+    const total = valeurs.reduce((t, v) => t + v, 0);
+    const jouer = (M) => {
+      const e = moteurRetraits(registre, ctx);
+      toutes.forEach((c, i) => { if (valeurs[i] > 0 && total > 0) e.retirer(c, (M * valeurs[i]) / total, "prorata"); });
+      return e;
+    };
+    let M = total;
+    if (total > 0 && jouer(total).totaux().nets > besoin) {
+      let bas = 0, haut = total;
+      for (let i = 0; i < 40; i++) {
+        const mil = (bas + haut) / 2;
+        if (jouer(mil).totaux().nets >= besoin) haut = mil; else bas = mil;
+      }
+      M = haut;
+    }
+    m = total > 0 && besoin > 0 ? jouer(M) : moteurRetraits(registre, ctx);
+    reste = besoin - m.totaux().nets;
+    for (const c of gardes) {
+      if (reste <= EPS) break;
+      const montant = m.montantPourNet(c, reste);
+      if (montant > 1e-9) reste -= m.retirer(c, montant, "prorata");
+    }
+  } else {
+    m = moteurRetraits(registre, ctx);
+    const etape = (cle, n, limite = Infinity) => {
+      if (reste <= EPS) return;
+      const montant = m.montantPourNet(cle, reste, limite);
+      if (montant > 1e-9) reste -= m.retirer(cle, montant, n);
+    };
+
+    // Étape 0 : PER lissé, indépendant du besoin
+    const per = m.s.per;
+    if (per.valeur > 0) {
+      const tmiCible = Math.max(impotBaremeIndexe(m.revenu(), m.fisc.parts, m.fisc.partsBase, m.fisc.indexation).tmi, 11);
+      const annees = Math.max(1, Number(ctx.anneesRestantesPER) || 1);
+      const partV = Math.min(1, per.versementsDeduits / per.valeur);
+      const marge = margeTranche(m.revenu(), { ...m.fisc, tmiCible });
+      const remplir = partV > 0 ? marge / partV : 0;
+      const P = Math.min(per.valeur, Math.max(per.valeur / annees, remplir));
+      const netP = m.retirer("per", P, 0);
+      reste = Math.max(0, besoin - netP); // l'excédent éventuel devient surplus, réinvesti en CTO plus bas
+    }
+
+    // Réserve d'assurance-vie transmissible : en 'transmettre', seules les étapes 1 (purge) et 4 en tiennent compte ;
+    // seule l'étape 6 (dernier recours) peut l'entamer
+    const reserveAV = strategie === "transmettre" ? Math.max(0, nb(ctx.reserveTransmissionAV)) : 0;
+    const limiteAV = (cle) => (cle === "av_avant70" ? Math.max(0, m.valeur("av_avant70") - reserveAV) : Infinity);
+    // Étape 1 : purge de l'assurance-vie sous abattement
+    if (m.s.av.ancien8) {
+      for (const cle of ["av_apres70", "av_avant70"]) {
+        const g = m.gain(cle);
+        if (g > 0 && m.abattement() > 0) etape(cle, 1, Math.min(m.abattement() / g, limiteAV(cle)));
+      }
+    }
+    // Étape 2 : livrets au-delà de la réserve
+    etape("livrets", 2, Math.max(0, m.valeur("livrets") - nb(ctx.reserveLivrets)));
+    // Étape 3 : poches imposables liquides, coût marginal croissant
+    const taux = (cle) => (cle === "pea" ? (m.s.pea.ancien5 ? m.P.PS_CAPITAL + (m.P.PEA_IR ? m.P.IR_PFU : 0) : m.pfu) : cle === "cto" ? m.pfu : m.s.autres[Number(cle.slice(6))].taux);
+    const gardeOr = (cle) => ctx.garderOr && cle.startsWith("autre:") && m.s.autres[Number(cle.slice(6))].id === "orPhysique";
+    const liquides = ["pea", "cto", ...m.clesAutres()].filter((c) => !gardeOr(c));
+    liquides.sort((a, b) => taux(a) * m.gain(a) - taux(b) * m.gain(b));
+    for (const cle of liquides) etape(cle, 3);
+    // Étapes 4 à 6 : AV après 70 ans, PER hors tranche, AV avant 70 ans (ordre selon la stratégie)
+    etape("av_apres70", 4);
+    if (strategie === "consommer") { etape("av_avant70", 6); etape("per", 5); }
+    else { etape("per", 5); etape("av_avant70", 6); }
+    // Étape 7 : réserve de livrets, puis or physique
+    etape("livrets", 7);
+    for (const cle of m.clesAutres().filter(gardeOr)) etape(cle, 7);
+  }
+
+  const t = m.totaux();
+  const insuffisant = reste > EPS;
+  const net = insuffisant ? t.nets : Math.min(besoin, t.nets);
+  const surplus = t.nets - net;
+  if (surplus > 1e-9) { m.s.cto.valeur += surplus; m.s.cto.base += surplus; }
+  return { net, brut: t.brut, impots: t.impots, surplus, insuffisant, retraits: m.retraits, abattementUtilise: t.abattementUtilise, registre: m.s };
 }

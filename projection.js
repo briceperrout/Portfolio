@@ -5,7 +5,8 @@
 //  au hasard selon la volatilité de chaque classe.
 // =====================================================================
 import { fluxLocatif, projetLocatifDe, echeancier } from "./locatif.js";
-import { PRELEVEMENTS, PFU } from "./fiscal.js";
+import { PRELEVEMENTS, PFU, ABATTEMENT_AV_DECES, foyerFiscal, revenuImposablePension } from "./fiscal.js";
+import { planifierRetraits, STRATEGIES_DECUMULATION } from "./pension.js";
 import { totalGroupe, allocationCible, actuelParClasse, repartirEnEnveloppes, capitalDe, achatResidence, analyser, chargesProprietaire, normaliserFoyer, resideEnFrance, paysDe, facteurSalaire, interessementPlace, locatifFinancable } from "./moteur.js";
 
 const somme = (o) => Object.values(o).reduce((s, x) => s + x, 0);
@@ -50,6 +51,14 @@ export function achatPourProjection(plan, profil) {
     mensualites: p.mensualites, restantDu: p.restantDu, lissageImpossible: !!p.lissageImpossible, ptz: p.ptz ?? null, pretBancaire: p.pretBancaire, typeLogement: pr.typeLogement, surface: pr.surface ?? null, charges, loyerMarche: pr.loyerEquivalent || pr.loyerEstime || null };
 }
 
+// Taux d'impôt sur les gains d'un compte (en %) : le cold wallet suit le taux du bitcoin, l'AV en unités de compte
+// celui de l'assurance-vie ; hors de France, taux moyen du pays de résidence pour tous les comptes
+function fabriqueTauxDe(plan, profil, F) {
+  const alias = { coldWallet: "plateformeCrypto", assuranceVieUC: "assuranceVie" };
+  const tauxPays = resideEnFrance(profil) ? null : paysDe(plan, profil).impotGains;
+  return (e) => tauxPays ?? F.gains[alias[e] ?? e] ?? F.gains[e] ?? 0;
+}
+
 // Impôt si tout était vendu : % des gains selon le compte, régime le plus favorable pour l'or
 function impotsSortie(plan, v, base, annees, profil) {
   const F = plan.fiscalite;
@@ -67,15 +76,131 @@ function impotsSortie(plan, v, base, annees, profil) {
     if (gain <= 0) continue;
     const ls = lignes.filter((l) => l.classe === c && l.enveloppe);
     const poids = ls.reduce((s, l) => s + l.montant, 0);
-    // Le cold wallet suit le taux du bitcoin, l'AV en unités de compte celui de l'assurance-vie
-    const alias = { coldWallet: "plateformeCrypto", assuranceVieUC: "assuranceVie" };
-    // Hors de France : taux moyen du pays de résidence pour tous les comptes
-    const tauxPays = resideEnFrance(profil) ? null : paysDe(plan, profil).impotGains;
-    const tauxDe = (e) => tauxPays ?? F.gains[alias[e] ?? e] ?? F.gains[e] ?? 0;
+    const tauxDe = fabriqueTauxDe(plan, profil, F);
     const taux = poids > 0 ? ls.reduce((s, l) => s + l.montant * tauxDe(l.enveloppe), 0) / poids : 0;
     total += (gain * taux) / 100;
   }
   return total;
+}
+
+// ------------------------------------------------------------- registre fiscal de la retraite
+// Les classes d'actifs (v, base) restent la référence de la simulation ; le registre ne sert qu'à décider quoi retirer
+// de quel compte (ordre fiscalement optimal, voir planifierRetraits) et l'impôt correspondant.
+const ENVELOPPES_LIVRETS = ["livretA", "ldds", "lep", "livretJeune", "livretBancaire", "pel"];
+const ENVELOPPES_AV = ["assuranceVie", "assuranceVieUC"];
+const anneeOuv = (dateStr, defaut) => { const a = parseInt(String(dateStr ?? "").slice(0, 4), 10); return a > 1900 ? a : defaut; };
+
+// Prélèvements d'une année sous un scénario de réforme (fiscF.h) : seuls les paramètres que planifierRetraits sait
+// appliquer sont repris (prélèvements sociaux, part impôt de la flat tax, assurance-vie, PEA) ; livrets et sortie du PER non.
+function prelevementsReforme(h = {}) {
+  const dPS = Number(h.dPS) || 0, dIR = Number(h.dIR) || 0;
+  return { ...PRELEVEMENTS, IR_PFU: PRELEVEMENTS.IR_PFU + dIR, PS_CAPITAL: PRELEVEMENTS.PS_CAPITAL + dPS, PS_PATRIMOINE: PRELEVEMENTS.PS_PATRIMOINE + dPS,
+    IR_AV_8ANS: h.avFin ? PRELEVEMENTS.IR_PFU + dIR : PRELEVEMENTS.IR_AV_8ANS, PEA_IR: !!h.peaIR };
+}
+
+// Taux de sortie (en %) d'une poche « autres », recalculé chaque année (or : régime le plus favorable, exprimé sur la plus-value)
+function tauxPocheAutre(meta, poche, plan, profil, annees, tauxDe, tauxPays) {
+  const F = plan.fiscalite;
+  if (!F) return poche.taux;
+  if (meta.kind === "pays") return tauxPays ?? 0;
+  if (meta.kind === "or") {
+    if (!F.or) return 0;
+    const pg = poche.valeur > 0 ? Math.max(0, 1 - poche.base / poche.valeur) : 0;
+    if (pg <= 0) return 0;
+    const abatt = Math.max(0, 1 - (F.or.abattementParAnApres2Ans / 100) * Math.max(0, annees - 2));
+    return Math.min(F.or.taxeForfaitaire / pg, F.or.plusValue * abatt);
+  }
+  return tauxDe(meta.kind === "classe" ? "cto" : meta.e);
+}
+
+function majTauxAutres(registre, meta, plan, profil, annees) {
+  const F = plan.fiscalite;
+  if (!F) return;
+  const tauxDe = fabriqueTauxDe(plan, profil, F);
+  const tauxPays = resideEnFrance(profil) ? null : paysDe(plan, profil).impotGains;
+  for (const a of registre.autres) a.taux = tauxPocheAutre(meta[a.id] ?? { kind: "classe" }, a, plan, profil, annees, tauxDe, tauxPays);
+}
+
+const totalRegistre = (r) => r.livrets.valeur + r.av.apres70.valeur + r.av.avant70.valeur + r.pea.valeur + r.cto.valeur + r.per.valeur + r.autres.reduce((t, a) => t + a.valeur, 0);
+
+// Multiplie les valeurs (et, si demandé, les prix de revient) de toutes les poches
+function echellePoches(r, k, avecPrix) {
+  r.livrets.valeur *= k;
+  for (const c of [r.av.apres70, r.av.avant70]) { c.valeur *= k; if (avecPrix) c.primes *= k; }
+  r.pea.valeur *= k; r.cto.valeur *= k; r.per.valeur *= k;
+  if (avecPrix) { r.pea.versements *= k; r.cto.base *= k; r.per.versementsDeduits *= k; }
+  for (const a of r.autres) { a.valeur *= k; if (avecPrix) a.base *= k; }
+}
+
+// Recale le registre sur le total des classes (filet de sécurité contre les dérives : événements, rééquilibrage)
+function recalerRegistre(r, cible) {
+  const t = totalRegistre(r);
+  if (t > 0) echellePoches(r, Math.max(0, cible) / t, false);
+  else if (cible > 0) { r.cto.valeur += cible; r.cto.base += cible; }
+}
+
+// Construit le registre des poches à partir des classes d'actifs : chaque classe est répartie entre ses enveloppes
+// selon les lignes de repartirEnEnveloppes (comme impotsSortie), puis chaque enveloppe devient une poche.
+function registreRetraite(plan, profil, v, base, cumulPER, annees) {
+  const F = plan.fiscalite;
+  const reg = { livrets: { valeur: 0 }, av: { apres70: { valeur: 0, primes: 0 }, avant70: { valeur: 0, primes: 0 }, ancien8: false },
+    pea: { valeur: 0, versements: 0, ancien5: false }, cto: { valeur: 0, base: 0 }, per: { valeur: 0, versementsDeduits: 0 }, autres: [] };
+  const meta = {};
+  const autre = (id, kind, e, valeur, bs) => {
+    let a = reg.autres.find((x) => x.id === id);
+    if (!a) { a = { id, valeur: 0, base: 0, taux: 0 }; reg.autres.push(a); meta[id] = { kind, e }; }
+    a.valeur += valeur; a.base += bs;
+  };
+  const france = resideEnFrance(profil);
+  const lignes = france ? repartirEnEnveloppes(plan, v, {}, profil) : [];
+  const avTotal = { valeur: 0, gain: 0 };
+  for (const c of Object.keys(v)) {
+    const val = v[c];
+    if (!(val > 0)) continue;
+    const bs = Math.min(val, Math.max(0, base[c] ?? val)), gain = val - bs;
+    if (c === "or") { autre("orPhysique", france ? "or" : "pays", null, val, bs); continue; }
+    if (!france) { autre(c, "pays", null, val, bs); continue; }
+    const ls = lignes.filter((l) => l.classe === c && l.enveloppe);
+    const poids = ls.reduce((t, l) => t + l.montant, 0);
+    if (!(poids > 0)) {
+      if (c === "securite" || c === "projet") reg.livrets.valeur += val; else autre(c, "classe", null, val, bs);
+      continue;
+    }
+    for (const l of ls) {
+      const part = l.montant / poids, vl = val * part, gl = gain * part, e = l.enveloppe;
+      if (ENVELOPPES_LIVRETS.includes(e)) reg.livrets.valeur += vl;
+      else if (ENVELOPPES_AV.includes(e)) { avTotal.valeur += vl; avTotal.gain += gl; }
+      else if (e === "pea") { reg.pea.valeur += vl; reg.pea.versements += vl - gl; }
+      else if (e === "cto") { reg.cto.valeur += vl; reg.cto.base += vl - gl; }
+      else if (e === "per") { reg.per.valeur += vl; reg.per.versementsDeduits += vl - gl; }
+      else autre(e, "env", e, vl, vl - gl);
+    }
+  }
+  // Assurance-vie : primes versées après 70 ans (article 757 B) dans un compartiment à part
+  if (avTotal.valeur > 0) {
+    const primes = Math.max(0, avTotal.valeur - avTotal.gain);
+    const pa = Math.min(primes, Math.max(0, Number(profil.assuranceVie?.versementsApres70) || 0));
+    const va = primes > 0 ? avTotal.valeur * (pa / primes) : 0;
+    reg.av.apres70 = { valeur: va, primes: pa };
+    reg.av.avant70 = { valeur: avTotal.valeur - va, primes: primes - pa };
+  }
+  if (france) {
+    // PER : le prix de revient est le cumul des versements déduits ; si les lignes ne contiennent aucun PER alors
+    // que des versements ont été faits, on en découpe un au prorata sur PEA, compte-titres et autres (hors or)
+    if (reg.per.valeur > 0) reg.per.versementsDeduits = Math.min(cumulPER > 0 ? cumulPER : reg.per.versementsDeduits, reg.per.valeur);
+    else if (cumulPER > 0) {
+      const pool = reg.pea.valeur + reg.cto.valeur + reg.autres.filter((a) => a.id !== "orPhysique").reduce((t, a) => t + a.valeur, 0);
+      const pv = Math.min(cumulPER, pool);
+      if (pv > 0) {
+        const k = 1 - pv / pool;
+        reg.pea.valeur *= k; reg.pea.versements *= k; reg.cto.valeur *= k; reg.cto.base *= k;
+        for (const a of reg.autres) if (a.id !== "orPhysique") { a.valeur *= k; a.base *= k; }
+        reg.per = { valeur: pv, versementsDeduits: pv };
+      }
+    }
+  }
+  reg.autres = reg.autres.filter((a) => a.valeur > 0);
+  return { registre: reg, meta };
 }
 
 function mensualiteCredit(plan, pret, duree) {
@@ -94,6 +219,11 @@ export { fluxLocatif } from "./locatif.js";
 function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, choc = null, ansImpots = null, fiscF = null }) {
   const apres = (y) => !!fiscF && y >= fiscF.annee;
   const planT = (y) => (apres(y) ? fiscF.plan : plan);
+  const an0 = new Date().getFullYear();
+  const prelevementsAn = (y) => (apres(y) ? prelevementsReforme(fiscF.h) : PRELEVEMENTS);
+  const strategie = STRATEGIES_DECUMULATION.includes(retraite?.strategie) ? retraite.strategie : STRATEGIES_DECUMULATION.includes(profil.retraite?.priorite) ? profil.retraite.priorite : "transmettre";
+  const ouvAV = anneeOuv(profil.assuranceVie?.dateOuverture, an0), ouvPEA = anneeOuv(profil.pea?.dateOuverture, an0);
+  let registre = null, metaAutres = null; // registre fiscal par compte, construit au premier passage à la retraite
   const H = plan.hypotheses;
   const classes = Object.keys(plan.classes);
   const C0 = capitalDe(profil);
@@ -227,6 +357,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
     if (y === nb) break;
 
     // 1. Rendements de l'année (ou ceux d'une crise rejouée)
+    const totAvant = somme(v);
     const anneeCrise = choc && y >= choc.debut && y < choc.debut + choc.annees.length ? choc.annees[y - choc.debut] : null;
     for (const c of classes) {
       const m = (H.rendements[c] ?? 0) / 100, s = (H.volatilites?.[c] ?? 0) / 100;
@@ -236,6 +367,8 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
       if (c === "securite" && apres(y) && fiscF.tauxLivrets > 0 && r > 0) r *= 1 - fiscF.tauxLivrets;
       v[c] *= 1 + r - (fraisClasse[c] ?? 0);
     }
+    // Le registre suit la performance globale (les bases ne bougent pas : tout le gain est latent)
+    if (registre && totAvant > 0) echellePoches(registre, somme(v) / totAvant, false);
     // 2. Épargne de l'année (s'arrête à la retraite), corrigée du crédit et du loyer
     const facteurEp = H.epargneSuitLeSalaire ? facteur : 1;
     const actif = age < (H.ageRetraite ?? 64);
@@ -271,12 +404,12 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
     if (ep < 0) {
       // Dépense plus grande que l'épargne de l'année : prise sur les placements au prorata
       const tot = somme(v), out = Math.min(tot, -ep);
-      if (tot > 0) { const k = (tot - out) / tot; for (const c of classes) { v[c] *= k; base[c] *= k; } }
+      if (tot > 0) { const k = (tot - out) / tot; for (const c of classes) { v[c] *= k; base[c] *= k; } if (registre) echellePoches(registre, k, true); }
       verse -= out; ep = 0;
     }
     v.securite += ep;
     verse += ep;
-    if (ep > 0) base.securite += ep;
+    if (ep > 0) { base.securite += ep; if (registre) registre.livrets.valeur += ep; }
     // Intéressement et participation placés sur l'épargne salariale (en bourse), nets de CSG et CRDS : c'est ton argent
     if (actif && interAn > 0) {
       const it = interAn * facteurEp * (1 - (plan.abondement?.prelevements ?? 9.7) / 100);
@@ -288,28 +421,46 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
       v.bourse += ab; base.bourse += ab;
     }
     // Retraite : on se verse le revenu voulu (en euros d'aujourd'hui, donc relevé de l'inflation),
-    // pris sur tous les placements au prorata ; impôt sur les gains vendus compris
+    // pris dans l'ordre fiscalement optimal du registre (planifierRetraits) ; impôt sur les gains vendus compris
     if (retraite && age >= retraite.age) {
       // facteurCapital (recherche du capital nécessaire) : capital de départ multiplié, gains et base dans les mêmes proportions
       if (retraite.facteurCapital != null && age === retraite.age) for (const c of classes) { v[c] *= retraite.facteurCapital; base[c] *= retraite.facteurCapital; }
       const net = 12 * besoinA(retraite, age) * Math.pow(1 + (H.inflation ?? 0) / 100, y);
-      // Taux d'impôt de l'année : impôt moyen sur les gains × part de gains dans les placements de CE scénario.
-      // La part de gains monte avec les années (le capital restant continue de gagner), donc le taux aussi.
-      let t = retraite.taux ?? 0;
-      if (retraite.tauxGains != null) {
-        const tot0 = somme(v), g = tot0 > 0 ? classes.reduce((s2, c) => s2 + Math.max(0, v[c] - (base[c] ?? 0)), 0) / tot0 : 0;
-        t = (apres(y) && retraite.tauxGainsF != null ? retraite.tauxGainsF : retraite.tauxGains) * g;
-      }
-      const brut = net / (1 - Math.min(0.5, t));
-      // L'or physique est gardé (pour la transmission) : on vend d'abord le reste, l'or seulement en dernier recours
+      if (!registre) ({ registre, meta: metaAutres } = registreRetraite(planT(y), profil, v, base, cumulPER, y));
+      // Filet de sécurité : le registre doit rester égal au total des classes (événements, rééquilibrage)
+      let ecart = Math.abs(totalRegistre(registre) - somme(v));
+      if (ecart > 1) recalerRegistre(registre, somme(v));
+      majTauxAutres(registre, metaAutres, planT(y), profil, y);
+      registre.av.ancien8 = an0 + y - ouvAV >= 8;
+      registre.pea.ancien5 = an0 + y - ouvPEA >= 5;
+      const ff = foyerFiscal(profil), indexation = Math.pow(1 + infl, y);
+      const pensionAn = age >= (retraite.agePension ?? 0) ? 12 * (retraite.pension ?? 0) * indexation : 0;
+      const ctx = {
+        parts: ff.parts, partsBase: ff.partsBase, indexation, couple: !!profil.marie,
+        revenuImposableAutre: revenuImposablePension(pensionAn, { pensionnes: profil.couple && profil.marie ? 2 : 1, indexation }),
+        anneesRestantesPER: Math.max(1, 85 - age), reserveLivrets: net / 2, garderOr, prelevements: prelevementsAn(y),
+        reserveTransmissionAV: ABATTEMENT_AV_DECES * Math.max(1, Math.round(Number(profil.enfants) || 0)),
+      };
+      const res = planifierRetraits(registre, net, ctx, strategie);
+      registre = res.registre;
+      // Sortie des classes : brut retiré moins le surplus réinvesti. L'or physique est gardé (pour la transmission) :
+      // on vend d'abord le reste, l'or seulement en dernier recours
       const ordre = garderOr ? [classes.filter((c) => c !== "or"), ["or"]] : [classes];
-      let reste = brut;
+      let reste = Math.max(0, res.brut - res.surplus);
       for (const groupe of ordre) {
         const tot = groupe.reduce((s2, c) => s2 + v[c], 0);
         if (reste <= 0 || tot <= 0) continue;
         const pris = Math.min(tot, reste), k = (tot - pris) / tot;
         for (const c of groupe) { v[c] *= k; base[c] *= k; }
         verse -= pris; reste -= pris;
+      }
+      cumulPER = registre.per.versementsDeduits;
+      const ecart2 = Math.abs(totalRegistre(registre) - somme(v));
+      if (ecart2 > 1) recalerRegistre(registre, somme(v));
+      if (detail) {
+        point.ecartRegistre = Math.max(ecart, ecart2);
+        point.retraits = res.retraits; point.impotRetraits = res.impots; point.brutRetraits = res.brut;
+        point.avAvant70 = registre.av.avant70.valeur; point.insuffisant = res.insuffisant;
       }
     }
     // 3. Crédit et valeur du bien
@@ -423,6 +574,32 @@ function planDepart(plan, age, ageFin) {
   return { ...plan, hypotheses: { ...H, ageRetraite: age, ageFinProjection: Math.max(H.ageFinProjection ?? 70, ageFin) } };
 }
 
+// Comparaison ordre optimal / retrait au prorata, sur les années de retraite où aucun des deux n'est à court d'argent
+function comparerDecumulation(central, prorata, iR, strategie, infl = 0) {
+  const defl = (pt) => Math.pow(1 + infl, pt?.annees ?? 0);
+  let impotsOptimise = 0, impotsProrata = 0, impotsOptimiseReel = 0, impotsProrataReel = 0, anneesComparees = 0;
+  for (let i = iR; i < central.length; i++) {
+    const a = central[i], b = prorata[i];
+    if (!a?.retraits || !b?.retraits || a.insuffisant || b.insuffisant) continue;
+    impotsOptimise += a.impotRetraits; impotsProrata += b.impotRetraits;
+    impotsOptimiseReel += a.impotRetraits / defl(a); impotsProrataReel += b.impotRetraits / defl(b);
+    anneesComparees++;
+  }
+  const epuise = (pts) => pts.find((p, i) => i >= iR && p.insuffisant)?.age ?? null;
+  const exemples = [0, 5, 10].map((o) => central[iR + o]).filter((p) => p?.retraits)
+    .map((p) => ({ age: p.age, annees: p.annees, brut: p.brutRetraits, impots: p.impotRetraits, retraits: p.retraits.map((r) => ({ ...r })) }));
+  const fa = central[central.length - 1], fb = prorata[prorata.length - 1];
+  const patrimoineFinalOptimiseReel = fa.financier / defl(fa), patrimoineFinalProrataReel = fb.financier / defl(fb);
+  return {
+    strategie, impotsOptimise, impotsProrata, economie: impotsProrata - impotsOptimise, anneesComparees,
+    impotsOptimiseReel, impotsProrataReel, economieReel: impotsProrataReel - impotsOptimiseReel,
+    patrimoineFinalOptimiseReel, patrimoineFinalProrataReel, gainPatrimoineReel: patrimoineFinalOptimiseReel - patrimoineFinalProrataReel, ageFinal: fa.age,
+    ageEpuisementOptimise: epuise(central), ageEpuisementProrata: epuise(prorata),
+    patrimoineFinalOptimise: central[central.length - 1].financier, patrimoineFinalProrata: prorata[prorata.length - 1].financier,
+    avAvant70Final: [...central].reverse().find((pt) => pt.avAvant70 != null)?.avAvant70 ?? 0, exemples,
+  };
+}
+
 // Scénario central et hypothèses de retraite : base commune à projeter() et projeterCentral(),
 // pour que le central soit strictement le même avec ou sans tirages au hasard.
 function centralEtRetraite(planSaisi, profilSaisi, { inclureAchat = true, prolonger = true, fiscF = null } = {}) {
@@ -433,25 +610,21 @@ function centralEtRetraite(planSaisi, profilSaisi, { inclureAchat = true, prolon
   const achat = inclureAchat ? achatPourProjection(plan, profil) : null;
   const per = analyser(plan, profil).per;
   const iR = PR.age - profil.age;
-  // Taux d'impôt sur les ventes à la retraite : impôt si tout était vendu / valeur, au départ en retraite
-  const retraite = { age: PR.age, revenu: PR.revenu, pension: PR.pension, agePension: PR.agePension, taux: 0 };
-  let central = simuler(plan, profil, { achat, detail: true, per, retraite, fiscF });
-  if (iR >= 0 && iR < central.length && central[iR].financier > 0) {
-    const pR = central[iR];
-    retraite.taux = Math.min(0.3, Math.max(0, pR.impotPlacements / pR.financier));
-    retraite.tauxGains = pR.gains > 0 ? Math.min(0.5, pR.impotAvant / pR.gains) : 0;
-    if (fiscF) retraite.tauxGainsF = pR.gains > 0 ? Math.min(0.6, pR.impotApres / pR.gains) : 0;
-    // Hypothèse fiscale testée : on resimule toujours, pour comparer des scénarios sur la même base
-    if (fiscF || (retraite.taux > 0 && PR.revenu > 0)) central = simuler(plan, profil, { achat, detail: true, per, retraite, fiscF });
-  }
-  return { profil, PR, plan, achat, per, iR, retraite, central };
+  // Retraits : ordre fiscalement optimal choisi par `profil.retraite.priorite` (transmettre / consommer)
+  const strategie = STRATEGIES_DECUMULATION.includes(profil.retraite?.priorite) ? profil.retraite.priorite : "transmettre";
+  const retraite = { age: PR.age, revenu: PR.revenu, pension: PR.pension, agePension: PR.agePension, strategie };
+  const central = simuler(plan, profil, { achat, detail: true, per, retraite, fiscF });
+  const decumulation = iR >= 0 && iR < central.length - 1
+    ? comparerDecumulation(central, simuler(plan, profil, { achat, detail: true, per, retraite: { ...retraite, strategie: "prorata" }, fiscF }), iR, strategie, (plan.hypotheses.inflation ?? 0) / 100)
+    : null;
+  return { profil, PR, plan, achat, per, iR, retraite, central, decumulation };
 }
 
 // `legere` (niveau Débutant) : mêmes tirages (même graine, même nombre) donc même probaDure, mais sans l'éventail
 // ni le détail « après impôts » ni la recherche des revenus possibles ; `eventail` vaut alors null.
 // `tirages` : nombre de scénarios imposé (recherches rapides ; sans lui, celui du plan).
 export function projeter(planSaisi, profilSaisi, { inclureAchat = true, prolonger = true, analyseRetraite = true, fiscF = null, legere = false, tirages = null } = {}) {
-  const { profil, PR, plan, achat, per, iR, retraite, central } = centralEtRetraite(planSaisi, profilSaisi, { inclureAchat, prolonger, fiscF });
+  const { profil, PR, plan, achat, per, iR, retraite, central, decumulation } = centralEtRetraite(planSaisi, profilSaisi, { inclureAchat, prolonger, fiscF });
   const n = Math.max(50, Math.min(2000, tirages ?? plan.hypotheses.simulations ?? 500));
   const gauss = generateur(20261111);
   const chemins = [];
@@ -485,24 +658,24 @@ export function projeter(planSaisi, profilSaisi, { inclureAchat = true, prolonge
       preserve = chercher((pts) => reel(pts[dernier].financier, dernier) >= reel(pts[iR].financier, iR));
       consomme = chercher((pts) => pts[dernier].financier > 0.5);
     }
-    ret = { ...PR, taux: retraite.taux, tauxGains: retraite.tauxGains, iR, dernier, probaDure: tient, probaTransmet: transmet,
+    ret = { ...PR, iR, dernier, probaDure: tient, probaTransmet: transmet,
       revenuPreserve: preserve, revenuConsomme: consomme,
       epuiseA: central.find((p, i) => i > iR && p.financier <= 0.5)?.age ?? null };
   }
-  return { central, eventail, achat, per, simulations: n, achatsRates, retraite: ret };
+  return { central, eventail, achat, per, simulations: n, achatsRates, retraite: ret, decumulation };
 }
 
 // Scénario central seulement (sans tirages au hasard) : rapide, pour classer plusieurs hypothèses fiscales
 // et pour le niveau Débutant. Même `central`, `achat`, `per` et hypothèses de retraite que projeter() ;
 // seules les mesures issues des tirages (probaDure, probaTransmet, revenus possibles) restent à null.
 export function projeterCentral(planSaisi, profilSaisi, { inclureAchat = true, fiscF = null } = {}) {
-  const { PR, achat, per, iR, retraite, central } = centralEtRetraite(planSaisi, profilSaisi, { inclureAchat, fiscF });
+  const { PR, achat, per, iR, central, decumulation } = centralEtRetraite(planSaisi, profilSaisi, { inclureAchat, fiscF });
   const dernier = central.length - 1;
   const ret = iR >= 0 && iR < dernier
-    ? { ...PR, taux: retraite.taux, tauxGains: retraite.tauxGains, iR, dernier, probaDure: null, probaTransmet: null, revenuPreserve: null, revenuConsomme: null,
+    ? { ...PR, iR, dernier, probaDure: null, probaTransmet: null, revenuPreserve: null, revenuConsomme: null,
         epuiseA: central.find((p, i) => i > iR && p.financier <= 0.5)?.age ?? null }
     : null;
-  return { central, iR, dernier, achat, per, eventail: null, simulations: 0, achatsRates: 0, retraite: ret };
+  return { central, iR, dernier, achat, per, eventail: null, simulations: 0, achatsRates: 0, retraite: ret, decumulation };
 }
 
 // Capital nécessaire à l'âge d'arrêt pour que l'argent dure jusqu'à la fin (scénario central, rendements moyens) :
@@ -571,7 +744,7 @@ export function contexteRetraite(planSaisi, profilSaisi) {
   const profil = normaliserFoyer(planSaisi, profilSaisi);
   const PR = parametresRetraite(planSaisi, profil);
   const plan64 = planDepart(planSaisi, PR.ageLegal, PR.ageFin);
-  return { planSaisi, profil, PR, achat: achatPourProjection(plan64, profil), per: analyser(plan64, profil).per, taux: {}, infl: (planSaisi.hypotheses.inflation ?? 0) / 100 };
+  return { planSaisi, profil, PR, achat: achatPourProjection(plan64, profil), per: analyser(plan64, profil).per, infl: (planSaisi.hypotheses.inflation ?? 0) / 100 };
 }
 export function evaluerRetraite(ctx, { age, revenu = ctx.PR.revenu, scenarios = 0, seuil = 0.9 }) {
   const { profil, PR, achat, per, infl } = ctx;
@@ -581,15 +754,7 @@ export function evaluerRetraite(ctx, { age, revenu = ctx.PR.revenu, scenarios = 
   const reel = (v, i) => v / Math.pow(1 + infl, i);
   // Retraite publique estimée automatiquement : elle dépend de l'âge d'arrêt (trimestres, décote)
   const pensionA = profil.retraite?.pensionParAge?.[age] ?? { pension: PR.pension, agePension: PR.agePension };
-  // Taux d'impôt sur les ventes, mesuré au départ dans le scénario central
-  if (ctx.taux[age] == null) {
-    const c = simuler(plan, profil, { achat, detail: true, per, retraite: { age, revenu, pension: pensionA.pension, agePension: Math.max(age, pensionA.agePension), taux: 0 } });
-    ctx.taux[age] = {
-      taux: c[iA].financier > 0 ? Math.min(0.3, Math.max(0, c[iA].impotPlacements / c[iA].financier)) : 0,
-      tauxGains: c[iA].gains > 0 ? Math.min(0.5, c[iA].impotPlacements / c[iA].gains) : 0,
-    };
-  }
-  const retraite = { age, revenu, pension: pensionA.pension, agePension: Math.max(age, pensionA.agePension), ...ctx.taux[age] };
+  const retraite = { age, revenu, pension: pensionA.pension, agePension: Math.max(age, pensionA.agePension) };
   const juge = (pts) => ({ cap: reel(pts[iA].financier, iA), fin: reel(pts[iF].financier, iF) });
   if (!scenarios) {
     const j = juge(simuler(plan, profil, { achat, per, retraite }));
@@ -645,7 +810,7 @@ export function simulerCrise(planSaisi, profilSaisi, { crise, ageDebut, inclureA
   const plan = planDepart(planSaisi, PR.age, PR.ageFin);
   const achat = inclureAchat ? achatPourProjection(plan, profil) : null;
   const per = analyser(plan, profil).per;
-  const retraite = { age: PR.age, revenu: PR.revenu, pension: PR.pension, agePension: PR.agePension, taux: 0.1 };
+  const retraite = { age: PR.age, revenu: PR.revenu, pension: PR.pension, agePension: PR.agePension };
   const C = CRISES[crise];
   const debut = Math.max(0, Math.round(ageDebut - profil.age));
   const choc = { debut, annees: C.annees };

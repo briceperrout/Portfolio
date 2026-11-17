@@ -92,7 +92,7 @@ export const MATRICE = {
   // Retraite : ids du gabarit de rendreRetraite() (app.js). En Débutant la page est remplacée par « ret-simple » + « ret-verdict-bloc » (data-seul).
   retraite: {
     "ret-hypotheses": I, "ret-objectifs": I, "ret-age": I, "bloc-liberte": I, "bloc-pension": I, "ret-resultat": I, "ret-capital": I,
-    "r-loyers": A, "ret-decaissement": A, "ret-impots": A,
+    "r-loyers": A, "ret-decaissement": A, "ret-impots": A, "ret-economie-retraits": I, "ret-ordre-retraits": A, "r-priorite": A,
   },
 };
 

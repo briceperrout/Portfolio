@@ -218,6 +218,9 @@ function normaliserProfil(source) {
   }
   // Retraite publique : estimée automatiquement pour chaque âge d'arrêt possible (moins de trimestres = décote)
   const rr = (p.retraite ??= {});
+  rr.priorite = rr.priorite === "consommer" ? "consommer" : "transmettre";
+  p.assuranceVie ??= {};
+  p.assuranceVie.versementsApres70 ??= 0;
   const mode = rr.modePension ?? "auto";
   if (mode === "zero") { rr.pension = 0; rr.pensionParAge = null; }
   else if (mode === "auto") {
@@ -1370,6 +1373,40 @@ function blocLiberte(r) {
     <p class="note" style="margin:8px 0 0">${coast ? `À partir de ${coast.age <= C[0].age ? "maintenant" : `${coast.age} ans`}, même sans épargner un euro de plus, ton capital (${eur(coast.v)}) grandirait jusqu'à environ ${eur(objectif)} à ${ageR} ans grâce aux seuls intérêts composés. Tu pourrais alors épargner moins, ou travailler moins, sans renoncer à ta retraite.` : `En suivant le plan, ton capital n'atteint pas ce seuil avant ${ageR} ans : il faut continuer d'épargner jusqu'à la retraite.`} Scénario central, en euros d'aujourd'hui, avant impôts sur les gains. La règle des 4 % vient d'études américaines ; en France, beaucoup visent plutôt 3,5 % (28 fois les besoins) par prudence.</p>
   </section>`;
 }
+// ---- Retraite : ordre de retrait fiscalement optimal (décumulation, calculé par projection.js / pension.js)
+const POCHES_LIBELLES = { livrets: "Livrets", av_apres70: "Assurance-vie (versements après 70 ans)", av_avant70: "Assurance-vie (versements avant 70 ans)", pea: "PEA", cto: "Compte-titres", per: "PER", orPhysique: "Or physique", scpi: "SCPI", plateformeCrypto: "Bitcoin (plateforme)", coldWallet: "Bitcoin (cold wallet)" };
+const libellePoche = (id, plan) => POCHES_LIBELLES[id] ?? plan.enveloppes?.[id]?.libelle ?? plan.classes?.[id]?.libelle ?? id;
+function ordreRetraitsHtml(priorite) {
+  const etapes = [
+    "Le PER est vidé progressivement sur les années qui restent, sans dépasser ta tranche d'imposition.",
+    "L'assurance-vie de plus de 8 ans est rachetée chaque année dans la limite de l'abattement (peu ou pas d'impôt sur le revenu).",
+    "Les livrets, au-delà d'une réserve de précaution.",
+    "Le PEA, le compte-titres et les autres placements, du moins taxé au plus taxé (le PEA d'abord).",
+    "L'assurance-vie des versements après 70 ans, au-delà de l'abattement.",
+  ];
+  const perHors = "Le PER au-delà de la tranche d'imposition.", avAvant = "L'assurance-vie des versements avant 70 ans, gardée pour la transmission.";
+  const fin = priorite === "consommer" ? [avAvant, perHors] : [perHors, avAvant];
+  return [...etapes, ...fin, "En dernier : la réserve de livrets, puis l'or physique."].map((t) => `<li>${echapper(t)}</li>`).join("");
+}
+function exemplesRetraitsHtml(D, plan) {
+  if (!D?.exemples?.length) return "";
+  const lignes = D.exemples.map((e) => e.retraits.map((r, k) => `<tr>${k === 0 ? `<td rowspan="${e.retraits.length + 1}">${e.age} ans</td>` : ""}<td>${echapper(libellePoche(r.id, plan))}</td><td class="m">${eur(r.montant)}</td><td class="m">${eur(r.impot)}</td></tr>`).join("") + `<tr><td><b>Total</b></td><td class="m"><b>${eur(e.brut)}</b></td><td class="m"><b>${eur(e.impots)}</b></td></tr>`).join("");
+  return `<p class="note" style="margin:12px 0 6px">Exemples d'années : ce qui est retiré, compte par compte, et l'impôt payé (en euros de l'époque).</p>
+    <div class="table-wrap"><table><thead><tr><th>Âge</th><th>Compte</th><th class="m">Retiré</th><th class="m">Impôt</th></tr></thead><tbody>${lignes}</tbody></table></div>`;
+}
+function economieRetraitsHtml(D) {
+  if (!D || !(D.gainPatrimoineReel >= 1) || !(D.anneesComparees > 0)) return "";
+  const ageOpt = D.ageEpuisementOptimise, agePro = D.ageEpuisementProrata;
+  const epuise = ageOpt !== agePro && agePro != null ? ` Ton épargne tient aussi jusqu'à ${ageOpt == null ? "la fin de la projection" : `${ageOpt} ans`} au lieu de ${agePro} ans.` : "";
+  const dix = (x) => eur(Math.round(x / 10) * 10);
+  const impots = D.economieReel >= 1
+    ? ` dont <b class="num">${dix(D.economieReel)}</b> d'impôts en moins sur ${D.anneesComparees} ans.`
+    : " Les impôts payés sont un peu décalés dans le temps (moins au début, davantage plus tard), mais ton capital a plus longtemps travaillé.";
+  return `<section class="panneau" id="ret-economie-retraits" data-min="intermediaire"><h2>Retirer dans le bon ordre</h2>
+      <p style="margin:6px 0 0">Retirer dans le bon ordre te laisse environ <b class="num">${dix(D.gainPatrimoineReel)}</b> de plus à ${D.ageFinal} ans (en euros d'aujourd'hui) qu'un retrait au prorata, pour le même revenu.${impots}${epuise}</p>
+      <p class="note" style="margin:6px 0 0">Scénario central, en euros d'aujourd'hui.</p>
+    </section>`;
+}
 function rendreRetraite() {
   if (niveauCourant() === "debutant") { rendreRetraiteDebutant(); return; }
   const plan = etat.brouillon, H = plan.hypotheses;
@@ -1432,7 +1469,9 @@ function rendreRetraite() {
 
   // La première année : d'où vient l'argent, et la réserve sans risque
   const pR = C[iR], tot = pR.financier || 1;
-  const brut1 = (12 * R.besoin * Math.pow(1 + infl, iR)) / (1 - (R.taux ?? 0));
+  const brut1 = pR.brutRetraits ?? 12 * R.besoin * Math.pow(1 + infl, iR);
+  const tauxPremiereAnnee = brut1 > 0 ? (100 * (pR.impotRetraits ?? 0)) / brut1 : 0;
+  const D = r.decumulation, priorite = etat.profil.retraite?.priorite === "consommer" ? "consommer" : "transmettre";
   const classes = ORDRE.filter((c) => (pR.classes?.[c] ?? 0) > 0.5);
   // L'or physique est gardé (sauf si la case « vendre aussi mon or » est cochée) : le retrait se répartit sur le reste
   const vendreOr = !!etat.profil.retraite?.vendreOr || !(plan.reequilibrage?.jamaisVendre ?? []).includes("orPhysique");
@@ -1464,8 +1503,9 @@ function rendreRetraite() {
         <div class="tuile"><span>Pessimiste (9 cas sur 10) : revenu possible en consommant tout d'ici ${C[iF].age} ans</span><b class="num" id="pess-consomme">${P ? `${eur(P.revenuConsomme)}/mois` : '<span class="muted small">calcul en cours…</span>'}</b></div>
       </div>
       ${verdict}
-      <p class="note" style="margin:10px 0 0">Tous les montants sont en euros d'aujourd'hui (inflation déduite). Les revenus possibles sont calculés dans le scénario central (rendements moyens), impôts sur les ventes compris : environ ${pct(100 * (R.taux ?? 0))} de chaque retrait la première année, puis un peu plus chaque année, car la part de gains dans ce qu'il reste augmente (le capital restant continue de rapporter). Chaque scénario tiré au hasard est taxé avec ses propres gains. Non déduit : l'abattement annuel de l'assurance-vie de plus de 8 ans (4 600 € de gains par an sans impôt sur le revenu, 9 200 € pour un couple marié ou pacsé), ce qui rend le calcul un peu prudent, de quelques centaines d'euros d'impôt par an au plus.</p>
+      <p class="note" style="margin:10px 0 0">Tous les montants sont en euros d'aujourd'hui (inflation déduite). Les revenus possibles sont calculés dans le scénario central (rendements moyens), impôts sur les ventes compris : environ ${pct(tauxPremiereAnnee)} de chaque retrait la première année, puis plus ensuite, car la part de gains dans ce qu'il reste augmente (le capital restant continue de rapporter). Chaque scénario tiré au hasard est taxé avec ses propres gains. L'abattement annuel de l'assurance-vie de plus de 8 ans (4 600 € de gains, 9 200 € pour un couple marié ou pacsé) est utilisé chaque année.</p>
     </section>
+${economieRetraitsHtml(D)}
     <section class="panneau" id="ret-capital" data-min="intermediaire"><h2>Ton capital pendant la retraite</h2>
       <p class="note" style="margin:4px 0 8px">Chaque année, le revenu est pris sur les placements, et le reste continue d'être placé selon le plan (de plus en plus prudent avec l'âge). En euros d'aujourd'hui.</p>
       ${graphe}
@@ -1478,18 +1518,22 @@ function rendreRetraite() {
         <li>${texteLie("Les bonnes années, vendre surtout ce qui dépasse sa cible (c'est le rééquilibrage du plan). Les années de forte baisse de la bourse, puiser dans la réserve sans risque plutôt que vendre des actions au plus bas, puis la reconstituer quand la bourse remonte.")}</li>
         <li>${texteLie("Garder le reste investi selon le plan : à 64 ans, il reste plus de 25 ans à tenir, et une part de bourse est ce qui permet au capital de durer et d'être transmis.")}</li>
       </ol>
+      <h3 style="margin:16px 0 4px">Dans quel ordre retirer</h3>
+      <div class="champ" style="max-width:420px" data-min="avance"><label for="r-priorite">Priorité</label><select id="r-priorite" data-min="avance"><option value="transmettre" ${priorite === "transmettre" ? "selected" : ""}>Transmettre (garder l'assurance-vie pour mes héritiers)</option><option value="consommer" ${priorite === "consommer" ? "selected" : ""}>Consommer (profiter de mon épargne)</option></select></div>
+      <ol class="points" style="margin-top:10px">${ordreRetraitsHtml(priorite)}</ol>
+      <div id="ret-ordre-retraits" data-min="avance">${exemplesRetraitsHtml(D, plan)}</div>
       <h3 style="margin:16px 0 4px">D'où vient l'argent la première année</h3>
-      <p class="note" style="margin:0 0 6px">Pour garder la répartition du plan, on vend chaque famille de placements au prorata (en euros d'aujourd'hui)${aDeLOr && !vendreOr ? ", sauf l'or physique" : ""}.</p>
+      <p class="note" style="margin:0 0 6px">La simulation retire l'argent dans un ordre qui limite l'impôt, puis ajuste tes familles de placements pour rester proche du plan${aDeLOr && !vendreOr ? " (sauf l'or physique, gardé)" : ""}. Répartition des placements à l'âge du départ, en euros d'aujourd'hui :</p>
       ${aDeLOr ? `<p class="${vendreOr ? "verdict ko" : "note"}" style="margin:0 0 6px">${vendreOr ? "<b>Tu as choisi de vendre aussi ton or physique.</b> C'est possible, mais déconseillé : " : "<b>Ton or physique n'est pas vendu.</b> "}${vendreOr ? "l'or" : "L'or"} physique n'est pas fait pour financer la retraite : il protège contre les crises graves et se transmet (pièces et lingots, avec une fiscalité de transmission comme le reste du patrimoine). Mieux vaut le garder et puiser dans la bourse, l'assurance-vie et l'épargne. Il ne serait vendu qu'en dernier recours, si tout le reste était épuisé. <a class="lien-fiche" href="#mon-profil">Changer ce choix (« Ta retraite » dans Mon profil)</a></p>` : ""}
       <div class="table-wrap"><table><thead><tr><th>Placement</th><th class="m">Montant à ${pR.age} ans</th><th class="m">Part</th><th class="m">À vendre dans l'année</th></tr></thead><tbody>${lignesVentes}</tbody></table></div>
     </section>
     <section class="panneau" id="ret-impots" data-min="avance"><h2>Impôts et transmission</h2>
       <ul class="points" style="margin-top:10px">
-        <li>${texteLie("Assurance-vie de plus de 8 ans : rachats partiels réguliers ; chaque année, 4 600 € de gains (9 200 € pour un couple) sont exonérés d'impôt sur le revenu. Seule la part de gains de chaque retrait est imposée.")}</li>
-        <li>${texteLie("PEA de plus de 5 ans : retraits sans impôt sur le revenu, seulement 18,6 % de prélèvements sociaux sur la part de gains. Le PEA reste ouvert.")}</li>
-        <li>${texteLie("Compte-titres : la plus-value de chaque vente est imposée à 31,4 %. PER : à la retraite, sortie en capital (les versements déduits sont imposés au barème, les gains à 31,4 %) ou en rente.")}</li>
+        <li>${texteLie("Assurance-vie de plus de 8 ans : l'abattement annuel (4 600 € de gains, 9 200 € pour un couple marié ou pacsé) est utilisé chaque année par des rachats partiels ; au-delà, les gains paient 7,5 % d'impôt (12,8 % sur la part des contrats dépassant 150 000 € de versements) et 17,2 % de prélèvements sociaux.")}</li>
+        <li>${texteLie("PEA de plus de 5 ans : retraits sans impôt sur le revenu, seulement 18,6 % de prélèvements sociaux sur la part de gains. Il est consommé avant le compte-titres, imposé à 31,4 % sur la part de gains de chaque vente.")}</li>
+        <li>${texteLie("PER : la sortie en capital est lissée sur les années restantes, en restant dans ta tranche d'imposition (les versements déduits sont imposés au barème, les gains à 31,4 %), pour éviter une grosse facture d'un seul coup.")}</li>
         <li>${texteLie("Pour transmettre, l'assurance-vie est l'outil le plus avantageux : les sommes versées avant 70 ans sont transmises jusqu'à 152 500 € par bénéficiaire sans droits de succession ; après 70 ans, 30 500 € de versements au total (les gains sont exonérés). Le PEA, lui, est fermé au décès et entre dans la succession.")}</li>
-        <li>${texteLie("Une piste souvent citée : puiser d'abord dans le PEA et le compte-titres, et dans l'assurance-vie surtout dans la limite de l'abattement annuel, pour garder l'assurance-vie pour la transmission. À faire valider par un conseiller ou un notaire selon ta situation.")}</li>
+        <li>${texteLie("L'assurance-vie des versements faits avant 70 ans est gardée pour la fin : elle se transmet jusqu'à 152 500 € par bénéficiaire sans droits de succession (choix « Consommer » pour l'utiliser plus tôt). À faire valider par un conseiller ou un notaire selon ta situation.")}</li>
         <li>Droits de succession, abattements, donations : <a class="lien-fiche" href="#fiche-heritage">tout sur l'héritage</a>. Pour aller plus loin : <a class="lien-fiche" href="#fiche-optimisation-fiscale">optimisation fiscale</a>.</li>
       </ul>
       <p class="note" style="margin:10px 0 0">Limites : simulation fondée sur les rendements du plan ; elle ne compte ni la dépendance (maison de retraite), ni les droits de succession, ni une éventuelle retraite publique si tu la laisses à 0 €.</p>
@@ -2160,9 +2204,11 @@ $("#vue-retraite").addEventListener("click", (e) => {
 });
 $("#vue-retraite").addEventListener("change", (e) => {
   if (e.target.id === "r-age") choisirAgeDepart(Number(e.target.value));
-  if (e.target.id === "r-mode" || e.target.id === "r-loyers") {
+  if (e.target.id === "r-mode" || e.target.id === "r-loyers" || e.target.id === "r-priorite") {
     etat.profil.retraite ??= {};
-    if (e.target.id === "r-mode") etat.profil.retraite.modePension = e.target.value; else etat.profil.retraite.compterLoyers = e.target.checked;
+    if (e.target.id === "r-mode") etat.profil.retraite.modePension = e.target.value;
+    else if (e.target.id === "r-priorite") etat.profil.retraite.priorite = e.target.value === "consommer" ? "consommer" : "transmettre";
+    else etat.profil.retraite.compterLoyers = e.target.checked;
     memo.set("profil-v2", etat.profil); syncRetraite0(); planifierSauvegardeProfil(); rendreRetraite(); planifierTrajectoire();
   }
 });
@@ -2728,7 +2774,7 @@ function majVisibiliteProfil() {
   $("#ligne-ab-plan").hidden = accesES !== "les2";
   $("#ab-plan").disabled = $("#ab-taux").disabled = $("#ab-plafond").disabled = !p.abondement?.actif;
   $("#ab-placer").disabled = $("#ab-sur-inter").disabled = !(Number(p.abondement?.interessement) > 0);
-  $("#p-av-type").disabled = $("#p-av-date").disabled = !p.assuranceVie?.ouverte;
+  $("#p-av-type").disabled = $("#p-av-date").disabled = $("#p-av-apres70").disabled = !p.assuranceVie?.ouverte;
   $("#p-futur-age").disabled = $("#p-futur-cap").disabled = $("#p-futur-sal").disabled = $("#p-futur-ep").disabled = !p.futur?.actif;
   $("#p-rp-h").disabled = !rp || !p.projetRP?.imperatif;
 }

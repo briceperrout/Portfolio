@@ -1,5 +1,5 @@
 // Tests de la fiscalité des indépendants et de la centralisation des taux — node test_fiscal.mjs
-import { PFU, PRELEVEMENTS, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes } from "./fiscal.js";
+import { PFU, PRELEVEMENTS, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes } from "./fiscal.js";
 import { PLAN } from "./plan.js";
 import { estimerPension } from "./pension.js";
 
@@ -100,6 +100,38 @@ verifier("sasu pension > 0", pe.demande.net > 0, true);
 pe = estimerPension(PLAN, { age: 32, salaireNetMensuel: 3200, statutPro: "stable", foyer: { actif: false } }, { ageDebut: 22, ageArret: 64 });
 verifier("salarié régime général", pe.regime, "general");
 verifier("salarié champs historiques", ["trimestres", "sam", "points", "auLegal", "aTauxPlein", "demande"].every((k) => k in pe), true);
+
+// Décumulation : primitives fiscales
+let av = impotRachatAV({ montant: 10000, valeur: 100000, primes: 60000, ancien8: true, abattementRestant: 4600 });
+verifier("av gain", av.gain, 4000); verifier("av ir sous abattement", av.ir, 0); verifier("av ps", av.ps, 688);
+av = impotRachatAV({ montant: 20000, valeur: 100000, primes: 60000, ancien8: true, abattementRestant: 4600 });
+verifier("av gain 2", av.gain, 8000); verifier("av ir 7,5 %", av.ir, 255); verifier("av ps 2", av.ps, 1376);
+verifier("av net", av.net, 20000 - 255 - 1376);
+av = impotRachatAV({ montant: 20000, valeur: 100000, primes: 60000, primesTotales: 200000, ancien8: true, abattementRestant: 4600 });
+verifier("av primes > 150 k : taux mixte", av.ir, 3400 * (0.75 * 7.5 + 0.25 * 12.8) / 100);
+av = impotRachatAV({ montant: 20000, valeur: 100000, primes: 60000, ancien8: false });
+verifier("av < 8 ans : 12,8 %", av.ir, 8000 * 0.128);
+verifier("av valeur nulle", impotRachatAV({ montant: 0, valeur: 0, primes: 0, ancien8: true }).gain, 0);
+verifier("pea > 5 ans", impotRetraitPEA({ montant: 10000, valeur: 20000, versements: 10000, ancien5: true }).impot, 5000 * 0.186);
+verifier("pea < 5 ans", impotRetraitPEA({ montant: 10000, valeur: 20000, versements: 10000, ancien5: false }).impot, 5000 * 0.314);
+verifier("pension 20 000", revenuImposablePension(20000), 18000);
+verifier("pension 60 000", revenuImposablePension(60000), 55561);
+verifier("pension 3 000", revenuImposablePension(3000), 2546);
+verifier("pension 300", revenuImposablePension(300), 0);
+verifier("marge 11 %", margeTranche(20000, { parts: 1, partsBase: 1, tmiCible: 11 }), 29579 - 20000);
+verifier("marge 11 % indexée", margeTranche(20000, { parts: 1, partsBase: 1, indexation: 1.1, tmiCible: 11 }), 29579 * 1.1 - 20000);
+verifier("marge TMI dépassée", margeTranche(40000, { parts: 1, partsBase: 1, tmiCible: 11 }), 0);
+{
+  const o = { valeur: 60000, versementsDeduits: 50000, revenuImposableAutre: 18000, parts: 1, partsBase: 1 };
+  const r = impotRetraitPER({ montant: 12000, ...o });
+  const pv = 12000 * 50000 / 60000;
+  verifier("per part versements", r.partVersements, pv);
+  verifier("per ir", r.ir, impotBareme(18000 + pv, 1, 1).impot - impotBareme(18000, 1, 1).impot, 1e-6);
+  verifier("per pfu", r.pfu, (12000 - pv) * 0.314);
+  verifier("per net", r.net, 12000 - r.ir - r.pfu);
+}
+for (const x of [0, 9000, 25000, 70000]) verifier(`barème indexé 1 = barème ${x}`, impotBaremeIndexe(x, 1, 1, 1).impot, impotBareme(x, 1, 1).impot, 1e-9);
+verifier("barème indexé 1,1", impotBaremeIndexe(33000, 2, 2, 1.1).impot, impotBareme(30000, 2, 2).impot * 1.1, 1e-6);
 
 console.log(`${ok} vérifications réussies, ${ko} échec(s)`);
 process.exit(ko ? 1 : 0);
