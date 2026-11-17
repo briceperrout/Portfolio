@@ -12,7 +12,7 @@ import { totalGroupe, allocationCible, actuelParClasse, repartirEnEnveloppes, ca
 const somme = (o) => Object.values(o).reduce((s, x) => s + x, 0);
 
 // Générateur pseudo-aléatoire reproductible (mêmes scénarios à chaque affichage)
-function generateur(graine) {
+export function generateur(graine) {
   let a = graine >>> 0;
   const rnd = () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -22,21 +22,118 @@ function generateur(graine) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
   let reserve = null;
-  return () => {
+  const gauss = () => {
     if (reserve !== null) { const r = reserve; reserve = null; return r; }
     const u = Math.max(rnd(), 1e-12), v = rnd();
     const rayon = Math.sqrt(-2 * Math.log(u));
     reserve = rayon * Math.sin(2 * Math.PI * v);
     return rayon * Math.cos(2 * Math.PI * v);
   };
+  // Uniforme [0, 1) du même flux : transitions de régime (corrélations dynamiques). Jamais appelée en mode indépendant.
+  gauss.uniforme = rnd;
+  return gauss;
 }
 
 // Rendement annuel tiré au hasard : loi log-normale de moyenne m et d'écart-type s
-function tirage(m, s, gauss) {
+// lognormal(m, s, z) : même loi à partir d'une gaussienne standard z déjà tirée (éventuellement corrélée)
+function lognormal(m, s, z) {
   if (!s) return m;
   const sl = Math.sqrt(Math.log(1 + (s * s) / ((1 + m) * (1 + m))));
   const ml = Math.log(1 + m) - (sl * sl) / 2;
-  return Math.exp(ml + sl * gauss()) - 1;
+  return Math.exp(ml + sl * z) - 1;
+}
+function tirage(m, s, gauss) {
+  if (!s) return m;
+  return lognormal(m, s, gauss());
+}
+
+// ------------------------------------------------------------- corrélations dynamiques par régime
+// Deux régimes de marché (normal / crise) : en crise, les actifs risqués chutent ensemble (corrélations fortes entre
+// bourse, bitcoin et SCPI) et l'or et le prudent jouent leur rôle de refuge. Matrices définies positives.
+export const MATRICES_CORRELATION = {
+  ordre: ["bourse", "or", "bitcoin", "scpi", "prudent"],
+  normal: [[1, .05, .35, .30, 0], [.05, 1, .1, 0, .1], [.35, .1, 1, .1, 0], [.30, 0, .1, 1, .2], [0, .1, 0, .2, 1]],
+  crise: [[1, -.2, .85, .6, -.3], [-.2, 1, -.1, -.1, .2], [.85, -.1, 1, .55, -.2], [.6, -.1, .55, 1, -.1], [-.3, .2, -.2, -.1, 1]],
+};
+// Chaîne de Markov à deux états : `entree` = probabilité de passer de normal à crise, `maintien` = de rester en crise.
+// Rendement (moyenne m, écart-type s, en %) des classes en régime de crise.
+export const REGIMES = { entree: 0.08, maintien: 0.35, crise: { bourse: { m: -22, s: 18 }, bitcoin: { m: -55, s: 50 }, scpi: { m: -4, s: 6 } } };
+const proportionCrise = () => REGIMES.entree / (REGIMES.entree + 1 - REGIMES.maintien);
+
+// Décomposition de Cholesky : L triangulaire inférieure avec L·Lᵀ = M ; erreur si M n'est pas définie positive
+export function cholesky(M) {
+  const n = M.length;
+  const L = Array.from({ length: n }, () => new Array(n).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j <= i; j++) {
+      let t = M[i][j];
+      for (let k = 0; k < j; k++) t -= L[i][k] * L[j][k];
+      if (i === j) {
+        if (!(t > 1e-12)) throw new Error("cholesky : la matrice n'est pas définie positive.");
+        L[i][j] = Math.sqrt(t);
+      } else L[i][j] = t / L[j][j];
+    }
+  }
+  return L;
+}
+
+// Rendements par régime (en %) qui préservent, sur le mélange des deux régimes, la moyenne m et la variance s² de chaque classe.
+// Classes sans régime de crise propre, ou dont la variance « normale » serait négative : mêmes (m, s) dans les deux régimes
+// (seule la corrélation s'applique).
+export function etalonnerRegimes(rendements, volatilites = {}) {
+  const pi = proportionCrise();
+  const sortie = {};
+  for (const c of Object.keys(rendements)) {
+    const m = rendements[c] ?? 0, s = volatilites?.[c] ?? 0, K = REGIMES.crise[c];
+    sortie[c] = { normal: { m, s }, crise: { m, s } };
+    if (!K || !(s > 0)) continue;
+    const mn = (m - pi * K.m) / (1 - pi);
+    const s2n = (s * s - pi * (K.s * K.s + (K.m - m) ** 2) - (1 - pi) * (mn - m) ** 2) / (1 - pi);
+    if (s2n < 0) continue;
+    sortie[c] = { normal: { m: mn, s: Math.sqrt(s2n) }, crise: { m: K.m, s: K.s } };
+  }
+  return sortie;
+}
+
+// Préparation (une fois par série de tirages) : null si les classes sont supposées indépendantes
+export function preparerCorrelations(H) {
+  if (H?.correlations === "independantes") return null;
+  return { ordre: MATRICES_CORRELATION.ordre, L: { normal: cholesky(MATRICES_CORRELATION.normal), crise: cholesky(MATRICES_CORRELATION.crise) },
+    params: etalonnerRegimes(H.rendements, H.volatilites ?? {}) };
+}
+
+// Rendements (fractions) d'UNE année pour les classes de `ordre` : transition de régime, gaussiennes corrélées par Cholesky,
+// puis transformation log-normale avec les (m, s) du régime. Classes de volatilité nulle : rendement moyen, inchangé.
+export function rendementsCorreles(corr, gauss, regimePrecedent) {
+  const u = gauss.uniforme();
+  const regime = u < (regimePrecedent === "crise" ? REGIMES.maintien : REGIMES.entree) ? "crise" : "normal";
+  const g = corr.ordre.map(() => gauss());
+  const L = corr.L[regime];
+  const r = {};
+  corr.ordre.forEach((c, i) => {
+    let z = 0;
+    for (let j = 0; j <= i; j++) z += L[i][j] * g[j];
+    const P = corr.params[c]?.[regime];
+    if (P && P.s > 0) r[c] = lognormal(P.m / 100, P.s / 100, z);
+  });
+  return { regime, r };
+}
+
+// Indice d'inflation cumulé : indice(y) = prix à l'année y / prix à l'année `depuis` (0 = aujourd'hui).
+// Convention : l'année k du scénario (rendement ET inflation de choc.annees[k - choc.debut]) s'écoule entre le point k et
+// le point k+1, comme le rendement appliqué par la boucle de simuler : le point y a donc subi les inflations des années 0..y-1.
+// Sans inflation dans le choc : exactement Math.pow(1 + infl, y - depuis) (résultats identiques à l'ancienne formule).
+function fabriqueIndiceInflation(infl, choc) {
+  const A = choc?.annees;
+  if (!A?.some((a) => a?.inflation != null)) return (y, depuis = 0) => Math.pow(1 + infl, y - depuis);
+  const tab = [1];
+  const jusqua = (y) => {
+    while (tab.length <= y) {
+      const j = tab.length - 1, a = j >= choc.debut && j < choc.debut + A.length ? A[j - choc.debut] : null;
+      tab.push(tab[j] * (1 + (a?.inflation != null ? a.inflation / 100 : infl)));
+    }
+  };
+  return (y, depuis = 0) => { jusqua(Math.max(y, depuis)); return tab[y] / tab[depuis]; };
 }
 
 // Achat retenu pour la projection : date impérative, sinon âge idéal
@@ -216,7 +313,7 @@ export { fluxLocatif } from "./locatif.js";
 
 // fiscF : évolution de la fiscalité à partir de l'année fiscF.annee (0 = cette année) : fiscF.plan porte les
 // nouveaux taux, fiscF.perDeduction la part de l'économie d'impôt du PER qui reste, fiscF.tauxLivrets l'impôt sur les intérêts des livrets
-function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, choc = null, ansImpots = null, fiscF = null }) {
+function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, choc = null, ansImpots = null, fiscF = null, correl = null }) {
   const apres = (y) => !!fiscF && y >= fiscF.annee;
   const planT = (y) => (apres(y) ? fiscF.plan : plan);
   const an0 = new Date().getFullYear();
@@ -257,7 +354,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
   const chargesAn = (y) => {
     const C = achat?.charges;
     if (!achete || !C) return 0;
-    return (C.taxeFonciere + C.copro) * Math.pow(1 + infl, y - achat.annees) + (achat.prix > 0 ? (C.entretien * bien) / achat.prix : 0);
+    return (C.taxeFonciere + C.copro) * indiceInflation(y, achat.annees) + (achat.prix > 0 ? (C.entretien * bien) / achat.prix : 0);
   };
   let cumulPER = 0; // versements PER déduits, imposés au barème à la sortie
   const interAn = interessementPlace(profil);
@@ -278,6 +375,8 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
   const vendreAuAchat = !!(achat && L.vendrePourAchat && (L.usage ?? "rp") === "rp");
   let venduA = null;
   const infl = (H.inflation ?? 0) / 100;
+  const indiceInflation = fabriqueIndiceInflation(infl, choc);
+  let regime = "normal"; // régime de marché du tirage (corrélations dynamiques)
   // Événements de vie (montants en euros d'aujourd'hui)
   const evts = (profil.evenements ?? []).filter((e) => Number(e.age) > 0);
   const evtsDe = (age) => evts.filter((e) => age >= Number(e.age) && age < Number(e.age) + Math.max(1, Number(e.annees) || 1));
@@ -338,8 +437,8 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
       point.classes = { ...v };
       const actif = age < (H.ageRetraite ?? 64);
       point.salaire = actif ? profil.salaireNetMensuel * facteur : 0;
-      point.epargne = actif ? profil.epargneMensuelle * (H.epargneSuitLeSalaire ? facteur : 1) + (achete ? loyer * Math.pow(1 + infl, y) - (y < finPret ? mensAn(y) : 0) - chargesAn(y) / 12 : 0) : -(achete ? (y < finPret ? mensAn(y) : 0) + chargesAn(y) / 12 : 0);
-      point.retraitNet = retraite && age >= retraite.age ? besoinA(retraite, age) * Math.pow(1 + (H.inflation ?? 0) / 100, y) : 0;
+      point.epargne = actif ? profil.epargneMensuelle * (H.epargneSuitLeSalaire ? facteur : 1) + (achete ? loyer * indiceInflation(y) - (y < finPret ? mensAn(y) : 0) - chargesAn(y) / 12 : 0) : -(achete ? (y < finPret ? mensAn(y) : 0) + chargesAn(y) / 12 : 0);
+      point.retraitNet = retraite && age >= retraite.age ? besoinA(retraite, age) * indiceInflation(y) : 0;
       point.cumulPER = cumulPER;
       point.impotPlacements = impotsSortie(planT(y), v, base, y, profil);
       point.impotPER = (cumulPER * (planT(y).per?.tmiRetraite ?? 0)) / 100;
@@ -359,10 +458,12 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
     // 1. Rendements de l'année (ou ceux d'une crise rejouée)
     const totAvant = somme(v);
     const anneeCrise = choc && y >= choc.debut && y < choc.debut + choc.annees.length ? choc.annees[y - choc.debut] : null;
+    let rCor = null;
+    if (gauss && correl && !anneeCrise) { const t = rendementsCorreles(correl, gauss, regime); regime = t.regime; rCor = t.r; }
     for (const c of classes) {
       const m = (H.rendements[c] ?? 0) / 100, s = (H.volatilites?.[c] ?? 0) / 100;
       const rc = anneeCrise?.[c === "projet" ? "securite" : c];
-      let r = rc != null ? rc / 100 : gauss ? tirage(m, s, gauss) : m;
+      let r = rc != null ? rc / 100 : rCor && rCor[c] != null ? rCor[c] : gauss ? tirage(m, s, gauss) : m;
       // Livrets imposés (simulation fiscale) : l'impôt est pris chaque année sur les intérêts de l'épargne de sécurité
       if (c === "securite" && apres(y) && fiscF.tauxLivrets > 0 && r > 0) r *= 1 - fiscF.tauxLivrets;
       v[c] *= 1 + r - (fraisClasse[c] ?? 0);
@@ -379,7 +480,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
     // Fin du crédit en cours (résidence, secondaire) ou revente : la mensualité redevient de l'épargne
     if (actif && mensualiteEx > 0 && !locatif && (y >= anneesCreditEx || (venduA != null && y >= venduA))) ep += mensualiteEx * facteurEp;
     // Après l'achat : le loyer économisé s'ajoute à l'épargne tant qu'on travaille ; le crédit reste à payer
-    if (achete) ep += (actif ? loyer * 12 * Math.pow(1 + infl, y) : 0) - (y < finPret ? mensAn(y) * 12 : 0) - chargesAn(y);
+    if (achete) ep += (actif ? loyer * 12 * indiceInflation(y) : 0) - (y < finPret ? mensAn(y) * 12 : 0) - chargesAn(y);
     // PER : versements (déjà inclus dans l'épargne) et économie d'impôt réépargnée
     if (per?.actif && age < Math.min(H.ageRetraite ?? 64, 70)) {
       const versePER = per.annuel * facteurEp;
@@ -397,7 +498,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
     if (acquisL != null && acquisL >= 0 && y >= acquisL) ep += loyersNets((apres(y) ? PLF : PL).flux(y - acquisL).cashflow);
     // Événements de vie : rentrées (héritage, donation, prime…) et dépenses (études, voiture, travaux…)
     for (const e of evAn) {
-      const m = Math.max(0, Number(e.montant) || 0) * Math.pow(1 + infl, y);
+      const m = Math.max(0, Number(e.montant) || 0) * indiceInflation(y);
       if (e.type === "entree") ep += m;
       else if (e.type === "depense") ep -= m;
     }
@@ -425,7 +526,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
     if (retraite && age >= retraite.age) {
       // facteurCapital (recherche du capital nécessaire) : capital de départ multiplié, gains et base dans les mêmes proportions
       if (retraite.facteurCapital != null && age === retraite.age) for (const c of classes) { v[c] *= retraite.facteurCapital; base[c] *= retraite.facteurCapital; }
-      const net = 12 * besoinA(retraite, age) * Math.pow(1 + (H.inflation ?? 0) / 100, y);
+      const net = 12 * besoinA(retraite, age) * indiceInflation(y);
       if (!registre) ({ registre, meta: metaAutres } = registreRetraite(planT(y), profil, v, base, cumulPER, y));
       // Filet de sécurité : le registre doit rester égal au total des classes (événements, rééquilibrage)
       let ecart = Math.abs(totalRegistre(registre) - somme(v));
@@ -433,7 +534,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
       majTauxAutres(registre, metaAutres, planT(y), profil, y);
       registre.av.ancien8 = an0 + y - ouvAV >= 8;
       registre.pea.ancien5 = an0 + y - ouvPEA >= 5;
-      const ff = foyerFiscal(profil), indexation = Math.pow(1 + infl, y);
+      const ff = foyerFiscal(profil), indexation = indiceInflation(y);
       const pensionAn = age >= (retraite.agePension ?? 0) ? 12 * (retraite.pension ?? 0) * indexation : 0;
       const ctx = {
         parts: ff.parts, partsBase: ff.partsBase, indexation, couple: !!profil.marie,
@@ -676,9 +777,10 @@ export function projeter(planSaisi, profilSaisi, { inclureAchat = true, prolonge
   const { profil, PR, plan, achat, per, iR, retraite, central, decumulation } = centralEtRetraite(planSaisi, profilSaisi, { inclureAchat, prolonger, fiscF });
   const n = Math.max(50, Math.min(2000, tirages ?? plan.hypotheses.simulations ?? 500));
   const gauss = generateur(20261111);
+  const correl = preparerCorrelations(plan.hypotheses);
   const chemins = [];
   const ansImpots = legere ? null : new Set(central.map((p, i) => i).filter((i) => i % 5 === 0 || i === iR || i === central.length - 1 || central[i].evenement === "achat"));
-  for (let k = 0; k < n; k++) chemins.push(simuler(plan, profil, { achat, gauss, per, retraite, ansImpots, fiscF }));
+  for (let k = 0; k < n; k++) chemins.push(simuler(plan, profil, { achat, gauss, per, retraite, ansImpots, fiscF, correl }));
   const eventail = legere ? null : central.map((p, i) => {
     const vals = chemins.map((c) => c[i].financier).sort((a, b) => a - b);
     const gagnants = chemins.filter((c) => c[i].financier >= c[i].verse).length;
@@ -816,8 +918,9 @@ export function evaluerRetraite(ctx, { age, revenu = ctx.PR.revenu, scenarios = 
     return { ...j, preserve: j.cap > 0 && j.fin >= j.cap, dure: j.fin > 0.5 };
   }
   const gauss = generateur(20261112);
+  const correl = preparerCorrelations(plan.hypotheses);
   const res = [];
-  for (let k = 0; k < scenarios; k++) res.push(juge(simuler(plan, profil, { achat, gauss, per, retraite })));
+  for (let k = 0; k < scenarios; k++) res.push(juge(simuler(plan, profil, { achat, gauss, per, retraite, correl })));
   const partPreserve = res.filter((j) => j.cap > 0 && j.fin >= j.cap).length / scenarios;
   const partDure = res.filter((j) => j.fin > 0.5).length / scenarios;
   const tri = (k) => res.map((j) => j[k]).sort((a, b) => a - b);
@@ -877,6 +980,129 @@ export function simulerCrise(planSaisi, profilSaisi, { crise, ageDebut, inclureA
     // La panique arrive au plus bas : on vend à la fin de la dernière année de baisse, on revient 2 ans plus tard
     panique: simuler(plan, profil, { achat, per, retraite, choc: { ...choc, panique: true, decalagePanique: Math.max(0, C.annees.findIndex((a) => a.bourse >= 0) - 1) } }),
     debut, crise: C, ageRetraite: PR.age,
+  };
+}
+
+// ------------------------------------------------------------- backtest sur fenêtres historiques glissantes
+// `series` : tableau trié par année de { annee, bourse, or, bitcoin|null, scpi, prudent, securite, inflation } (en %).
+// Retourne les n − longueur + 1 fenêtres de `longueur` années consécutives.
+// Bitcoin : données exploitables seulement à partir de BITCOIN_DEBUT. Avant fin 2017 (lancement des contrats à terme CME régulés),
+// puis statut PSAN de l'AMF en 2019, un épargnant français n'avait pas d'accès réaliste et liquide ; on exclut aussi la phase de bulle
+// initiale (2011→2025 = ×331 899 sans rééquilibrage). Avant BITCOIN_DEBUT (ou si bitcoin vaut null), on applique le rendement `bourse`.
+export const BITCOIN_DEBUT = 2018;
+// `estimations` : { classe: { de, a } } plages d'années non mesurées. Chaque fenêtre porte `anneesEstimees` { scpi, prudent, bitcoin }
+// (nombre d'années de la fenêtre dans chaque plage ; bitcoin = années substituées), clés > 0 seulement, et `bitcoinSubstitue`
+// (au moins une année substituée). Chaque année porte `estimee` : la liste des classes estimées cette année-là.
+export function fenetresHistoriques(series, longueur, { estimations = {}, bitcoinDebut = BITCOIN_DEBUT } = {}) {
+  const L = Math.round(longueur);
+  if (!Array.isArray(series) || !(L >= 1) || series.length < L) return [];
+  const fenetres = [];
+  for (let i = 0; i + L <= series.length; i++) {
+    const compte = {};
+    const annees = series.slice(i, i + L).map((a) => {
+      const estimee = [];
+      for (const [c, pl] of Object.entries(estimations ?? {})) if (pl && a.annee >= pl.de && a.annee <= pl.a) estimee.push(c);
+      let o = { ...a };
+      if (a.bitcoin == null || a.annee < bitcoinDebut) { o = { ...a, bitcoin: a.bourse }; estimee.push("bitcoin"); }
+      for (const c of estimee) compte[c] = (compte[c] ?? 0) + 1;
+      return { ...o, estimee };
+    });
+    fenetres.push({ debut: series[i].annee, fin: series[i + L - 1].annee, bitcoinSubstitue: !!compte.bitcoin, anneesEstimees: compte, annees });
+  }
+  return fenetres;
+}
+
+// Rejoue le plan sur chaque fenêtre historique : années de la fenêtre = rendements ET inflation réels, hors fenêtre =
+// hypothèses centrales. Départ : "maintenant" (année 0) ou "retraite" (année du départ à la retraite). Fenêtre tronquée
+// à l'horizon de la projection. Ordre de décumulation = celui choisi pour le scénario central (pas de re-choix par fenêtre).
+// Succès = même critère que la probabilité « le capital dure » : capital > 0,5 € à la fin de la projection.
+// Montants en euros d'aujourd'hui (déflatés par l'indice d'inflation propre à chaque scénario).
+export function backtesterHistorique(planSaisi, profilSaisi, { series, longueur = 30, depart = "retraite", inclureAchat = true, estimations = {} } = {}) {
+  if (!Array.isArray(series) || !series.length) throw new Error("backtesterHistorique : `series` (rendements et inflation historiques annuels) est obligatoire.");
+  if (depart !== "maintenant" && depart !== "retraite") throw new Error("backtesterHistorique : `depart` doit valoir « maintenant » ou « retraite ».");
+  const { profil, PR, plan, achat, per, iR, retraite, central } = centralEtRetraite(planSaisi, profilSaisi, { inclureAchat });
+  const dernier = central.length - 1;
+  const infl = (plan.hypotheses.inflation ?? 0) / 100;
+  const y0 = Math.min(dernier, depart === "maintenant" ? 0 : Math.max(0, iR));
+  const L = Math.max(0, Math.min(Math.round(longueur), dernier - y0));
+  const yFin = y0 + L;
+  const fenetres = fenetresHistoriques(series, longueur, { estimations }).map((f) => {
+    const choc = { debut: y0, annees: f.annees.slice(0, L) };
+    const pts = simuler(plan, profil, { achat, detail: true, per, retraite, choc });
+    const indice = fabriqueIndiceInflation(infl, choc);
+    // Années estimées « comptant » : seulement celles où la classe est réellement détenue au début de l'année (valeur > 0 dans le scénario)
+    const anneesEstimees = {};
+    choc.annees.forEach((a, k) => { for (const c of a.estimee ?? []) if ((pts[y0 + k]?.classes?.[c] ?? 0) > 0) anneesEstimees[c] = (anneesEstimees[c] ?? 0) + 1; });
+    const prod = choc.annees.reduce((p, a) => p * (1 + (a.inflation ?? 0) / 100), 1);
+    return {
+      debut: f.debut, fin: f.fin, bitcoinSubstitue: f.bitcoinSubstitue, anneesEstimees, anneesUtilisees: L,
+      capitalReelFinFenetre: pts[yFin].financier / indice(yFin),
+      ageEpuisement: pts.find((pt) => pt.age >= retraite.age && pt.insuffisant)?.age ?? null,
+      succes: pts[dernier].financier > 0.5,
+      inflationMoyenne: L > 0 ? (Math.pow(prod, 1 / L) - 1) * 100 : 0,
+      trajectoireReelle: pts.slice(y0, yFin + 1).map((pt, k) => ({ age: pt.age, valeur: pt.financier / indice(y0 + k) })),
+    };
+  });
+  const tri = [...fenetres].sort((a, b) => a.capitalReelFinFenetre - b.capitalReelFinFenetre);
+  const resume = (f) => (f ? { debut: f.debut, fin: f.fin, capitalReelFinFenetre: f.capitalReelFinFenetre } : null);
+  return {
+    longueur: L, depart, ageDepart: profil.age + y0, fenetres,
+    estimationsLibelles: { ...Object.fromEntries(Object.entries(estimations ?? {}).map(([c, e]) => [c, e.libelle])), bitcoin: "de bitcoin remplacé par les actions" },
+    synthese: { nb: fenetres.length, tauxSucces: fenetres.length ? fenetres.filter((f) => f.succes).length / fenetres.length : null,
+      pire: resume(tri[0]), mediane: resume(tri[Math.floor(tri.length / 2)]), meilleure: resume(tri[tri.length - 1]) },
+    centralReelFinFenetre: central[yFin].financier / Math.pow(1 + infl, yFin),
+  };
+}
+
+// ------------------------------------------------------------- scénario d'inflation persistante
+// Hypothèses (documentées, en points de pourcentage) : pendant `duree` ans à partir de maintenant, l'inflation vaut `taux`.
+// Les taux courts suivent l'inflation avec retard (livrets : taux − 1,5 pt, plancher 0,5 % ; prudent : +0,4 pt par an, plafonné à
+// taux − 1 et jamais sous son rendement central) ; les actifs réels sont jugés en rendement réel central : bourse −3 pts les 3
+// premières années (hausse des taux), or +2 pts (valeur refuge), SCPI −1 pt (loyers indexés avec retard), bitcoin inchangé.
+export const SCENARIO_INFLATION = {
+  tauxParDefaut: 5, dureeParDefaut: 10,
+  ecartLivrets: 1.5, plancherLivrets: 0.5,
+  prudentHausseParAn: 0.4, prudentEcartPlafond: 1,
+  bourseChocReel: -3, bourseAnneesChoc: 3, orPrimeReelle: 2, scpiPrimeReelle: -1, bitcoinPrimeReelle: 0,
+};
+
+export function scenarioInflation(planSaisi, profilSaisi, { taux = SCENARIO_INFLATION.tauxParDefaut, duree = SCENARIO_INFLATION.dureeParDefaut, inclureAchat = true } = {}) {
+  const S = SCENARIO_INFLATION;
+  const { profil, plan, achat, per, retraite, central } = centralEtRetraite(planSaisi, profilSaisi, { inclureAchat });
+  const H = plan.hypotheses, inflC = H.inflation ?? 0;
+  const dernier = central.length - 1;
+  const reelC = (c) => ((1 + (H.rendements[c] ?? 0) / 100) / (1 + inflC / 100) - 1) * 100; // rendement réel central, en %
+  const nominal = (reel) => ((1 + reel / 100) * (1 + taux / 100) - 1) * 100;
+  const prudentC = H.rendements.prudent ?? 0;
+  const annees = [];
+  for (let t = 0; t < duree; t++) {
+    const livrets = Math.max(S.plancherLivrets, taux - S.ecartLivrets);
+    annees.push({
+      securite: livrets,
+      prudent: Math.max(prudentC, Math.min(Math.max(prudentC, prudentC + S.prudentHausseParAn * (t + 1)), taux - S.prudentEcartPlafond)),
+      bourse: nominal(reelC("bourse") + (t < S.bourseAnneesChoc ? S.bourseChocReel : 0)),
+      or: nominal(reelC("or") + S.orPrimeReelle),
+      scpi: nominal(reelC("scpi") + S.scpiPrimeReelle),
+      bitcoin: nominal(reelC("bitcoin") + S.bitcoinPrimeReelle),
+      inflation: taux,
+    });
+  }
+  const choc = { debut: 0, annees };
+  const pts = simuler(plan, profil, { achat, detail: true, per, retraite, choc });
+  const indice = fabriqueIndiceInflation(inflC / 100, choc);
+  const indicesReels = Object.fromEntries(["securite", "prudent", "bourse", "or", "scpi", "bitcoin"].map((c) => {
+    const serie = [100];
+    annees.forEach((a) => serie.push(serie[serie.length - 1] * (1 + a[c] / 100) / (1 + taux / 100)));
+    return [c, serie];
+  }));
+  const yFin = Math.min(duree, dernier);
+  const centralReel = central[yFin].financier / Math.pow(1 + inflC / 100, yFin);
+  const scenarioReel = pts[yFin].financier / indice(yFin);
+  const epuise = (p) => p.find((pt) => pt.age >= retraite.age && pt.insuffisant)?.age ?? null;
+  return {
+    taux, duree, hypotheses: SCENARIO_INFLATION, indicesReels,
+    patrimoine: { centralReel, scenarioReel, ecart: scenarioReel - centralReel, ecartPct: centralReel > 0 ? ((scenarioReel - centralReel) / centralReel) * 100 : null },
+    retraite: { ageEpuisementCentral: epuise(central), ageEpuisementScenario: epuise(pts) },
   };
 }
 

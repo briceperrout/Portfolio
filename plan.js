@@ -299,6 +299,9 @@ export const PLAN = {
     volatilites: {       // PROPOSITION
       securite: 0, projet: 0, prudent: 1, bourse: 16, or: 15, bitcoin: 60, scpi: 5,
     },
+    // Corrélations entre classes dans les tirages au hasard : "dynamiques" (deux régimes, normal et crise : en crise,
+    // bourse, bitcoin et SCPI chutent ensemble) ou "independantes" (chaque classe tirée séparément).
+    correlations: "dynamiques",
     // Frais payés à l'entrée, en % de chaque versement
     fraisEntree: { scpi: 10 },  // PROPOSITION : frais de souscription SCPI courants : 8 à 12 %
     inflation: 2,

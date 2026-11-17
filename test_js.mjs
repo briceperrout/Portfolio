@@ -10,7 +10,8 @@ import { planifierRetraits, impotsAuDeces, STRATEGIES_DECUMULATION } from "./pen
 import { impotBaremeIndexe, margeTranche } from "./fiscal.js";
 import { FICHES, PARCOURS_DEBUTANT } from "./fiches.js";
 import { FAMILLES_ALLOCATION, grouperAllocation, GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent } from "./moteur.js";
-import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS, projeter, projeterCentral, libertePatrimoine, moisPrecaution, capitalNecessaire } from "./projection.js";
+import { HISTORIQUE } from "./historique.js";
+import { BITCOIN_DEBUT, comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS, projeter, projeterCentral, libertePatrimoine, moisPrecaution, capitalNecessaire, generateur, fenetresHistoriques, backtesterHistorique, MATRICES_CORRELATION, REGIMES, cholesky, etalonnerRegimes, preparerCorrelations, rendementsCorreles, SCENARIO_INFLATION, scenarioInflation } from "./projection.js";
 
 export const resultats = { ok: 0, echecs: [] };
 function verifier(condition, message) {
@@ -536,6 +537,148 @@ egal(libelleModele(undefined), "", "libellé absent");
       if (p.age === 55 && strat === "consommer") egal(Ds.ordreEtape3, "ctoDabord", `${nom} « consommer » : compte-titres d'abord (épargne épuisée)`);
     }
     if (p.placements.assuranceVie && D.ageEpuisementOptimise == null) verifier(D.avAvant70Final > 0, `${nom} : AV avant 70 ans transmissible conservée (${Math.round(D.avAvant70Final)})`);
+  }
+}
+
+// ---------------------------------------------------------------- projection.js : inflation année par année, backtest, corrélations, inflation persistante
+{
+  const p = { age: 35, salaireNet: 3000, epargneMensuelle: 500, depensesMensuelles: 2000, placements: { livretA: 10000, pea: 20000 } };
+  // Profil plus aisé pour le backtest : le capital ne s'épuise pas, les écarts entre scénarios sont mesurables
+  const pr = { age: 40, salaireNet: 4500, epargneMensuelle: 1500, depensesMensuelles: 2500, placements: { livretA: 20000, pea: 150000, assuranceVie: 50000 } };
+  const H = PLAN.hypotheses, classes = ["securite", "prudent", "bourse", "or", "bitcoin", "scpi"];
+  const centrale = (annee) => ({ annee, ...Object.fromEntries(classes.map((c) => [c, H.rendements[c]])), inflation: H.inflation });
+  const proche = (a, b, tol = 1e-6) => Math.abs(a - b) <= tol * Math.max(1, Math.abs(b));
+  // 1. Inflation : valeurs de référence du central (capturées avant la modification), puis choc d'inflation égal au central
+  const c0 = projeterCentral(PLAN, p);
+  egal([c0.central[10].financier, c0.central[25].financier], [153888.73495987811, 615208.8444496583], "inflation : central sans choc identique à l'ancien calcul (bit à bit)");
+  const serieCentrale = Array.from({ length: 45 }, (_, i) => centrale(BITCOIN_DEBUT + i));
+  const bt0 = backtesterHistorique(PLAN, pr, { series: serieCentrale, longueur: 30 });
+  // 2. Série synthétique = hypothèses centrales : chaque fenêtre reproduit le central
+  egal(bt0.fenetres.length, 16, "backtest : 45 − 30 + 1 = 16 fenêtres");
+  egal([bt0.longueur, bt0.depart, bt0.ageDepart], [30, "retraite", 64], "backtest : départ à la retraite (64 ans), 30 ans");
+  verifier(bt0.fenetres.every((f) => proche(f.capitalReelFinFenetre, bt0.centralReelFinFenetre)), "backtest : chaque fenêtre reproduit le central à 1e-6 près");
+  verifier(bt0.fenetres.every((f) => proche(f.inflationMoyenne, H.inflation, 1e-9) && f.trajectoireReelle.length === 31 && !f.bitcoinSubstitue), "backtest : inflation moyenne = centrale, 31 points de trajectoire");
+  const cr = projeterCentral(PLAN, pr), succesCentral = cr.central[cr.central.length - 1].financier > 0.5;
+  verifier(proche(bt0.centralReelFinFenetre, cr.central[cr.central.length - 1].financier / Math.pow(1 + H.inflation / 100, cr.central.length - 1)) && bt0.centralReelFinFenetre > 1e5, "backtest : le central de référence est bien un capital non épuisé");
+  egal([bt0.synthese.nb, bt0.synthese.tauxSucces], [16, succesCentral ? 1 : 0], "backtest : taux de succès cohérent avec le central");
+  verifier(bt0.fenetres.every((f) => f.ageEpuisement === null) && bt0.synthese.pire.capitalReelFinFenetre <= bt0.synthese.mediane.capitalReelFinFenetre && bt0.synthese.mediane.capitalReelFinFenetre <= bt0.synthese.meilleure.capitalReelFinFenetre, "backtest : synthèse ordonnée pire ≤ médiane ≤ meilleure");
+  const btM = backtesterHistorique(PLAN, pr, { series: serieCentrale, longueur: 30, depart: "maintenant" });
+  verifier(btM.ageDepart === 40 && btM.fenetres.every((f) => proche(f.capitalReelFinFenetre, btM.centralReelFinFenetre)), "backtest : départ maintenant = central à 1e-6 près");
+  const btLong = backtesterHistorique(PLAN, pr, { series: serieCentrale, longueur: 40, depart: "maintenant" });
+  verifier(btLong.longueur === 40 && btLong.fenetres[0].trajectoireReelle.length === 41, "backtest : fenêtre de 40 ans à l'horizon");
+  const btTronque = backtesterHistorique(PLAN, pr, { series: serieCentrale, longueur: 40, depart: "retraite" });
+  verifier(btTronque.longueur === 30 && btTronque.fenetres.every((f) => f.trajectoireReelle.length === 31), "backtest : fenêtre tronquée à l'horizon de la projection");
+  let erreur = null;
+  try { backtesterHistorique(PLAN, pr, {}); } catch (e) { erreur = e.message; }
+  verifier(/series/.test(erreur ?? ""), "backtest : séries obligatoires (erreur claire)");
+  // Un choc dont l'inflation = inflation centrale (via le backtest ci-dessus) donne le même central : déjà vérifié à 1e-6 ; avec 2× l'inflation le réel baisse
+  const serieChere = serieCentrale.map((a) => ({ ...a, inflation: 4 }));
+  const btChere = backtesterHistorique(PLAN, pr, { series: serieChere, longueur: 30 });
+  verifier(btChere.fenetres[0].capitalReelFinFenetre < bt0.fenetres[0].capitalReelFinFenetre && proche(btChere.fenetres[0].inflationMoyenne, 4, 1e-9), "backtest : inflation plus forte → capital réel plus faible");
+  // 2 bis. Données historiques réelles (historique.js)
+  {
+    const A = HISTORIQUE.annees, cles = ["bourse", "or", "scpi", "prudent", "securite", "inflation"];
+    egal([A.length, HISTORIQUE.debut, HISTORIQUE.fin, A[0].annee, A[A.length - 1].annee], [56, 1970, 2025, 1970, 2025], "historique : 56 années, bornes 1970–2025");
+    verifier(A.every((a, i) => a.annee === 1970 + i), "historique : années contiguës");
+    verifier(A.every((a) => cles.every((c) => typeof a[c] === "number" && Number.isFinite(a[c]))), "historique : toutes les séries numériques");
+    verifier(A.every((a) => a.annee < 2011 ? a.bitcoin === null : typeof a.bitcoin === "number" && Number.isFinite(a.bitcoin)), "historique : bitcoin null avant 2011, numérique ensuite");
+    // SCPI : 1988–2025 mesurées (inchangées), 1970–1987 recalées sur la moyenne géométrique réelle mesurée depuis 1988
+    const anS = (y) => A.find((a) => a.annee === y);
+    egal([anS(1994).scpi, anS(2008).scpi], [-9.9, 0.5], "historique : SCPI 1994 et 2008 inchangées");
+    const gR = (a, b) => { const t = A.filter((x) => x.annee >= a && x.annee <= b); return (Math.exp(t.reduce((p, x) => p + Math.log((1 + x.scpi / 100) / (1 + x.inflation / 100)), 0) / t.length) - 1) * 100; };
+    verifier(Math.abs(gR(1970, 1987) - gR(1988, 2025)) <= 0.1, `historique : SCPI réel 1970–1987 recalé = 1988–2025 (${gR(1970, 1987).toFixed(2)} vs ${gR(1988, 2025).toFixed(2)})`);
+    egal(HISTORIQUE.estimations, { scpi: { de: 1970, a: 1987, libelle: "de SCPI reconstituées" }, prudent: { de: 1970, a: 1993, libelle: "de fonds euros estimés" } }, "historique : plages estimées");
+    egal(BITCOIN_DEBUT, 2018, "BITCOIN_DEBUT = 2018");
+    const f73 = fenetresHistoriques(A, 30, { estimations: HISTORIQUE.estimations }), f96 = f73[f73.length - 1], f1973 = f73.find((f) => f.debut === 1973);
+    egal([f1973.anneesEstimees, f96.debut, f96.anneesEstimees], [{ scpi: 15, prudent: 21, bitcoin: 30 }, 1996, { bitcoin: 22 }], "fenêtres réelles 30 ans : années estimées 1973–2002 et 1996–2025");
+    verifier(f96.annees.every((a) => a.annee < 2018 ? a.bitcoin === a.bourse : a.bitcoin === A.find((x) => x.annee === a.annee).bitcoin), "fenêtres : bitcoin = bourse avant 2018, réel ensuite");
+    const dans = (c, lo, hi) => A.every((a) => a[c] >= lo && a[c] <= hi);
+    verifier(dans("inflation", -1, 16) && dans("securite", 0, 9) && dans("prudent", 0, 15) && dans("bourse", -50, 60) && dans("or", -40, 130), "historique : bornes plausibles");
+    const cumul = A.reduce((p, a) => p * (1 + a.inflation / 100), 1);
+    verifier(cumul > 8 && cumul < 9, `historique : inflation cumulée 1970–2025 entre 8 et 9 (${cumul.toFixed(2)})`);
+    const an = (y) => A.find((a) => a.annee === y);
+    verifier(an(2008).bourse < -30 && an(1974).inflation > 14 && Math.abs(an(2023).securite - 3) < 0.11, "historique : points de repère (bourse 2008, inflation 1974, Livret A 2023)");
+    verifier(Object.values(HISTORIQUE.sources).every((v) => v && v.length <= 220) && Object.keys(HISTORIQUE.fiabilite).length === 4, "historique : sources ≤ 220 caractères, fiabilité renseignée");
+    const synth = [];
+    for (const [longueur, attendu] of [[30, 27], [20, 37]]) for (const depart of ["maintenant", "retraite"]) {
+      const t0 = performance.now();
+      const bt = backtesterHistorique(PLAN, pr, { series: HISTORIQUE.annees, longueur, depart });
+      const ms = performance.now() - t0, S = bt.synthese;
+      if (depart === "maintenant") egal(bt.fenetres.length, attendu, `historique : ${longueur} ans → ${attendu} fenêtres`);
+      verifier(bt.fenetres.every((f) => Number.isFinite(f.capitalReelFinFenetre) && f.trajectoireReelle.every((t) => Number.isFinite(t.valeur))), `historique ${longueur} ans ${depart} : aucune valeur NaN/Infinity`);
+      verifier(S.tauxSucces >= 0 && S.tauxSucces <= 1 && S.pire.capitalReelFinFenetre <= S.mediane.capitalReelFinFenetre && S.mediane.capitalReelFinFenetre <= S.meilleure.capitalReelFinFenetre, `historique ${longueur} ans ${depart} : taux de succès ∈ [0,1], pire ≤ médiane ≤ meilleure`);
+      console.log(`  [backtest réel ${longueur} ans, départ ${depart}] ${bt.fenetres.length} fenêtres en ${ms.toFixed(1)} ms${ms > 300 ? " — ATTENTION > 300 ms" : ""} ; succès ${Math.round(100 * S.tauxSucces)} % ; pire ${S.pire.debut}–${S.pire.fin} ; meilleure ${S.meilleure.debut}–${S.meilleure.fin}`);
+    }
+  }
+  // 3. fenetresHistoriques : substitution du bitcoin
+  const ser = [{ annee: 2000, bourse: 1, or: 2, bitcoin: null, scpi: 3, prudent: 4, securite: 5, inflation: 2 }, { annee: 2001, bourse: 7, or: 2, bitcoin: null, scpi: 3, prudent: 4, securite: 5, inflation: 2 },
+    { annee: 2002, bourse: -9, or: 2, bitcoin: 40, scpi: 3, prudent: 4, securite: 5, inflation: 2 }, { annee: 2003, bourse: 5, or: 2, bitcoin: 50, scpi: 3, prudent: 4, securite: 5, inflation: 2 }];
+  const fh = fenetresHistoriques(ser, 2, { bitcoinDebut: 2002 });
+  egal([fh.length, fh.map((f) => f.bitcoinSubstitue), fh.map((f) => [f.debut, f.fin])], [3, [true, true, false], [[2000, 2001], [2001, 2002], [2002, 2003]]], "fenêtres : nombre, drapeau bitcoin, bornes");
+  egal([fh[0].annees[0].bitcoin, fh[1].annees[1].bitcoin, fh[2].annees[0].bitcoin], [1, 40, 40], "fenêtres : bitcoin absent remplacé par la bourse, valeur réelle conservée");
+  const fh2 = fenetresHistoriques(ser, 2, { bitcoinDebut: 2003 });
+  egal([fh2[1].annees[1].bitcoin, fh2[1].anneesEstimees, fh2[2].anneesEstimees], [-9, { bitcoin: 2 }, { bitcoin: 1 }], "fenêtres : années < bitcoinDebut substituées même si une valeur existe");
+  egal(ser[0].bitcoin, null, "fenêtres : série d'origine non modifiée");
+  egal(fenetresHistoriques(ser, 5), [], "fenêtres : série trop courte");
+  // 4. Cholesky
+  for (const nom of ["normal", "crise"]) {
+    const M = MATRICES_CORRELATION[nom], L = cholesky(M), n = M.length;
+    let ecart = 0;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { let t = 0; for (let k = 0; k < n; k++) t += L[i][k] * L[j][k]; ecart = Math.max(ecart, Math.abs(t - M[i][j])); }
+    verifier(ecart < 1e-12 && L.every((l, i) => l.every((x, j) => j <= i || x === 0)), `cholesky ${nom} : L·Lᵀ = M (écart ${ecart}), L triangulaire inférieure`);
+  }
+  let errChol = null;
+  try { cholesky([[1, 2], [2, 1]]); } catch (e) { errChol = e.message; }
+  verifier(/définie positive/.test(errChol ?? ""), "cholesky : matrice non définie positive refusée");
+  // 5. Étalonnage des régimes : moyenne et variance du mélange préservées
+  const pi = REGIMES.entree / (REGIMES.entree + 1 - REGIMES.maintien), cal = etalonnerRegimes(H.rendements, H.volatilites);
+  for (const c of Object.keys(H.rendements)) {
+    const { normal: N, crise: K } = cal[c], m = H.rendements[c], s = H.volatilites[c];
+    const mix = (1 - pi) * N.m + pi * K.m;
+    const variance = (1 - pi) * (N.s ** 2 + (N.m - mix) ** 2) + pi * (K.s ** 2 + (K.m - mix) ** 2);
+    verifier(Math.abs(mix - m) < 1e-9 && Math.abs(variance - s * s) < 1e-9, `régimes ${c} : mélange (m, s²) = (${m}, ${s * s}) (obtenu ${mix}, ${variance})`);
+  }
+  egal(etalonnerRegimes({ x: 5 }, { x: 10 }).x, { normal: { m: 5, s: 10 }, crise: { m: 5, s: 10 } }, "régimes : classe sans régime de crise inchangée");
+  const trop = etalonnerRegimes({ bourse: 8 }, { bourse: 2 }).bourse;
+  egal(trop, { normal: { m: 8, s: 2 }, crise: { m: 8, s: 2 } }, "régimes : variance normale négative → (m, s) conservés");
+  // Empirique : une longue chaîne d'années tirées avec le générateur seedé
+  {
+    const corr = preparerCorrelations(H), g = generateur(424242), N = 200000;
+    let reg = "normal", somB = 0, somB2 = 0, nc = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+    for (let i = 0; i < N; i++) {
+      const t = rendementsCorreles(corr, g, reg); reg = t.regime;
+      somB += t.r.bourse; somB2 += t.r.bourse ** 2;
+      if (reg === "crise") { const x = Math.log(1 + t.r.bourse), y = Math.log(1 + t.r.bitcoin); nc++; sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y; }
+    }
+    const mu = somB / N, sd = Math.sqrt(somB2 / N - mu * mu);
+    verifier(Math.abs(mu / 0.08 - 1) < 0.05, `corrélations : moyenne empirique de la bourse ${mu.toFixed(4)} ≈ 8 %`);
+    verifier(Math.abs(sd / 0.16 - 1) < 0.05, `corrélations : écart-type empirique de la bourse ${sd.toFixed(4)} ≈ 16 %`);
+    const rho = (sxy / nc - (sx / nc) * (sy / nc)) / Math.sqrt((sxx / nc - (sx / nc) ** 2) * (syy / nc - (sy / nc) ** 2));
+    verifier(Math.abs(rho - 0.85) < 0.05, `corrélations : bourse–bitcoin en régime de crise ${rho.toFixed(3)} ≈ 0,85 (sur les log-rendements gaussiens)`);
+    verifier(Math.abs(nc / N - pi) < 0.01, `corrélations : part des années de crise ${(nc / N).toFixed(3)} ≈ ${pi.toFixed(3)}`);
+  }
+  // 6. Mode « independantes » : même éventail qu'avant l'introduction des corrélations (valeurs capturées avant la modification)
+  {
+    const ind = projeter({ ...PLAN, hypotheses: { ...H, correlations: "independantes" } }, p, {});
+    const ev = (age) => ind.eventail.find((e) => e.age === age);
+    egal([ev(45).p10, ev(45).p50, ev(45).p90, ev(65).p10, ev(65).p50, ev(65).p90, ind.retraite.probaDure],
+      [108392.34644389681, 146657.95778287534, 207934.20634416575, 498451.590678709, 776903.028729391, 1267160.4622261797, 0.262], "corrélations « independantes » : éventail et probabilité identiques à l'ancien calcul");
+    egal(H.correlations, "dynamiques", "corrélations : réglage « dynamiques » par défaut");
+    const dyn = projeter(PLAN, p, {});
+    verifier(dyn.eventail.find((e) => e.age === 65).p50 > 0 && JSON.stringify(dyn.eventail) !== JSON.stringify(ind.eventail), "corrélations dynamiques : tirages différents de l'indépendant, éventail valide");
+    egal(dyn.central, ind.central, "corrélations : le scénario central ne dépend pas du réglage");
+  }
+  // 7. Inflation persistante
+  {
+    const sc = scenarioInflation(PLAN, pr, { taux: 5 });
+    egal([sc.taux, sc.duree, sc.hypotheses === SCENARIO_INFLATION], [5, 10, true], "inflation persistante : paramètres par défaut");
+    egal(Object.values(sc.indicesReels).map((s) => s.length), [11, 11, 11, 11, 11, 11], "inflation persistante : durée + 1 points par indice");
+    verifier(Object.values(sc.indicesReels).every((s) => s[0] === 100), "inflation persistante : base 100");
+    const fin = (c) => sc.indicesReels[c][10];
+    verifier(fin("securite") < 100 && fin("prudent") < 100, `inflation persistante : livrets (${fin("securite").toFixed(1)}) et prudent (${fin("prudent").toFixed(1)}) perdent du pouvoir d'achat`);
+    verifier(fin("or") > fin("securite"), "inflation persistante : l'or protège mieux que le livret");
+    verifier(sc.patrimoine.scenarioReel < sc.patrimoine.centralReel && sc.patrimoine.ecart < 0 && sc.patrimoine.ecartPct < 0, `inflation persistante : patrimoine réel inférieur au central (${Math.round(sc.patrimoine.scenarioReel)} < ${Math.round(sc.patrimoine.centralReel)})`);
+    egal(scenarioInflation(PLAN, pr, { taux: H.inflation, duree: 0 }).patrimoine.ecart, 0, "inflation persistante : durée nulle = central");
   }
 }
 
