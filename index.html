@@ -418,6 +418,14 @@ html.discret .num { letter-spacing: 0.05em; }
 .assistant-approfondi:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .assistant-approfondi[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--fg); font-weight: 600; }
 .assistant-approfondi:disabled { opacity: 0.5; cursor: default; }
+.assistant-micro { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 8px; padding: 0 10px; font: inherit; font-size: 1rem; cursor: pointer; }
+.assistant-micro:hover:not(:disabled) { border-color: var(--accent); }
+.assistant-micro:disabled { opacity: 0.5; cursor: default; }
+.assistant-micro[aria-pressed="true"] { border-color: var(--warn); background: var(--warn-soft); animation: assistant-ecoute 1.2s ease-in-out infinite; }
+.assistant-icone[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.assistant-form[data-ecoute="true"] .assistant-saisie { border-color: var(--warn); }
+@keyframes assistant-ecoute { 50% { box-shadow: 0 0 0 4px var(--warn-soft); } }
+@media (prefers-reduced-motion: reduce) { .assistant-micro[aria-pressed="true"] { animation: none; } }
 .assistant-form { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--line); }
 .assistant-saisie { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); padding: 7px 9px; font: inherit; font-size: 0.86rem; min-width: 0; }
 .assistant-pied { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px 10px; font-size: 0.68rem; color: var(--faint); }
@@ -732,6 +740,7 @@ html.discret .num { letter-spacing: 0.05em; }
     <header class="assistant-entete">
       <div class="assistant-titre">Assistant <span class="assistant-badge" id="assistant-badge" data-moteur="local">Mode local</span></div>
       <div>
+        <button type="button" class="assistant-icone" id="assistant-voix" aria-pressed="false" title="Lecture à voix haute des réponses (désactivée)" aria-label="Lecture vocale des réponses" hidden>🔇</button>
         <button type="button" class="assistant-icone" id="assistant-reglages-btn" aria-expanded="false" aria-controls="assistant-reglages" title="Réglages" aria-label="Réglages de l'assistant">⚙️</button>
         <button type="button" class="assistant-icone" id="assistant-fermer" title="Fermer (Échap)" aria-label="Fermer l'assistant">✕</button>
       </div>
@@ -741,8 +750,9 @@ html.discret .num { letter-spacing: 0.05em; }
     </div>
     <div class="assistant-reglages" id="assistant-reglages" hidden>
       <label><input type="radio" name="assistant-mode" value="auto"> Automatique : OpenAI si le serveur le permet, sinon local</label>
-      <label><input type="radio" name="assistant-mode" value="local" checked> Local uniquement : rien ne quitte ton navigateur</label>
+      <label><input type="radio" name="assistant-mode" value="local" checked> Local uniquement : aucune question n'est envoyée à OpenAI</label>
       <p>La clé OpenAI se règle côté serveur (fichier <code>.env</code> ou secret Cloudflare), jamais dans le navigateur. Avec OpenAI, seuls des pourcentages et ratios sont envoyés, jamais tes montants en euros, noms ou comptes.</p>
+      <p>Mode vocal : la dictée (🎙️) est assurée par le service de reconnaissance de ton navigateur (Google, Microsoft ou Apple selon le navigateur), qui peut recevoir l'audio. La lecture (🔊) utilise les voix de ton système.</p>
       <button type="button" class="assistant-btn" id="assistant-effacer">Effacer la conversation</button>
     </div>
     <div class="assistant-consentement" id="assistant-consentement" hidden>
@@ -756,6 +766,7 @@ html.discret .num { letter-spacing: 0.05em; }
     </div>
     <form class="assistant-form" id="assistant-form" autocomplete="off">
       <textarea class="assistant-saisie" id="assistant-saisie" rows="2" maxlength="500" placeholder="Pose ta question…" aria-label="Ta question"></textarea>
+      <button type="button" class="assistant-micro" id="assistant-micro" aria-pressed="false" title="Poser ta question à voix haute" aria-label="Dicter ta question" hidden>🎙️</button>
       <button type="submit" class="assistant-btn primaire" id="assistant-envoyer">Envoyer</button>
     </form>
     <div class="assistant-pied">

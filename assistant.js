@@ -16,7 +16,11 @@
 //  [[SUGGESTION:…]]. Les montants en euros de l'utilisateur ne partent jamais au cloud :
 //  ils sont remplacés par des jetons {M1}… résolus en local.
 //
-//  Fonctions pures (testables) : rechercherSections, resumerProfilPourLLM,
+//  Mode vocal hybride : dictée via SpeechRecognition (fr-FR, transcription en direct puis envoi
+//  automatique) et lecture via speechSynthesis (voix française, texte nettoyé du Markdown). Une question
+//  dictée ajoute CONSIGNE_VOCALE au prompt (3 à 4 phrases orales) ; la lecture est muette en mode discret.
+//
+//  Fonctions pures (testables) : texteParle, decouperPhrases, choisirVoixFr, rechercherSections, resumerProfilPourLLM,
 //  construireRequeteCloud, repondreLocal, extraireBalises, validerPatch, detecterWhatIf,
 //  tokeniserMontants, serialiserHistorique. Le DOM n'est touché que par monterAssistant.
 // =====================================================================
@@ -476,12 +480,85 @@ ${descriptionPatchs()}
 Les montants en euros écrits par l'utilisateur sont remplacés par des jetons {M1}, {M2}… : recopie-les tels quels, entre guillemets, dans "patch" et "label". Si la valeur à simuler n'est pas donnée par l'utilisateur, n'ajoute aucune action. Sans question prospective, aucune action.
 9. Termine toujours par exactement 2 balises de questions de suivi, chacune sur sa propre ligne, après les actions : [[SUGGESTION:question courte]] (tutoiement, 80 caractères maximum, sans montant ni jeton). Les balises ne comptent pas dans les 200 mots.`;
 
-export function construirePromptSysteme(plan, sections) {
+/** Ajoutée en fin de prompt quand la question a été dictée : elle prime sur la règle 5 (longueur et mise en forme). */
+export const CONSIGNE_VOCALE = `MODE VOCAL (prioritaire sur la règle 5 : longueur et mise en forme). La question a été dictée et ta réponse sera lue à voix haute.
+- Réponds en 3 à 4 phrases au maximum, dans un français naturel à l'oral, au tutoiement.
+- Aucun tableau, aucune puce, aucun titre, aucun astérisque ni gras, aucun emoji : uniquement des phrases enchaînées.
+- Écris les chiffres normalement, avec leurs symboles (par exemple 18,6 % ou 150 000 €) : la lecture à voix haute les convertit elle-même.
+- Garde toute ta rigueur fiscale et les règles 1 à 4 : mémo fiscal, profil, pas d'invention.
+- Cite au plus une fiche avec un lien Markdown exact [Titre](#fiche-id) : c'est la seule mise en forme autorisée.
+- Conserve les balises [[ACTION:{…}]] si la question est prospective.
+- OBLIGATOIRE, comme à l'écrit (règle 9) : termine par exactement 2 balises [[SUGGESTION:question courte]], chacune sur sa propre ligne, après les phrases. Elles s'affichent en boutons, ne comptent pas dans les 3 à 4 phrases et ne sont pas lues.`;
+
+/** Silence complet (ms) après la dernière parole avant de clore la dictée et d'envoyer la question. */
+export const DELAI_SILENCE_MS = 2500;
+const REGLE_STYLE_VOCALE = "5. Style (mode vocal) : français oral, tutoiement, 3 à 4 phrases maximum, sans liste, sans titre, sans gras. Pas d'introduction ni de conclusion creuses.";
+/** Rappel ajouté à la fin de la question dictée (dernier message du fil) : c'est ce que le modèle lit en dernier. */
+const RAPPEL_VOCAL = "\n\n(Réponse à lire à voix haute : 3 à 4 phrases fluides, sans liste ni titre ni gras, chiffres avec leurs symboles % et € ; termine par exactement 2 balises [[SUGGESTION:question courte]] sur leurs propres lignes, et garde les balises [[ACTION]] si pertinent.)";
+
+export function construirePromptSysteme(plan, sections, { estVocal = false } = {}) {
   const index = FICHES.map((f) => `- ${lien(f.id)}`).join("\n");
   const extraits = sections.length
     ? sections.map((s) => `### ${s.ficheTitre} — ${s.titre}  (source : ${lien(s.fiche)})\n${s.texte}`).join("\n\n")
     : "(aucun extrait pertinent : réponds avec le mémo et le profil, ou dis que l'information manque)";
-  return `${INSTRUCTIONS}\n\nMÉMO FISCAL 2026 (prioritaire sur tes connaissances) :\n${memoFiscal(plan)}\n\nINDEX DES FICHES (seules citations autorisées) :\n${index}\n\nEXTRAITS DE FICHES :\n${extraits}\n\n(Fiches vérifiées le ${VERIFIE_LE}.)`;
+  const vocal = estVocal ? `\n\n${CONSIGNE_VOCALE}` : "";
+  // En mode vocal, la règle 5 (120-200 mots, puces) est remplacée plutôt que contredite : un modèle rapide suit mal deux consignes opposées.
+  const base = estVocal ? INSTRUCTIONS.replace(/^5\. .*$/m, REGLE_STYLE_VOCALE) : INSTRUCTIONS;
+  return `${base}\n\nMÉMO FISCAL 2026 (prioritaire sur tes connaissances) :\n${memoFiscal(plan)}\n\nINDEX DES FICHES (seules citations autorisées) :\n${index}\n\nEXTRAITS DE FICHES :\n${extraits}\n\n(Fiches vérifiées le ${VERIFIE_LE}.)${vocal}`;
+}
+
+// ---------------------------------------------------------------- synthèse vocale (fonctions pures)
+/** Texte Markdown d'une réponse → texte à lire : liens réduits au titre, balises et mise en forme retirées, symboles prononçables. */
+export function texteParle(md) {
+  return String(md)
+    .replace(/\[\[[\s\S]*?\]\]/g, " ")
+    .replace(/\[\[[\s\S]*$/, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/`+/g, "")
+    .replace(/^\s{0,3}#{1,6}\s*/gm, "")
+    .replace(/^\s*[-*•]\s+/gm, "")
+    .replace(/^\s*\d+[.)]\s+/gm, "")
+    .replace(/^\s*\|?[\s:|-]{3,}\|?\s*$/gm, " ")
+    .replace(/\|/g, ", ")
+    .replace(/[*_~]+/g, "")
+    .replace(/\s*%/g, " pour cent")
+    .replace(/\s*€/g, " euros")
+    .replace(/\s*\n+\s*/g, ". ")
+    .replace(/([.!?:;])\s*\.(\s|$)/g, "$1$2")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
+/** Découpe un texte en phrases d'au plus `max` caractères (la synthèse de Chrome coupe les longs énoncés). */
+export function decouperPhrases(texte, max = 220) {
+  const brut = String(texte).match(/[^.!?;:]+[.!?;:]*\s*/g) ?? [];
+  const sortie = [];
+  for (let p of brut) {
+    p = p.trim();
+    while (p.length > max) {
+      const coupe = p.lastIndexOf(" ", max);
+      const i = coupe > 40 ? coupe : max;
+      sortie.push(p.slice(0, i).trim());
+      p = p.slice(i).trim();
+    }
+    if (p) sortie.push(p);
+  }
+  return sortie;
+}
+
+/** Meilleure voix française : fr-FR avant fr-*, voix naturelles/premium avant les autres, voix locales (hors réseau) favorisées. */
+export function choisirVoixFr(voix) {
+  const note = (v) => {
+    const lang = String(v.lang ?? "").replace("_", "-").toLowerCase();
+    if (!lang.startsWith("fr")) return -1;
+    let s = lang === "fr-fr" ? 10 : 4;
+    if (/premium|enhanced|natural|neural|siri|am[ée]lie|thomas|audrey/i.test(v.name ?? "")) s += 6;
+    if (v.localService) s += 3;
+    return s;
+  };
+  let meilleure = null, max = -1;
+  for (const v of voix ?? []) { const s = note(v); if (s > max) { max = s; meilleure = v; } }
+  return meilleure;
 }
 
 /**
@@ -489,15 +566,15 @@ export function construirePromptSysteme(plan, sections) {
  * `approfondi` (toggle « 🧠 Analyse approfondie ») est transmis tel quel : le routage vers le modèle de raisonnement
  * (toggle ou mot-clé complexe, quota journalier) est décidé côté serveur.
  */
-export function preparerRequeteCloud(question, historique, ctx, { approfondi = false } = {}) {
+export function preparerRequeteCloud(question, historique, ctx, { approfondi = false, estVocal = false } = {}) {
   const sections = rechercherSections(question, historique);
   const avant = historique.filter((m) => m.texte && m.source !== "accueil" && m.source !== "local" && m.source !== "action" && m !== historique[historique.length - 1]).slice(-6);
   const montants = {}; // jeton → valeur : reste dans le navigateur, jamais envoyé
   const jeton = (t) => tokeniserMontants(t, montants);
   const requete = {
-    systeme: construirePromptSysteme(ctx?.plan, sections),
+    systeme: construirePromptSysteme(ctx?.plan, sections, { estVocal: estVocal === true }),
     profil: resumerProfilPourLLM(ctx) || "(profil non disponible)",
-    messages: [...avant.map((m) => ({ role: m.role === "ia" ? "assistant" : "user", content: jeton(m.texte) })), { role: "user", content: jeton(question) }],
+    messages: [...avant.map((m) => ({ role: m.role === "ia" ? "assistant" : "user", content: jeton(m.texte) })), { role: "user", content: jeton(question) + (estVocal === true ? RAPPEL_VOCAL : "") }],
     modeApprofondi: approfondi === true,
     stream: true,
   };
@@ -734,10 +811,11 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
   if (!racine) return;
   const el = { bouton: $("assistant-bouton"), panneau: $("assistant-panneau"), badge: $("assistant-badge"), fil: $("assistant-fil"), suggestions: $("assistant-suggestions"),
     form: $("assistant-form"), saisie: $("assistant-saisie"), reglagesBtn: $("assistant-reglages-btn"), reglages: $("assistant-reglages"), consentement: $("assistant-consentement"),
-    fermer: $("assistant-fermer"), copier: $("assistant-copier"), effacer: $("assistant-effacer"), envoyer: $("assistant-envoyer"), horsLigne: $("assistant-horsligne"), approfondi: $("assistant-approfondi") };
+    fermer: $("assistant-fermer"), copier: $("assistant-copier"), effacer: $("assistant-effacer"), envoyer: $("assistant-envoyer"), horsLigne: $("assistant-horsligne"), approfondi: $("assistant-approfondi"),
+    micro: $("assistant-micro"), voix: $("assistant-voix") };
 
   // `epoque` change quand le fil est effacé ou qu'un autre profil est chargé : une réponse en retard est alors abandonnée.
-  const etat = { reglages: lireReglages(), serveur: { connu: false, joignable: false, actif: false, modele: "" }, fil: [], occupe: false, controleur: null, epoque: 0, approfondi: false, modeleActif: "" };
+  const etat = { reglages: lireReglages(), serveur: { connu: false, joignable: false, actif: false, modele: "" }, fil: [], occupe: false, controleur: null, epoque: 0, approfondi: false, modeleActif: "", voix: false };
   const accueil = { role: "ia", source: "accueil", texte: `Bonjour ! Pose-moi une question sur tes placements, ton plan ou la fiscalité. Je cite les fiches du site (par exemple ${lien("mode-emploi")}).` };
 
   const ctx = () => { try { return getContexte(); } catch { return {}; } };
@@ -880,6 +958,7 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
     racine.dataset.occupe = String(on);
     el.fil.setAttribute("aria-busy", String(on));
     if (el.approfondi) el.approfondi.disabled = on;
+    if (el.micro) el.micro.disabled = on;
     for (const b of racine.querySelectorAll(".assistant-puce")) b.disabled = on;
   }
   /** Toggle « 🧠 Analyse approfondie » : état purement local (jamais persisté), transmis à chaque requête cloud. */
@@ -913,10 +992,124 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
     sauverHistorique();
   }
 
+  // -- mode vocal : dictée (SpeechRecognition) et lecture (speechSynthesis), API natives du navigateur
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  const synth = "speechSynthesis" in window && typeof window.SpeechSynthesisUtterance === "function" ? window.speechSynthesis : null;
+  const dictee = { reco: null, active: false, texte: "", envoyer: true, erreur: "", minuteur: null };
+  /** Silence complet après la dernière parole : la dictée s'arrête et la question part (une respiration plus courte ne coupe rien). */
+  const annulerSilence = () => { clearTimeout(dictee.minuteur); dictee.minuteur = null; };
+  function armerSilence() {
+    annulerSilence();
+    dictee.minuteur = setTimeout(() => { dictee.minuteur = null; arreterDictee(true); }, DELAI_SILENCE_MS);
+  }
+  const MESSAGES_DICTEE = {
+    "no-speech": "Je n'ai rien entendu, réessaie.",
+    "not-allowed": "Accès au micro refusé : autorise-le dans ton navigateur.",
+    "service-not-allowed": "Accès au micro refusé : autorise-le dans ton navigateur.",
+    "audio-capture": "Aucun micro détecté.",
+    network: "Dictée indisponible : le service de reconnaissance est injoignable.",
+  };
+  let voixFr = null;
+  const discretActif = () => document.documentElement.classList.contains("discret");
+  const arreterVoix = () => { try { synth?.cancel(); } catch { /* synthèse indisponible */ } };
+
+  function majVoix() {
+    if (!el.voix) return;
+    el.voix.textContent = etat.voix ? "🔊" : "🔇";
+    el.voix.setAttribute("aria-pressed", String(etat.voix));
+    el.voix.title = etat.voix
+      ? `Lecture vocale activée : clique pour couper${discretActif() ? " (muette tant que les montants sont masqués)" : ""}`
+      : "Lecture à voix haute des réponses (désactivée)";
+  }
+  function activerVoix(oui) {
+    etat.voix = oui;
+    if (!oui) arreterVoix();
+    majVoix();
+  }
+  /** Lit une réponse à voix haute si la lecture est activée (muette en mode discret : la réponse peut citer des chiffres). */
+  function parler(texte) {
+    if (!synth || !etat.voix || discretActif() || el.panneau.hidden) return;
+    if (!voixFr) voixFr = choisirVoixFr(synth.getVoices());
+    for (const phrase of decouperPhrases(texteParle(texte))) {
+      const u = new window.SpeechSynthesisUtterance(phrase);
+      u.lang = voixFr?.lang || "fr-FR";
+      if (voixFr) u.voice = voixFr;
+      synth.speak(u);
+    }
+  }
+
+  function majMicro() {
+    if (!el.micro) return;
+    el.micro.setAttribute("aria-pressed", String(dictee.active));
+    el.micro.title = dictee.active ? "Arrêter et envoyer" : "Poser ta question à voix haute";
+    el.form.dataset.ecoute = String(dictee.active);
+  }
+  /** Message bref dans le champ de saisie (placeholder), puis retour au texte d'origine. */
+  function avisDictee(message) {
+    const ancien = el.saisie.dataset.invite ?? el.saisie.placeholder;
+    el.saisie.dataset.invite = ancien;
+    el.saisie.placeholder = message;
+    setTimeout(() => { el.saisie.placeholder = ancien; delete el.saisie.dataset.invite; }, 4000);
+  }
+  /** `envoyer` : true = on envoie ce qui a été capté ; false = on abandonne (fermeture, Échap, autre envoi). */
+  function arreterDictee(envoyer) {
+    annulerSilence();
+    if (!dictee.reco) return;
+    dictee.envoyer = envoyer;
+    try { if (envoyer) dictee.reco.stop(); else dictee.reco.abort(); } catch { /* déjà arrêtée */ }
+  }
+  function demarrerDictee() {
+    if (!SR || etat.occupe || dictee.active) return;
+    if (!etat.reglages.micInfo) { // premier usage : l'audio part vers le service de reconnaissance du navigateur
+      if (!window.confirm("La dictée utilise le service de reconnaissance vocale de ton navigateur (Google, Microsoft ou Apple selon le cas), qui peut recevoir l'audio de ta voix. Continuer ?")) return;
+      etat.reglages.micInfo = true;
+      ecrireReglages(etat.reglages);
+    }
+    arreterVoix();
+    activerVoix(true); // le mode vocal active la lecture ; l'utilisateur peut la couper ensuite
+    let reco;
+    try { reco = new SR(); } catch { avisDictee(MESSAGES_DICTEE["audio-capture"]); return; }
+    reco.lang = "fr-FR";
+    reco.interimResults = true;
+    reco.continuous = true; // ne se coupe plus à la première pause : c'est le minuteur de silence qui décide de la fin
+    reco.maxAlternatives = 1;
+    Object.assign(dictee, { reco, active: true, texte: "", envoyer: true, erreur: "" });
+    el.saisie.value = "";
+    reco.onresult = (e) => {
+      if (dictee.reco !== reco) return;
+      dictee.texte = Array.from(e.results).map((r) => r[0]?.transcript ?? "").join(" ").replace(/\s+/g, " ").trim();
+      el.saisie.value = dictee.texte.slice(0, el.saisie.maxLength > 0 ? el.saisie.maxLength : 500);
+      if (dictee.texte) armerSilence(); // chaque nouveau morceau (provisoire ou final) repousse la fin de 2,5 s
+    };
+    reco.onerror = (e) => {
+      if (dictee.reco !== reco || e.error === "aborted") return;
+      annulerSilence();
+      dictee.erreur = e.error || "erreur";
+      avisDictee(MESSAGES_DICTEE[dictee.erreur] ?? "La dictée a échoué, réessaie ou écris ta question.");
+    };
+    reco.onend = () => {
+      if (dictee.reco !== reco) return;
+      annulerSilence();
+      const { envoyer, erreur } = dictee;
+      const texte = dictee.texte.slice(0, el.saisie.maxLength > 0 ? el.saisie.maxLength : 500).trim();
+      Object.assign(dictee, { reco: null, active: false });
+      majMicro();
+      if (envoyer && !erreur && texte) poser(texte, { estVocal: true });
+    };
+    majMicro();
+    try { reco.start(); } catch { Object.assign(dictee, { reco: null, active: false }); majMicro(); avisDictee(MESSAGES_DICTEE["audio-capture"]); }
+  }
+  if (el.micro) el.micro.hidden = !SR; // navigateur sans reconnaissance vocale (Firefox…) : bouton masqué
+  if (el.voix) el.voix.hidden = !synth;
+  majVoix();
+
   // -- conversation
-  async function poser(question) {
+  /** `estVocal` : la question vient de la dictée → consigne « réponse brève et orale » ajoutée côté prompt. */
+  async function poser(question, { estVocal = false } = {}) {
     question = question.trim();
     if (!question || etat.occupe) return; // ignore tout envoi tant qu'une requête est en cours
+    arreterVoix();
+    if (dictee.active) arreterDictee(false);
     etat.occupe = true;
     verrouiller(true);
     el.saisie.value = "";
@@ -937,7 +1130,7 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
         etat.controleur = controleur;
         const delai = setTimeout(() => controleur.abort(), 45000);
         try {
-          const { requete, montants } = preparerRequeteCloud(question, [...historique, utilisateur], contexte, { approfondi: etat.approfondi });
+          const { requete, montants } = preparerRequeteCloud(question, [...historique, utilisateur], contexte, { approfondi: etat.approfondi, estVocal });
           reponse.montants = montants;
           const r = await appelerCloud(requete, (t) => { if (perime()) return; reponse.texte = t; reponse.source = "openai"; majFlux(reponse); }, controleur.signal,
             (m) => { if (!perime()) { etat.modeleActif = libelleModele(m); majBadge(); } }); // modèle réellement retenu par le serveur, affiché dès l'ouverture du flux
@@ -951,6 +1144,7 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
           });
           rendreFil();
           sauverHistorique();
+          parler(reponse.texte);
           etat.serveur.connu = true; etat.serveur.joignable = true; majBadge();
           return;
         } catch (e) {
@@ -972,6 +1166,7 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
       });
       rendreFil();
       sauverHistorique();
+      parler(reponse.texte);
     } finally {
       etat.occupe = false;
       if (etat.modeleActif) { etat.modeleActif = ""; majBadge(); } // fin de requête : le badge retrouve le modèle par défaut du serveur
@@ -1002,6 +1197,7 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
 
   // -- ouverture / fermeture
   function ouvrir(oui) {
+    if (!oui) { arreterVoix(); arreterDictee(false); } // fermeture : on coupe la lecture et la dictée en cours
     el.panneau.hidden = !oui;
     el.bouton.setAttribute("aria-expanded", String(oui));
     racine.dataset.ouvert = String(oui);
@@ -1023,9 +1219,16 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
     if (el.panneau.hidden || e.composedPath().includes(racine)) return;
     ouvrir(false);
   });
-  el.form.addEventListener("submit", (e) => { e.preventDefault(); poser(el.saisie.value); });
-  el.saisie.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); poser(el.saisie.value); } });
+  /** « Envoyer » / Entrée : pendant une dictée, on stoppe l'écoute et la question dictée part tout de suite (sans attendre le silence). */
+  const envoyerSaisie = () => { if (dictee.active) arreterDictee(true); else poser(el.saisie.value); };
+  el.form.addEventListener("submit", (e) => { e.preventDefault(); envoyerSaisie(); });
+  el.saisie.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); envoyerSaisie(); } });
+  // Frappe au clavier pendant la dictée : l'écoute est abandonnée, le texte tapé est conservé.
+  el.saisie.addEventListener("input", () => { if (dictee.active) arreterDictee(false); });
   el.copier.addEventListener("click", copierContexte);
+  el.micro?.addEventListener("click", () => { if (dictee.active) arreterDictee(true); else demarrerDictee(); });
+  el.voix?.addEventListener("click", () => activerVoix(!etat.voix));
+  window.addEventListener("pagehide", () => { arreterVoix(); arreterDictee(false); });
   el.approfondi?.addEventListener("click", () => { if (etat.occupe) return; etat.approfondi = !etat.approfondi; majApprofondi(); });
   el.reglagesBtn.addEventListener("click", () => {
     const ouvert = el.reglages.hidden;
@@ -1037,6 +1240,7 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
   el.effacer.addEventListener("click", () => {
     etat.epoque++;
     etat.controleur?.abort();
+    arreterVoix();
     etat.fil = [];
     try { localStorage.removeItem(cleHistorique()); } catch { /* stockage indisponible */ }
     rendreFil();
@@ -1048,6 +1252,8 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
   document.addEventListener("profil:change", () => {
     etat.epoque++;
     etat.controleur?.abort();
+    arreterVoix();
+    arreterDictee(false);
     chargerHistorique();
     rendreFil();
     rendreSuggestions();
@@ -1059,7 +1265,7 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
   let discret = document.documentElement.classList.contains("discret");
   new MutationObserver(() => {
     const maintenant = document.documentElement.classList.contains("discret");
-    if (maintenant !== discret) { discret = maintenant; if (!maintenant) rendreFil(); }
+    if (maintenant !== discret) { discret = maintenant; if (maintenant) arreterVoix(); majVoix(); if (!maintenant) rendreFil(); }
   }).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
 
   window.addEventListener("online", majReseauChat);

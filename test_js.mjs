@@ -3,7 +3,7 @@
 // Aucun appel réseau : le `fetch` vers OpenAI est remplacé par un faux amont.
 
 import worker, { MODEL_FAST, MODEL_REASONING, choisirModele, choixRepli, corpsOpenAI, questionComplexe, tokensDuJour } from "./worker.js";
-import { extraireBalises, libelleModele, preparerRequeteCloud } from "./assistant.js";
+import { CONSIGNE_VOCALE, DELAI_SILENCE_MS, choisirVoixFr, decouperPhrases, extraireBalises, libelleModele, preparerRequeteCloud, texteParle } from "./assistant.js";
 
 export const resultats = { ok: 0, echecs: [] };
 function verifier(condition, message) {
@@ -181,6 +181,38 @@ egal(libelleModele(undefined), "", "libellé absent");
   verifier(b.texte.includes("500") && !b.texte.includes("{M1}") && !b.texte.includes("[["), "balises : texte propre, jeton restauré");
   egal(b.actions[0]?.patch, { epargneMensuelle: 500 }, "balises : [[ACTION]] validée");
   egal(b.suggestions, ["Et après ?", "Autre piste ?"], "balises : [[SUGGESTION]]");
+}
+
+// ---------------------------------------------------------------- assistant.js : mode vocal
+{
+  const md = "## Titre\n- **PEA** : 17,2 % de prélèvements, voir [Le PEA](#fiche-pea).\n- Plafond de 150 000 €\n[[ACTION:{\"label\":\"x\",\"patch\":{}}]]\nTexte `code` et _italique_.";
+  const t = texteParle(md);
+  verifier(!/[#*_`\[\]|]/.test(t), `voix : aucun symbole Markdown restant — ${t}`);
+  verifier(t.includes("Le PEA") && !t.includes("#fiche"), "voix : lien réduit à son titre");
+  verifier(!t.includes("ACTION") && !t.includes("patch"), "voix : balise [[ACTION]] supprimée");
+  verifier(t.includes("17,2 pour cent") && t.includes("150 000 euros"), "voix : % et € prononçables");
+  verifier(!texteParle("Début [[ACTION:{\"label\":\"coupé").includes("ACTION"), "voix : balise ouverte (flux) supprimée");
+  const phrases = decouperPhrases("Première phrase. Deuxième phrase ! " + "mot ".repeat(120));
+  verifier(phrases.length >= 3 && phrases.every((p) => p.length <= 220), "voix : phrases découpées (≤ 220 caractères)");
+  const voix = [
+    { name: "Voix EN", lang: "en-US", localService: true },
+    { name: "Voix FR basique", lang: "fr-FR", localService: false },
+    { name: "Amélie (Premium)", lang: "fr-CA", localService: true },
+    { name: "Thomas", lang: "fr-FR", localService: true },
+  ];
+  egal(choisirVoixFr(voix)?.name, "Thomas", "voix : fr-FR naturelle et locale choisie");
+  egal(choisirVoixFr([{ name: "EN", lang: "en-GB" }]), null, "voix : aucune voix française");
+  const normal = preparerRequeteCloud("Bonjour", [], { plan: {} }).requete;
+  const vocal = preparerRequeteCloud("Bonjour", [], { plan: {} }, { estVocal: true }).requete;
+  verifier(!normal.systeme.includes("MODE VOCAL"), "vocal : consigne absente à l'écrit");
+  verifier(vocal.systeme.includes(CONSIGNE_VOCALE) && vocal.systeme.length < 24000, "vocal : consigne présente, sous la limite serveur");
+  verifier(!vocal.systeme.includes("120 à 200 mots") && normal.systeme.includes("120 à 200 mots"), "vocal : règle 5 remplacée en vocal seulement");
+  verifier(vocal.messages.at(-1).content.includes("voix haute") && !normal.messages.at(-1).content.includes("voix haute"), "vocal : rappel sur la dernière question seulement");
+  verifier(!/pour cent|en toutes lettres/i.test(CONSIGNE_VOCALE + vocal.messages.at(-1).content), "vocal : le modèle n'écrit pas « pour cent » (conversion faite par texteParle)");
+  verifier(CONSIGNE_VOCALE.includes("18,6 %") && CONSIGNE_VOCALE.includes("150 000 €"), "vocal : symboles % et € conservés à l'écran");
+  verifier(CONSIGNE_VOCALE.includes("exactement 2 balises [[SUGGESTION:") && vocal.messages.at(-1).content.includes("exactement 2 balises [[SUGGESTION:"), "vocal : 2 balises [[SUGGESTION]] exigées (consigne et rappel)");
+  egal(DELAI_SILENCE_MS, 2500, "vocal : délai de silence de 2,5 s");
+  verifier(CONSIGNE_VOCALE.includes("[[ACTION") && CONSIGNE_VOCALE.includes("[Titre](#fiche-id)"), "vocal : balises et citation conservées");
 }
 
 if (typeof process !== "undefined" && process.argv?.[1]?.endsWith("test_js.mjs")) {
