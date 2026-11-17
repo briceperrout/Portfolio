@@ -11,7 +11,7 @@ import { DEPARTEMENTS, chargerPrix, prixCharges, estimer, estimerLoyer, libelleC
 import { estimerPension, ageEnTexte } from "./pension.js";
 import { decomposerSalaire, foyerFiscal, impotBareme, BAREME } from "./fiscal.js";
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
-import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant } from "./moteur.js";
+import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER } from "./moteur.js";
 import { monterAssistant } from "./assistant.js";
 
 // ---------------------------------------------------------------- outils
@@ -2674,6 +2674,8 @@ let messageSuivi = "";
 let tousLesComptes = false;
 let brouillonReleve = null;
 let moisReleve = null; // montants en cours de saisie dans « Noter un relevé »
+let brouillonPRU = null; // capital versé (et solde du PEA-PME) lus dans un fichier importé, en attente du relevé
+let importFichier = null; // { nom, resultat } : fichier CSV / Excel lu, en attente de validation par l'utilisateur
 
 function appliquerPlacements(placements) {
   etat.profil.placements = clone(placements);
@@ -2689,9 +2691,21 @@ async function actionSuivi(e) {
   if (t.id === "btn-exemple-reset") {
     etat.profil.placements = clone(PROFIL_EXEMPLE.placements);
     suivisTest.delete(cle(proches.courant));
-    brouillonReleve = null;
+    brouillonReleve = null; brouillonPRU = null; importFichier = null;
     appliquerPlacements(etat.profil.placements);
     messageSuivi = "Exemple remis à zéro.";
+    rendreSuivi(); return;
+  }
+  if (t.id === "btn-fichier-annuler") { importFichier = null; messageSuivi = ""; rendreSuivi(); return; }
+  if (t.id === "btn-fichier-ok") {
+    if (!importFichier) return;
+    const { montants, pru } = releveDepuisImport(importFichier.resultat.comptes);
+    brouillonReleve = { ...(brouillonReleve ?? {}), ...montants };
+    brouillonPRU = { ...(brouillonPRU ?? {}), ...pru };
+    if (montants.pea !== undefined && !pru.peaPme) delete brouillonPRU.peaPme; // le solde du PEA importé ne contient plus de PEA-PME
+    if (Object.keys(montants).some((k) => !((Number(etat.profil.placements?.[k]) || 0) > 0))) tousLesComptes = true;
+    messageSuivi = `${Object.keys(montants).length} compte(s) rempli(s) depuis le fichier${Object.keys(pru).length ? " (capital versé inclus)" : ""}. Vérifie les montants puis note le relevé.`;
+    importFichier = null;
     rendreSuivi(); return;
   }
   if (t.id === "btn-coller") {
@@ -2712,9 +2726,17 @@ async function actionSuivi(e) {
       for (const k of Object.keys(placements)) placements[k] = Math.max(0, Number(placements[k]) || 0);
       const plusRecent = !suivi.releves.some((r) => r.date > date);
       const note = ($("#releve-note")?.value ?? "").trim().slice(0, 140);
-      suivi.releves = suivi.releves.filter((r) => r.date !== date).concat([{ date, placements, total: totalPlacements(placements), ...(note ? { note } : {}) }]).sort((a, b) => a.date.localeCompare(b.date));
+      const pru = {};
+      for (const id of COMPTES_PRU) {
+        const e = brouillonPRU?.[id]; if (!e) continue;
+        const entree = {};
+        if (Number.isFinite(e.verse) && e.verse >= 0) entree.verse = e.verse;
+        if (id === "peaPme" && Number.isFinite(e.solde) && e.solde >= 0) entree.solde = Math.min(e.solde, placements.pea ?? 0);
+        if (Object.keys(entree).length) pru[id] = entree;
+      }
+      suivi.releves = suivi.releves.filter((r) => r.date !== date).concat([{ date, placements, total: totalPlacements(placements), ...(Object.keys(pru).length ? { pru } : {}), ...(note ? { note } : {}) }]).sort((a, b) => a.date.localeCompare(b.date));
       if (!suivi.reference) suivi.reference = { date: suivi.releves[0].date, points: referenceDepuis(suivi.releves[0].placements) };
-      brouillonReleve = null; moisReleve = null;
+      brouillonReleve = null; moisReleve = null; brouillonPRU = null; importFichier = null;
       if (plusRecent) appliquerPlacements(placements);
       messageSuivi = `Relevé de ${libMois(date)} noté${test ? " (test, non enregistré)" : ""}.${plusRecent ? " Tes montants de « Mon profil » sont mis à jour : les versements du mois prochain sont recalculés ci-dessous." : ""}`;
     } else if (t.dataset.supprReleve) {
@@ -2736,6 +2758,78 @@ async function actionSuivi(e) {
 }
 
 $("#suivi").addEventListener("change", (e) => { if (e.target.id === "suivi-mois") moisReleve = e.target.value || null; });
+
+// Import d'un fichier CSV / Excel : lu dans le navigateur (FileReader), 2 Mo maximum, jamais envoyé au serveur
+async function lireFichierDepose(fichier) {
+  if (!fichier) return;
+  importFichier = null;
+  try {
+    if (fichier.size > TAILLE_MAX_FICHIER) throw new Error(`Fichier trop volumineux (${(fichier.size / 1048576).toFixed(1).replace(".", ",")} Mo) : 2 Mo maximum.`);
+    const buffer = await new Promise((ok, ko) => {
+      const lecteur = new FileReader();
+      lecteur.onload = () => ok(lecteur.result);
+      lecteur.onerror = () => ko(new Error("Lecture du fichier impossible."));
+      lecteur.readAsArrayBuffer(fichier);
+    });
+    importFichier = { nom: String(fichier.name).slice(0, 120), resultat: await lireFichierReleve(fichier.name, new Uint8Array(buffer)) };
+    messageSuivi = "";
+  } catch (err) {
+    messageSuivi = err instanceof Error && err.message ? err.message : "Fichier illisible.";
+  }
+  rendreSuivi();
+}
+$("#suivi").addEventListener("change", (e) => {
+  if (e.target.id !== "releve-fichier") return;
+  const fichier = e.target.files?.[0];
+  e.target.value = "";
+  lireFichierDepose(fichier);
+});
+const zoneDepot = (e) => e.target.closest?.("#depot-releve");
+$("#suivi").addEventListener("dragover", (e) => { const z = zoneDepot(e); if (z) { e.preventDefault(); z.classList.add("survol"); } });
+$("#suivi").addEventListener("dragleave", (e) => zoneDepot(e)?.classList.remove("survol"));
+$("#suivi").addEventListener("drop", (e) => {
+  const z = zoneDepot(e); if (!z) return;
+  e.preventDefault(); z.classList.remove("survol");
+  lireFichierDepose(e.dataTransfer?.files?.[0]);
+});
+// Un fichier lâché à côté de la zone ferait quitter l'appli : on l'ignore sur l'onglet Suivi
+for (const ev of ["dragover", "drop"]) window.addEventListener(ev, (e) => { if (!$("#vue-suivi").hidden && e.dataTransfer?.types?.includes("Files") && !zoneDepot(e)) e.preventDefault(); });
+
+// Aperçu du fichier lu : construit en DOM avec textContent (les libellés viennent du fichier, jamais d'innerHTML)
+function monterApercuImport() {
+  const cible = $("#import-apercu"); if (!cible) return;
+  cible.replaceChildren();
+  if (!importFichier) return;
+  const { nom, resultat: r } = importFichier;
+  const el = (balise, texte, classe) => { const n = document.createElement(balise); if (texte != null) n.textContent = texte; if (classe) n.className = classe; return n; };
+  cible.append(el("p", `Fichier lu : ${nom}`, "small"));
+  cible.append(el("p", `Colonnes ${r.devine ? "devinées (aucun en-tête reconnu)" : "détectées"} : libellé « ${r.colonnes.libelle} », solde « ${r.colonnes.solde} », ${r.colonnes.verse ? `versements cumulés « ${r.colonnes.verse} »` : "pas de colonne de versements cumulés (le capital versé sera estimé)"}.`, "small muted"));
+  const ids = Object.keys(r.comptes);
+  if (ids.length) {
+    const table = el("table"), tete = el("tr"), corps = el("tbody");
+    for (const [titre, classe] of [["Compte reconnu"], ["Solde", "m"], ["Capital versé", "m"]]) tete.append(el("th", titre, classe));
+    table.append(el("thead")); table.firstChild.append(tete);
+    for (const id of ids) {
+      const ligne = el("tr");
+      ligne.append(el("td", id === "peaPme" ? "PEA-PME" : (etat.brouillon.enveloppes[id]?.libelle ?? id)));
+      ligne.append(el("td", eur(r.comptes[id].solde), "m"));
+      ligne.append(el("td", r.comptes[id].verse == null ? "—" : eur(r.comptes[id].verse), "m"));
+      corps.append(ligne);
+    }
+    table.append(corps);
+    const enveloppe = el("div", null, "table-wrap"); enveloppe.append(table); cible.append(enveloppe);
+  } else cible.append(el("p", "Aucun compte reconnu dans ce fichier : vérifie que les libellés contiennent le nom du compte (PEA, compte-titres, assurance vie, PER…).", "small"));
+  if (r.ignores.length) {
+    const detail = el("details"), liste = el("ul", null, "small muted");
+    detail.append(el("summary", `${r.ignores.length}${r.ignores.length >= 50 ? " ou plus" : ""} ligne(s) non reconnue(s), ignorée(s)`, "small"));
+    for (const l of r.ignores.slice(0, 8)) liste.append(el("li", l.slice(0, 80)));
+    detail.append(liste); cible.append(detail);
+  }
+  const actions = el("div", null, "ligne-actions");
+  if (ids.length) { const ok = el("button", "Utiliser ces montants", "principal"); ok.type = "button"; ok.id = "btn-fichier-ok"; actions.append(ok); }
+  const annuler = el("button", "Annuler", "lien"); annuler.type = "button"; annuler.id = "btn-fichier-annuler"; actions.append(annuler);
+  cible.append(actions);
+}
 $("#suivi").addEventListener("input", (e) => {
   const id = e.target.dataset?.releve; if (!id) return;
   brouillonReleve ??= {};
@@ -2801,36 +2895,6 @@ function graphiqueComptes(releves) {
   return svg + `<div class="legende-g">${familles.map((f) => `<span><span class="pastille" style="background:var(${f.couleur})"></span>${f.nom}</span>`).join("")}</div>`;
 }
 
-// Relevé collé : une ligne par compte, nom puis montant (séparateurs ; , tabulation ou espaces)
-const MOTS_COMPTES = [
-  ["livretJeune", ["livret jeune"]], ["livretA", ["livret a", "livreta"]], ["ldds", ["ldds", "developpement durable"]], ["lep", ["lep", "epargne populaire"]],
-  ["pel", ["pel", "plan epargne logement", "plan d'epargne logement"]], ["livretBancaire", ["super livret", "livret bancaire", "compte sur livret", "csl", "livret+", "livret plus"]],
-  ["epargneSalariale", ["pee", "perco", "pereco", "percol", "epargne salariale", "amundi ee", "natixis", "esalia", "epsor"]],
-  ["assuranceVieUC", ["unites de compte", "unite de compte", "uc"]], ["assuranceVie", ["assurance vie", "assurance-vie", "fonds euro", "fonds euros", "fonds en euros"]],
-  ["pea", ["pea"]], ["cto", ["compte titres", "compte-titres", "cto"]], ["per", ["per"]], ["scpi", ["scpi"]], ["orPhysique", ["or physique", "lingot", "lingots", "napoleon", "pieces d'or", "or"]],
-  ["coldWallet", ["ledger", "trezor", "cold wallet", "portefeuille materiel"]], ["plateformeCrypto", ["bitcoin", "crypto", "coinbase", "binance", "kraken", "bitstack", "bitpanda", "btc"]],
-];
-const echapperRegexp = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-function lireReleveColle(texte) {
-  const montants = {}, ignores = [];
-  const norm = (t) => " " + t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/’/g, "'") + " ";
-  for (const brut of String(texte).split(/\r?\n/)) {
-    const ligne = brut.trim(); if (!ligne) continue;
-    // Montant : le dernier nombre de la ligne (12 345,67 · 12345.67 · 1.234,56 · 12 345 €)
-    const nombres = ligne.match(/-?\d[\d   .]*(?:,\d+)?/g);
-    if (!nombres) { ignores.push(ligne); continue; }
-    const brutN = nombres[nombres.length - 1];
-    let n = brutN.replace(/[\s  ]/g, "");
-    if (/,\d+$/.test(n)) n = n.replace(/\./g, "").replace(",", ".");
-    else if (/^\d{1,3}(\.\d{3})+$/.test(n)) n = n.replace(/\./g, "");
-    const v = Number(n);
-    const t = norm(ligne.slice(0, ligne.lastIndexOf(brutN)));
-    const trouve = MOTS_COMPTES.find(([, mots]) => mots.some((m) => new RegExp(`(^|[^a-z0-9+])${echapperRegexp(m)}([^a-z0-9]|$)`).test(t)));
-    if (!trouve || !isFinite(v)) { ignores.push(ligne); continue; }
-    montants[trouve[0]] = Math.round(((montants[trouve[0]] ?? 0) + Math.max(0, v)) * 100) / 100;
-  }
-  return { montants, ignores };
-}
 function rendreSuivi() {
   const plan = etat.brouillon;
   const { suivi, test, exemple, doc } = suiviCourant();
@@ -2868,6 +2932,12 @@ function rendreSuivi() {
       <tbody>${lignesSaisie || '<tr><td colspan="3" class="muted">Aucun compte avec un montant : affiche tous les comptes.</td></tr>'}</tbody>
       <tfoot><tr><td><b>Total</b></td><td class="m muted">${der ? eur(der.total) : "—"}</td><td class="m"><b class="num" id="releve-total">${eur(totalPlacements(montants))}</b></td></tr></tfoot></table></div>
     <div class="champ" style="margin-top:10px"><label for="releve-note">Note (facultatif) : ce qui explique un saut</label><input id="releve-note" type="text" class="texte" maxlength="140" placeholder="Ex. prime d'intéressement versée, achat d'une voiture 8 000 €, baisse des marchés"></div>
+    <div id="depot-releve" class="depot">
+      <p style="margin:0 0 6px"><b>Importer un fichier</b> (CSV ou Excel .xlsx, 2 Mo maximum) : glisse-le ici ou choisis-le.</p>
+      <input type="file" id="releve-fichier" accept=".csv,.tsv,.txt,.xlsx" aria-label="Choisir un fichier de relevé (CSV ou Excel)">
+      <p class="small muted" style="margin:6px 0 0">Export de BoursoBank, Trade Republic, Fortuneo, Linxea… Colonnes reconnues : libellé du compte, solde (valorisation) et, si elles existent, versements cumulés (capital investi). Le fichier est lu dans ton navigateur et n'est jamais envoyé. Ancien format .xls : enregistre-le d'abord en .xlsx ou en .csv.</p>
+      <div id="import-apercu"></div>
+    </div>
     <details style="margin-top:10px"><summary class="small"><b>Coller un relevé</b> (texte, Excel ou export CSV : une ligne par compte)</summary>
       <textarea id="releve-colle" rows="5" style="width:100%;margin-top:6px" placeholder="Livret A ; 12 345,67&#10;LDDS ; 8 100&#10;PEA Trade Republic ; 31 250,40 €&#10;Assurance vie fonds euros ; 25 000"></textarea>
       <div class="ligne-actions" style="margin-top:6px"><button type="button" id="btn-coller">Remplir les montants</button><span class="small muted">Le nom du compte est reconnu par mots-clés (Livret A, LDDS, PEA, compte-titres, assurance vie, PER, SCPI, bitcoin…).</span></div>
@@ -2912,6 +2982,25 @@ function rendreSuivi() {
       ${mois > 0 ? `<p class="note" style="margin:0 0 10px">Sur ${mois} mois : environ ${eur(epargneEst)} venus de ton épargne (${eur(etat.profil.epargneMensuelle ?? 0)} par mois) et ${variation - epargneEst >= 0 ? "+" : "−"}${eur(Math.abs(variation - epargneEst))} de gains ou pertes des placements (estimation).</p>` : ""}
       ${graphiqueSuivi(ref, releves)}</section>`;
 
+    // Prix de revient (PRU) et plus-values latentes : PEA, PEA-PME, CTO, assurance-vie, PER
+    const versProgrammes = {};
+    for (const m of resAuj?.mouvements ?? []) if (m.sens === "versement") versProgrammes[m.enveloppe] = (versProgrammes[m.enveloppe] ?? 0) + (Number(m.montant) || 0);
+    const pruRes = calculerPRU(releves, versProgrammes);
+    if (pruRes.comptes.length) {
+      const libPRU = (id) => (id === "peaPme" ? "PEA-PME" : env(id));
+      const fmtPV = (x) => (x == null ? '<span class="muted">—</span>' : `<span class="${x >= 0 ? "ecart-plus" : "ecart-moins"}">${x >= 0 ? "+" : "−"}${eur(Math.abs(x))}</span>`);
+      const fmtPct = (x) => (x == null ? "—" : `${x >= 0 ? "+" : "−"}${pct(Math.abs(x))}`);
+      const lignesPRU = pruRes.comptes.map((c) => `<tr><td>${echapper(libPRU(c.id))}</td><td class="m">${eur(c.solde)}</td>
+        <td class="m">${c.verse == null ? '<span class="muted" title="Il faut un fichier avec les versements cumulés, ou au moins deux relevés">inconnu</span>' : `${eur(c.verse)}${c.estime ? ' <span class="small muted">estimé</span>' : ""}`}</td>
+        <td class="m">${fmtPV(c.pv)}</td><td class="m">${fmtPct(c.pvPct)}</td></tr>`).join("");
+      const T = pruRes.total;
+      html += `<section class="panneau"><h2>Prix de revient et plus-values latentes</h2>
+        <p class="note" style="margin:4px 0 8px">Part de ton argent versé (le capital) et gains ou pertes non réalisés sur tes comptes de bourse et d'assurance-vie.</p>
+        <div class="table-wrap"><table><thead><tr><th>Compte</th><th class="m">Valeur actuelle</th><th class="m">Capital versé</th><th class="m">Plus-value latente</th><th class="m">%</th></tr></thead><tbody>${lignesPRU}</tbody>
+        ${T ? `<tfoot><tr><td><b>Total${T.complet ? "" : " (comptes connus)"}</b></td><td class="m">${eur(T.solde)}</td><td class="m">${eur(T.verse)}</td><td class="m"><b>${fmtPV(T.pv)}</b></td><td class="m">${fmtPct(T.pvPct)}</td></tr></tfoot>` : ""}</table></div>
+        <p class="note" style="margin:8px 0 0">Le capital versé est celui de ton fichier (colonne « versements cumulés ») quand il existe. Sinon il est <b>estimé</b> : solde du premier relevé, plus les versements prévus par le plan depuis. Importe un fichier avec les versements cumulés pour un chiffre exact. Gains avant impôt et prélèvements sociaux.</p></section>`;
+    }
+
     // Évolution par compte
     const cibles = new Map((resAuj?.reeq.comptes ?? []).map((c) => [c.enveloppe, c.cible]));
     const idsTable = Object.keys(plan.enveloppes).filter((id) => (der.placements?.[id] ?? 0) > 0.5 || (avant?.placements?.[id] ?? 0) > 0.5 || (cibles.get(id) ?? 0) > 0.5);
@@ -2943,6 +3032,7 @@ function rendreSuivi() {
     html += `<section class="panneau"><p class="muted" style="margin:0">Aucun relevé pour l'instant. Le premier relevé fixe le point de départ de la prévision ; les suivants montrent si ton patrimoine avance comme prévu.</p></section>`;
   }
   $("#suivi").innerHTML = html + blocCalendrier();
+  monterApercuImport();
 }
 $("#suivi").addEventListener("click", actionSuivi);
 

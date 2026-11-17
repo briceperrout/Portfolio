@@ -1179,3 +1179,334 @@ export function analyser(plan, profilSaisi) {
 }
 
 export { eur, pct };
+
+// ================================================================ Import de relevés (CSV / Excel) et prix de revient
+// Fonctions pures : aucune dépendance au DOM, aucun appel réseau. Le fichier est lu localement par app.js et ne quitte jamais le navigateur.
+
+export const TAILLE_MAX_FICHIER = 2 * 1024 * 1024; // 2 Mo
+const TAILLE_MAX_XML = 20 * 1024 * 1024; // garde-fou contre les archives piégées (zip bomb)
+const LIGNES_MAX = 5000;
+const COLONNES_MAX = 100;
+
+// Comptes suivis en prix de revient (PRU) : ceux dont le gain latent a un sens fiscal (PEA, PEA-PME, CTO, assurance-vie, PER)
+export const COMPTES_PRU = ["pea", "peaPme", "cto", "assuranceVie", "assuranceVieUC", "per"];
+// Le PEA-PME n'a pas d'enveloppe propre dans le plan (plafond commun de 225 000 € avec le PEA) : son solde est compté dans « pea »
+export const ENVELOPPE_DE_COMPTE = { peaPme: "pea" };
+
+// Mots-clés des comptes (texte sans accents, minuscules). L'ordre compte : le premier compte reconnu l'emporte (peaPme avant pea).
+export const MOTS_COMPTES = [
+  ["livretJeune", ["livret jeune"]], ["livretA", ["livret a", "livreta"]], ["ldds", ["ldds", "developpement durable"]], ["lep", ["lep", "epargne populaire"]],
+  ["pel", ["pel", "plan epargne logement", "plan d'epargne logement"]], ["livretBancaire", ["super livret", "livret bancaire", "compte sur livret", "csl", "livret+", "livret plus"]],
+  ["epargneSalariale", ["pee", "perco", "pereco", "percol", "epargne salariale", "amundi ee", "natixis", "esalia", "epsor"]],
+  ["assuranceVieUC", ["unites de compte", "unite de compte", "uc"]], ["assuranceVie", ["assurance vie", "assurance-vie", "fonds euro", "fonds euros", "fonds en euros"]],
+  ["peaPme", ["pea pme", "pea-pme", "pea/pme", "peapme"]],
+  ["pea", ["pea"]], ["cto", ["compte titres", "compte-titres", "cto"]], ["per", ["per"]], ["scpi", ["scpi"]], ["orPhysique", ["or physique", "lingot", "lingots", "napoleon", "pieces d'or", "or"]],
+  ["coldWallet", ["ledger", "trezor", "cold wallet", "portefeuille materiel"]], ["plateformeCrypto", ["bitcoin", "crypto", "coinbase", "binance", "kraken", "bitstack", "bitpanda", "btc"]],
+];
+
+const normaliserTexte = (t) => " " + String(t ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[’‘]/g, "'") + " ";
+const echapperRegexp = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Identifiant du compte (clé de MOTS_COMPTES) d'après un libellé libre, ou null
+export function idCompteDepuisLibelle(libelle) {
+  const t = normaliserTexte(libelle);
+  const trouve = MOTS_COMPTES.find(([, mots]) => mots.some((m) => new RegExp(`(^|[^a-z0-9+])${echapperRegexp(m)}([^a-z0-9]|$)`).test(t)));
+  return trouve ? trouve[0] : null;
+}
+
+// Nombre à la française ou à l'anglaise : « 12 345,67 € », « 1.234,56 », « 1,234.56 », « (250) » ; null si ce n'est pas un nombre
+export function lireNombre(valeur) {
+  if (typeof valeur === "number") return Number.isFinite(valeur) ? valeur : null;
+  let s = String(valeur ?? "").replace(/[\s  €$£%]/g, "").replace(/[−–—]/g, "-").replace(/^\((.*)\)$/, "-$1");
+  if (!/^[-+]?\d[\d.,]*$/.test(s)) return null;
+  const virgule = s.lastIndexOf(","), point = s.lastIndexOf(".");
+  if (virgule >= 0 && point >= 0) s = virgule > point ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+  else if (virgule >= 0) s = (s.match(/,/g).length > 1 ? s.replace(/,/g, "") : s.replace(",", "."));
+  else if (point >= 0 && (s.match(/\./g).length > 1 || /^[-+]?\d{1,3}\.\d{3}$/.test(s))) s = s.replace(/\./g, "");
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Relevé collé en texte : une ligne par compte, nom puis montant (séparateurs ; , tabulation ou espaces)
+export function lireReleveColle(texte) {
+  const montants = {}, ignores = [];
+  for (const brut of String(texte).split(/\r?\n/)) {
+    const ligne = brut.trim(); if (!ligne) continue;
+    // Montant : le dernier nombre de la ligne (12 345,67 · 12345.67 · 1.234,56 · 12 345 €)
+    const nombres = ligne.match(/-?\d[\d\s  .]*(?:,\d+)?/g);
+    if (!nombres) { ignores.push(ligne); continue; }
+    const brutN = nombres[nombres.length - 1];
+    let n = brutN.replace(/[\s  ]/g, "");
+    if (/,\d+$/.test(n)) n = n.replace(/\./g, "").replace(",", ".");
+    else if (/^\d{1,3}(\.\d{3})+$/.test(n)) n = n.replace(/\./g, "");
+    const v = Number(n);
+    const id = idCompteDepuisLibelle(ligne.slice(0, ligne.lastIndexOf(brutN)));
+    if (!id || !isFinite(v)) { ignores.push(ligne); continue; }
+    const env = ENVELOPPE_DE_COMPTE[id] ?? id;
+    montants[env] = Math.round(((montants[env] ?? 0) + Math.max(0, v)) * 100) / 100;
+  }
+  return { montants, ignores };
+}
+
+// ---- CSV
+function separateurCsv(texte) {
+  const lignes = texte.split(/\r?\n/).filter((l) => l.trim()).slice(0, 10);
+  const score = { ";": 0, "\t": 0, ",": 0 };
+  for (const l of lignes) {
+    let guillemets = false;
+    for (const c of l) { if (c === '"') guillemets = !guillemets; else if (!guillemets && c in score) score[c]++; }
+  }
+  return [";", "\t", ","].reduce((m, c) => (score[c] > score[m] ? c : m), ";");
+}
+
+export function lireTableauCsv(texte) {
+  const t = String(texte).replace(/^﻿/, "");
+  const sep = separateurCsv(t);
+  const lignes = [];
+  let ligne = [], cellule = "", guillemets = false;
+  const finCellule = () => { ligne.push(cellule.trim()); cellule = ""; };
+  const finLigne = () => { finCellule(); if (ligne.some((c) => c !== "")) lignes.push(ligne.slice(0, COLONNES_MAX)); ligne = []; };
+  for (let i = 0; i < t.length && lignes.length < LIGNES_MAX; i++) {
+    const c = t[i];
+    if (guillemets) {
+      if (c === '"') { if (t[i + 1] === '"') { cellule += '"'; i++; } else guillemets = false; } else cellule += c;
+    } else if (c === '"') guillemets = true;
+    else if (c === sep) finCellule();
+    else if (c === "\n") finLigne();
+    else if (c !== "\r") cellule += c;
+  }
+  if (cellule !== "" || ligne.length) finLigne();
+  return lignes;
+}
+
+// ---- Détection des colonnes : Libellé, Solde (valorisation), Versements cumulés (capital investi)
+const RE_COLONNES = {
+  verse: /(verse|versement|investi|prix de revient|\bpru\b|apport|depose|cumul)/,
+  solde: /(solde|valorisation|encours|valeur (actuelle|totale|de marche|liquidative)|^valeur$|montant|total|estimation|capital actuel|patrimoine)/,
+  libelle: /(libelle|compte|support|designation|produit|intitule|\bnom\b|contrat|enveloppe|etablissement|titre|ligne)/,
+};
+
+export function detecterColonnes(lignes) {
+  for (let i = 0; i < Math.min(15, lignes.length); i++) {
+    const cols = {};
+    lignes[i].forEach((cellule, j) => {
+      const t = normaliserTexte(cellule).trim();
+      if (!t || lireNombre(t) !== null) return;
+      const role = RE_COLONNES.verse.test(t) ? "verse" : RE_COLONNES.solde.test(t) ? "solde" : RE_COLONNES.libelle.test(t) ? "libelle" : null;
+      if (role && cols[role] === undefined) cols[role] = j;
+    });
+    if (cols.libelle !== undefined && cols.solde !== undefined) return { ligneEntetes: i, colonnes: { libelle: cols.libelle, solde: cols.solde, verse: cols.verse ?? null }, devine: false };
+  }
+  // Sans en-tête reconnu : première colonne de texte = libellé, dernier nombre de la première ligne de données = solde
+  const premiere = lignes.find((l) => l.some((c) => lireNombre(c) !== null));
+  if (!premiere) return null;
+  const libelle = premiere.findIndex((c) => c && lireNombre(c) === null);
+  let solde = -1; premiere.forEach((c, j) => { if (lireNombre(c) !== null) solde = j; });
+  if (libelle < 0 || solde < 0) return null;
+  return { ligneEntetes: -1, colonnes: { libelle, solde, verse: null }, devine: true };
+}
+
+// Lignes de tableau → comptes reconnus { id: { solde, verse|null } } et lignes ignorées
+export function importerReleveTableau(lignes) {
+  const det = detecterColonnes(lignes);
+  if (!det) return { ok: false, erreur: "Aucune colonne « libellé » et « solde » reconnue dans ce fichier." };
+  const { colonnes: c } = det;
+  const entetes = det.ligneEntetes >= 0 ? lignes[det.ligneEntetes] : [];
+  const comptes = {}, ignores = [];
+  for (const ligne of lignes.slice(det.ligneEntetes + 1)) {
+    const libelle = String(ligne[c.libelle] ?? "").trim();
+    const solde = lireNombre(ligne[c.solde]);
+    const id = idCompteDepuisLibelle(libelle);
+    if (!id || solde === null) { if (ignores.length < 50) ignores.push(libelle || ligne.join(" ; ")); continue; }
+    const verse = c.verse === null ? null : lireNombre(ligne[c.verse]);
+    const cpt = (comptes[id] ??= { solde: 0, verse: 0, versePartiel: false });
+    cpt.solde += Math.max(0, solde);
+    if (verse === null) cpt.versePartiel = true; else cpt.verse += Math.max(0, verse);
+  }
+  const arrondi = (x) => Math.round(x * 100) / 100;
+  for (const id of Object.keys(comptes)) {
+    const cpt = comptes[id];
+    comptes[id] = { solde: arrondi(cpt.solde), verse: c.verse === null || cpt.versePartiel ? null : arrondi(cpt.verse) };
+  }
+  return {
+    ok: true, comptes, ignores, devine: det.devine,
+    colonnes: { libelle: entetes[c.libelle] ?? `colonne ${c.libelle + 1}`, solde: entetes[c.solde] ?? `colonne ${c.solde + 1}`, verse: c.verse === null ? null : (entetes[c.verse] ?? `colonne ${c.verse + 1}`) },
+  };
+}
+
+// Comptes importés → montants pour les enveloppes du plan + capital versé déclaré (pour le PRU)
+export function releveDepuisImport(comptes) {
+  const montants = {}, pru = {};
+  for (const [id, { solde, verse }] of Object.entries(comptes ?? {})) {
+    const env = ENVELOPPE_DE_COMPTE[id] ?? id;
+    montants[env] = Math.round(((montants[env] ?? 0) + solde) * 100) / 100;
+    if (!COMPTES_PRU.includes(id)) continue;
+    const entree = {};
+    if (verse !== null && verse !== undefined) entree.verse = verse;
+    if (id === "peaPme") entree.solde = solde;
+    if (Object.keys(entree).length) pru[id] = entree;
+  }
+  return { montants, pru };
+}
+
+// ---- Excel (.xlsx) : archive zip de XML, lue sans dépendance avec DecompressionStream
+async function inflaterBrut(octets, tailleMax) {
+  const lecteur = new Blob([octets]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+  const morceaux = []; let total = 0;
+  for (;;) {
+    const { done, value } = await lecteur.read();
+    if (done) break;
+    total += value.length;
+    if (total > tailleMax) { await lecteur.cancel(); throw new Error("Classeur Excel trop volumineux une fois décompressé."); }
+    morceaux.push(value);
+  }
+  const out = new Uint8Array(total); let p = 0;
+  for (const m of morceaux) { out.set(m, p); p += m.length; }
+  return out;
+}
+
+function entreesZip(buf) {
+  const v = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const invalide = () => new Error("Ce fichier n'est pas un classeur .xlsx valide.");
+  let fin = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 65535); i--) if (v.getUint32(i, true) === 0x06054b50) { fin = i; break; }
+  if (fin < 0) throw invalide();
+  const n = v.getUint16(fin + 10, true);
+  let p = v.getUint32(fin + 16, true);
+  if (n > 1000 || n === 0xffff || p === 0xffffffff) throw new Error("Classeur Excel non pris en charge (zip64).");
+  const entrees = new Map();
+  for (let i = 0; i < n; i++) {
+    if (p + 46 > buf.length || v.getUint32(p, true) !== 0x02014b50) throw invalide();
+    const lNom = v.getUint16(p + 28, true), lExtra = v.getUint16(p + 30, true), lCom = v.getUint16(p + 32, true);
+    const nom = new TextDecoder().decode(buf.subarray(p + 46, p + 46 + lNom));
+    entrees.set(nom, { chiffre: !!(v.getUint16(p + 8, true) & 1), methode: v.getUint16(p + 10, true), taille: v.getUint32(p + 20, true), tailleOrig: v.getUint32(p + 24, true), local: v.getUint32(p + 42, true) });
+    p += 46 + lNom + lExtra + lCom;
+  }
+  return entrees;
+}
+
+async function lireEntreeZip(buf, entrees, nom) {
+  const e = entrees.get(nom);
+  if (!e) return null;
+  if (e.chiffre || (e.methode !== 0 && e.methode !== 8)) throw new Error("Classeur Excel protégé ou non pris en charge.");
+  if (e.tailleOrig > TAILLE_MAX_XML) throw new Error("Classeur Excel trop volumineux une fois décompressé.");
+  const v = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  if (e.local + 30 > buf.length || v.getUint32(e.local, true) !== 0x04034b50) throw new Error("Ce fichier n'est pas un classeur .xlsx valide.");
+  const debut = e.local + 30 + v.getUint16(e.local + 26, true) + v.getUint16(e.local + 28, true);
+  const donnees = buf.subarray(debut, debut + e.taille);
+  const brut = e.methode === 0 ? donnees : await inflaterBrut(donnees, TAILLE_MAX_XML);
+  return new TextDecoder().decode(brut);
+}
+
+const decoderXml = (s) => s.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+const attributXml = (balise, nom) => balise.match(new RegExp(`\\b${nom}="([^"]*)"`))?.[1];
+const textesXml = (xml) => [...xml.replace(/<rPh\b[\s\S]*?<\/rPh>/g, "").matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((m) => decoderXml(m[1])).join("");
+const indexColonne = (ref) => [...ref.replace(/\d+$/, "")].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0) - 1;
+
+// Première feuille d'un classeur .xlsx → tableau de lignes (texte ou nombres)
+export async function lireXlsx(octets) {
+  const buf = octets instanceof Uint8Array ? octets : new Uint8Array(octets);
+  const entrees = entreesZip(buf);
+  const classeur = await lireEntreeZip(buf, entrees, "xl/workbook.xml");
+  if (classeur === null) throw new Error("Ce fichier n'est pas un classeur .xlsx valide.");
+  let chemin = "xl/worksheets/sheet1.xml";
+  const idFeuille = attributXml(classeur.match(/<sheet\b[^>]*>/)?.[0] ?? "", "r:id");
+  const rels = await lireEntreeZip(buf, entrees, "xl/_rels/workbook.xml.rels");
+  if (idFeuille && rels) {
+    for (const [balise] of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+      if (attributXml(balise, "Id") === idFeuille) {
+        const cible = attributXml(balise, "Target") ?? "";
+        chemin = cible.startsWith("/") ? cible.slice(1) : `xl/${cible}`;
+      }
+    }
+  }
+  const feuille = await lireEntreeZip(buf, entrees, chemin);
+  if (feuille === null) throw new Error("Aucune feuille lisible dans ce classeur.");
+  const partages = [];
+  const xmlPartages = await lireEntreeZip(buf, entrees, "xl/sharedStrings.xml");
+  if (xmlPartages) for (const m of xmlPartages.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) partages.push(textesXml(m[1]));
+  const lignes = [];
+  for (const [, , corpsLigne] of feuille.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
+    if (!corpsLigne) continue;
+    const ligne = [];
+    for (const [, attrs, corps = ""] of corpsLigne.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+      const ref = attributXml(attrs, "r"), type = attributXml(attrs, "t");
+      const j = ref ? indexColonne(ref) : ligne.length;
+      if (j < 0 || j >= COLONNES_MAX) continue;
+      const v = corps.match(/<v\b[^>]*>([\s\S]*?)<\/v>/)?.[1];
+      let valeur = "";
+      if (type === "s") valeur = partages[Number(v)] ?? "";
+      else if (type === "inlineStr") valeur = textesXml(corps);
+      else if (type === "str" || type === "b") valeur = decoderXml(v ?? "");
+      else if (type !== "e" && v !== undefined && v !== "") valeur = Number.isFinite(Number(v)) ? Number(v) : decoderXml(v);
+      while (ligne.length < j) ligne.push("");
+      ligne[j] = typeof valeur === "string" ? valeur.trim() : valeur;
+    }
+    if (ligne.some((c) => c !== "")) lignes.push(ligne);
+    if (lignes.length >= LIGNES_MAX) break;
+  }
+  return lignes;
+}
+
+// Fichier d'export (octets + nom) → comptes reconnus. Lève une Error au message lisible par l'utilisateur.
+export async function lireFichierReleve(nom, octets) {
+  const buf = octets instanceof Uint8Array ? octets : new Uint8Array(octets);
+  if (buf.length > TAILLE_MAX_FICHIER) throw new Error("Fichier trop volumineux : 2 Mo maximum.");
+  if (!buf.length) throw new Error("Le fichier est vide.");
+  const ext = String(nom).toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
+  let lignes;
+  if (ext === "xls") throw new Error("Ancien format Excel (.xls) non pris en charge : enregistre le fichier en .xlsx ou en .csv.");
+  if (ext === "xlsx") {
+    if (buf[0] !== 0x50 || buf[1] !== 0x4b) throw new Error("Ce fichier n'est pas un classeur .xlsx valide.");
+    lignes = await lireXlsx(buf);
+  } else if (["csv", "tsv", "txt", ""].includes(ext)) {
+    let texte;
+    try { texte = new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch { texte = new TextDecoder("windows-1252").decode(buf); }
+    lignes = lireTableauCsv(texte);
+  } else throw new Error("Format non pris en charge : utilise un fichier .csv ou .xlsx.");
+  const r = importerReleveTableau(lignes);
+  if (!r.ok) throw new Error(r.erreur);
+  return r;
+}
+
+// ---- Prix de revient (PRU) et plus-values latentes
+export const ecartMois = (a, b) => { const [y1, m1] = a.split("-").map(Number), [y2, m2] = b.split("-").map(Number); return (y2 - y1) * 12 + (m2 - m1); };
+
+function soldeDuCompte(releve, id) {
+  const pl = releve.placements ?? {}, peaPme = Number(releve.pru?.peaPme?.solde) || 0;
+  if (id === "peaPme") return peaPme;
+  if (id === "pea") return Math.max(0, (Number(pl.pea) || 0) - peaPme);
+  return Number(pl[id]) || 0;
+}
+
+// Capital versé et gain latent par compte.
+//  - capital déclaré (colonne « versements cumulés » du fichier) : utilisé tel quel au dernier relevé qui le donne ;
+//  - sinon estimé : solde du premier relevé (gain supposé nul à cette date) + versements programmés du plan × mois écoulés.
+// versementsMensuels : { idCompte: euros par mois } d'après le plan. Gain avant impôt et prélèvements sociaux.
+export function calculerPRU(releves, versementsMensuels = {}) {
+  const liste = (releves ?? []).filter((r) => r?.date).slice().sort((a, b) => a.date.localeCompare(b.date));
+  if (!liste.length) return { comptes: [], total: null };
+  const der = liste.length - 1;
+  const comptes = [];
+  for (const id of COMPTES_PRU) {
+    const solde = soldeDuCompte(liste[der], id);
+    if (solde <= 0.5) continue;
+    let k = -1;
+    for (let i = der; i >= 0; i--) if (liste[i].pru?.[id]?.verse != null && Number.isFinite(Number(liste[i].pru[id].verse))) { k = i; break; }
+    const declare = k >= 0;
+    if (!declare) k = 0;
+    let verse = declare ? Math.max(0, Number(liste[k].pru[id].verse)) : soldeDuCompte(liste[0], id);
+    const estime = !declare || k < der;
+    if (estime) verse += Math.max(0, Number(versementsMensuels[id]) || 0) * Math.max(0, ecartMois(liste[k].date, liste[der].date));
+    const connu = verse > 0.5 && (declare || der > 0);
+    const pv = connu ? solde - verse : null;
+    comptes.push({ id, solde, verse: connu ? verse : null, pv, pvPct: connu ? (100 * pv) / verse : null, estime, depuis: liste[k].date });
+  }
+  const connus = comptes.filter((c) => c.pv !== null);
+  const total = connus.length ? (() => {
+    const solde = connus.reduce((s, c) => s + c.solde, 0), verse = connus.reduce((s, c) => s + c.verse, 0);
+    return { solde, verse, pv: solde - verse, pvPct: verse > 0 ? (100 * (solde - verse)) / verse : null, complet: connus.length === comptes.length, estime: connus.some((c) => c.estime) };
+  })() : null;
+  return { comptes, total };
+}
