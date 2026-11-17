@@ -1,0 +1,40 @@
+# Fichiers exclus du déploiement Cloudflare (wrangler.toml → [assets] directory = ".").
+# Tout ce qui n'est pas listé ici est PUBLIC : ne jamais retirer les secrets de cette liste.
+
+# Secrets et environnement
+.env
+.env.*
+.dev.vars
+.quota-tokens.json
+.sync_local
+*.pem
+*.key
+
+# Sources serveur, configuration et outillage (le Worker est déployé via « main », pas comme fichier statique)
+worker.js
+serveur.py
+wrangler.toml
+.assetsignore
+__pycache__
+.mypy_cache
+.wrangler
+node_modules
+package-lock.json
+
+# Dépôt, éditeur, IA
+.git
+.gitignore
+.claude
+.vscode
+.idea
+.DS_Store
+CLAUDE.md
+Prompt
+
+# Tests
+test_*.mjs
+test_*.py
+
+# Documentation (non nécessaire à l'application)
+README.md
+LICENSE

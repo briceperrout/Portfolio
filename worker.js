@@ -10,6 +10,9 @@
 //                        retenu est annoncé par l'en-tête X-Model-Used et le premier événement SSE { modele }.
 //                        Si OpenAI refuse le modèle de raisonnement (404 introuvable/déprécié, 403, 400, 429), la requête est
 //                        rejouée une fois sur le modèle rapide en effort « high » (libellé « … · o3 indisponible »).
+//    GET | PUT | DELETE /api/sync/:id → synchronisation multi-appareils : enveloppe chiffrée de bout en bout (voir sync.js),
+//                        stockée dans Cloudflare KV (liaison SYNC_KV). Le serveur ne peut pas la lire ; PUT exige la révision
+//                        courante (verrou optimiste, 409 « conflit » sinon) ; 256 Ko max ; expiration 400 jours sans écriture.
 //
 //  Secrets (jamais dans le code, jamais côté navigateur) :
 //    wrangler secret put OPENAI_API_KEY
@@ -22,7 +25,8 @@
 //    OPENAI_QUOTA_RAISONNEMENT_MAX  défaut 225000 (pool gratuit 250 k d'o3 ; au-delà : gpt-5.4-mini en effort « high »)
 //    OPENAI_DAILY_TOKEN_ALERT défaut 2200000
 //    ALLOWED_ORIGIN           ex. https://plan-patrimoine.pages.dev (sinon : même origine seulement)
-//  Liaison (optionnelle) : ASSETS (Pages) pour servir aussi les fichiers statiques.
+//  Liaisons (optionnelles) : ASSETS pour servir aussi les fichiers statiques ; SYNC_KV (namespace KV) pour la synchronisation
+//  (absente : /api/sync répond 503 « sync_indisponible » et l'application reste 100 % locale).
 //
 //  Limites assumées : un Worker n'a pas de mémoire partagée entre isolats. Le compteur
 //  de tokens et la limite de débit ci-dessous sont donc « au mieux » (par isolat) ;
@@ -336,10 +340,75 @@ async function chat(request, env) {
   });
 }
 
+// ---------------------------------------------------------------- synchronisation chiffrée (Cloudflare KV)
+// Le serveur ne voit qu'une enveloppe opaque { v, rev, kdf, iter, sel, iv, ct } chiffrée dans le navigateur (voir sync.js) :
+// aucun montant, aucun nom. L'identifiant est un hash du code de synchronisation (256 bits : impossible à deviner).
+const RE_ID_SYNC = /^[A-Za-z0-9_-]{43}$/;
+const RE_B64URL = /^[A-Za-z0-9_-]+$/;
+const MAX_SYNC = 256 * 1024;                  // taille maximale de l'enveloppe (octets)
+const TTL_SYNC = 400 * 24 * 3600;             // expiration : 400 jours sans écriture (renouvelée à chaque envoi)
+const MAX_SYNC_PAR_MINUTE = 60;
+const recentesSync = [];
+function limiteSync() {
+  const t = Date.now();
+  while (recentesSync.length && t - recentesSync[0] > 60000) recentesSync.shift();
+  if (recentesSync.length >= MAX_SYNC_PAR_MINUTE) return true;
+  recentesSync.push(t);
+  return false;
+}
+
+/** Valide et normalise l'enveloppe reçue : seuls les champs attendus sont conservés. Retourne { enveloppe, base }. */
+export function validerEnveloppeSync(brut) {
+  const e = brut;
+  const ok = e && typeof e === "object" && !Array.isArray(e)
+    && e.v === 1 && e.kdf === "PBKDF2-SHA256"
+    && Number.isInteger(e.iter) && e.iter >= 100000 && e.iter <= 1000000
+    && Number.isInteger(e.rev) && e.rev >= 1 && e.rev < 1e9
+    && Number.isInteger(e.base) && e.base === e.rev - 1
+    && [["sel", 16, 64], ["iv", 16, 16], ["ct", 22, MAX_SYNC]].every(([k, min, max]) => typeof e[k] === "string" && e[k].length >= min && e[k].length <= max && RE_B64URL.test(e[k]));
+  if (!ok) throw new ErreurAPI(400, "enveloppe_invalide");
+  return { enveloppe: { v: 1, rev: e.rev, kdf: e.kdf, iter: e.iter, sel: e.sel, iv: e.iv, ct: e.ct }, base: e.base };
+}
+
+async function sync(request, env, id) {
+  if (!origineOk(request, env)) throw new ErreurAPI(403, "origine_refusee");
+  if (!env.SYNC_KV) throw new ErreurAPI(503, "sync_indisponible");
+  if (!RE_ID_SYNC.test(id)) throw new ErreurAPI(400, "identifiant_invalide");
+  if (!["GET", "PUT", "DELETE"].includes(request.method)) throw new ErreurAPI(405, "methode_refusee");
+  if (limiteSync()) throw new ErreurAPI(429, "trop_de_requetes");
+  const cle = `sync:${id}`;
+  if (request.method === "GET") {
+    const brut = await env.SYNC_KV.get(cle);
+    if (brut === null) throw new ErreurAPI(404, "introuvable");
+    return new Response(brut, { status: 200, headers: { ...ENTETES, "Content-Type": "application/json; charset=utf-8" } });
+  }
+  if (!(await turnstileOk(request, env))) throw new ErreurAPI(403, "verification_refusee");
+  if (request.method === "DELETE") {
+    await env.SYNC_KV.delete(cle);
+    return json(200, { ok: true });
+  }
+  const annonce = Number(request.headers.get("Content-Length"));
+  if (annonce > MAX_SYNC + 1024) throw new ErreurAPI(413, "taille_excessive");
+  const texte = await request.text();
+  if (texte.length > MAX_SYNC + 1024) throw new ErreurAPI(413, "taille_excessive");
+  let corps;
+  try { corps = JSON.parse(texte); } catch { throw new ErreurAPI(400, "json_invalide"); }
+  const { enveloppe, base } = validerEnveloppeSync(corps);
+  // Verrou optimiste : l'écriture n'est acceptée que si elle part de la révision actuelle (KV n'a pas de transaction :
+  // la protection est « au mieux » entre deux écritures simultanées ; la fusion côté client rattrape le reste).
+  const actuel = await env.SYNC_KV.get(cle);
+  let revActuelle = 0;
+  if (actuel !== null) { try { revActuelle = Number(JSON.parse(actuel).rev) || 0; } catch { revActuelle = 0; } }
+  if (revActuelle !== base) return json(409, { erreur: "conflit", rev: revActuelle });
+  await env.SYNC_KV.put(cle, JSON.stringify(enveloppe), { expirationTtl: TTL_SYNC });
+  return json(200, { ok: true, rev: enveloppe.rev });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     try {
+      if (url.pathname.startsWith("/api/sync/")) return await sync(request, env, url.pathname.slice("/api/sync/".length));
       if (url.pathname === "/api/statut" && request.method === "GET") {
         if (!origineOk(request, env)) throw new ErreurAPI(403, "origine_refusee");
         return json(200, { actif: cleValide(env) !== null, modele: modeleChat(env) });

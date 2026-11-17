@@ -1,0 +1,30 @@
+# Plan Patrimoine — déploiement Cloudflare (Worker + fichiers statiques), URL fixe en HTTPS.
+# Guide pas à pas : README.md, section « Déploiement permanent ».
+#
+#   npx wrangler login
+#   npx wrangler secret put OPENAI_API_KEY          # la clé reste chez Cloudflare, jamais dans le dépôt
+#   npx wrangler kv namespace create SYNC_KV        # puis décommenter le bloc [[kv_namespaces]] ci-dessous
+#   npx wrangler deploy                             # → https://plan-patrimoine.<votre-sous-domaine>.workers.dev
+#
+# Un seul déploiement sert le site ET /api/* : même origine, donc pas de CORS à ouvrir.
+
+name = "plan-patrimoine"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+
+[assets]
+# Racine du dépôt, filtrée par .assetsignore : sources serveur, secrets, tests et docs ne sont jamais publiés.
+directory = "."
+binding = "ASSETS"
+# Seules les routes /api/* réveillent le Worker ; le reste est servi directement (plus rapide, hors quota Worker).
+run_worker_first = ["/api/*"]
+
+# [vars]
+# ALLOWED_ORIGIN = "https://plan-patrimoine.example.workers.dev"   # seulement si le site et le Worker sont sur 2 domaines
+# OPENAI_MODEL_CHAT = "gpt-5.4-mini"
+# OPENAI_MODEL_REASONING = "o3"
+
+# Synchronisation multi-appareils (chiffrée de bout en bout). Sans ce bloc, /api/sync répond 503 et l'application reste 100 % locale.
+# [[kv_namespaces]]
+# binding = "SYNC_KV"
+# id = "<identifiant renvoyé par « wrangler kv namespace create SYNC_KV »>"

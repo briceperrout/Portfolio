@@ -40,6 +40,8 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 - `recap.js` : Génération du bilan patrimonial imprimable/exportable.
 - `fiches.js` & `lexique.js` : Fiches pédagogiques et infobulles automatiques du lexique financier.
 - `serveur.py` / `worker.js` / `assistant.js` : Couche assistant IA, streaming SSE, OCR/Vision et mode vocal.
+- `sync.js` : synchronisation multi-appareils chiffrée de bout en bout (WebCrypto AES-GCM + PBKDF2, fusion par fiche, client `/api/sync`) ; routes serveur dans `worker.js` (Cloudflare KV, liaison `SYNC_KV`) et `serveur.py` (stockage dev `.sync_local/`, ignoré par Git). Le serveur ne doit jamais voir de données en clair.
+- `wrangler.toml` / `_headers` / `.assetsignore` : déploiement Cloudflare (Worker + assets), CSP stricte et liste des fichiers jamais publiés (secrets, sources serveur, tests) : tout fichier absent de `.assetsignore` est public.
 
 ---
 

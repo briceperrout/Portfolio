@@ -13,6 +13,7 @@ import { decomposerSalaire, foyerFiscal, impotBareme, BAREME } from "./fiscal.js
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
 import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER } from "./moteur.js";
 import { monterAssistant } from "./assistant.js";
+import { genererCode, extraireCode, formaterCode, creerLien, estCleSynchronisable, synchroniser, effacerDistant, oublierCles } from "./sync.js";
 
 // ---------------------------------------------------------------- outils
 const $ = (s) => document.querySelector(s);
@@ -31,6 +32,7 @@ function fusion(base, sur) {
   for (const k of Object.keys(sur)) r[k] = k in base ? fusion(base[k], sur[k]) : clone(sur[k]);
   return r;
 }
+let hookEcriture = null; // synchronisation multi-appareils (plus bas) : prévenue après chaque écriture locale
 const memo = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) {
@@ -40,6 +42,7 @@ const memo = {
       localStorage.setItem(k, JSON.stringify(v));
       // Le brouillon du formulaire est rattaché au profil sélectionné : il ne se mélange pas avec un autre profil
       if (k === "profil-v2") localStorage.setItem("profil-v2-de", JSON.stringify(cleProfilCourant()));
+      hookEcriture?.(k);
     } catch {}
   },
 };
@@ -1569,6 +1572,145 @@ $("#msg-donnees").addEventListener("click", async (e) => {
   rendreChampsPlacements(); remplirProfil(); apresSaisieProfil();
   $("#msg-donnees").textContent = "Données importées : profil, relevés et scénarios remplacés.";
 });
+
+// ---------------------------------------------------------------- synchronisation multi-appareils (chiffrée de bout en bout, voir sync.js)
+// Le navigateur chiffre profils, relevés de suivi et scénarios avant l'envoi (AES-GCM) : le serveur ne stocke qu'un blob illisible.
+// Réglage de cet appareil (jamais synchronisé) : « sync-config » = { code, pin, rev, modifieLe, derniere }.
+const SYNC = { cfg: memo.get("sync-config"), minuteur: null, enCours: false, message: "", lienEntrant: null };
+const syncActive = () => !!SYNC.cfg?.code;
+const enregistrerCfgSync = (c) => { SYNC.cfg = c; memo.set("sync-config", c); };
+const messageSync = (t) => { SYNC.message = t; const z = $("#msg-synchro"); if (z) z.textContent = t; };
+const heureFR = (iso) => new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+const ERREURS_SYNC = {
+  reseau: "Serveur injoignable : la synchronisation reprendra automatiquement.",
+  code_ou_pin_incorrect: "Code ou PIN incorrect pour ces données (ou données altérées).",
+  sync_indisponible: "La synchronisation n'est pas activée sur ce serveur (namespace KV absent).",
+  taille_excessive: "Tes données dépassent la taille maximale de synchronisation (256 Ko chiffrés).",
+  trop_de_requetes: "Trop de requêtes : réessaie dans une minute.",
+  conflit: "Un autre appareil écrit en même temps : réessaie dans un instant.",
+  origine_refusee: "Origine refusée par le serveur.",
+  introuvable: "Aucune donnée n'existe encore pour ce code : vérifie le lien, ou enregistre d'abord ton plan sur l'appareil d'origine.",
+};
+
+function planifierSync(delai = 4000) {
+  if (!syncActive() || etat.db) return;
+  clearTimeout(SYNC.minuteur);
+  SYNC.minuteur = setTimeout(() => lancerSync(false), delai);
+}
+// Toute écriture locale de données synchronisables date la modification (départage les scénarios) et programme un envoi
+hookEcriture = (k) => {
+  if (!syncActive() || !estCleSynchronisable(k)) return;
+  SYNC.cfg = { ...SYNC.cfg, modifieLe: new Date().toISOString() };
+  try { localStorage.setItem("sync-config", JSON.stringify(SYNC.cfg)); } catch { /* quota : sans effet bloquant */ }
+  planifierSync();
+};
+
+async function lancerSync(manuel, options = {}) {
+  if (!syncActive() || SYNC.enCours || etat.db) return false;
+  SYNC.derniereErreur = null;
+  if (navigator.onLine === false) { if (manuel) messageSync("Hors ligne : la synchronisation reprendra avec la connexion."); return false; }
+  SYNC.enCours = true;
+  messageSync("Synchronisation…");
+  let ok = false;
+  try {
+    const { code, pin, modifieLe } = SYNC.cfg;
+    const r = await synchroniser({ code, pin, modifieLe }, localStorage, options);
+    enregistrerCfgSync({ ...SYNC.cfg, rev: r.rev, modifieLe: r.majLe || SYNC.cfg.modifieLe, derniere: new Date().toISOString() });
+    if (r.changeLocal && proches.mode === "local") chargerLocal(); // fiches mises à jour depuis un autre appareil
+    messageSync(r.rev === 0
+      ? "Synchronisation active. Aucune donnée enregistrée pour l'instant : enregistre ton plan (« Enregistrer le plan ») pour qu'il soit envoyé."
+      : `✓ Synchronisé à ${heureFR(SYNC.cfg.derniere)}${r.changeLocal ? " — données mises à jour depuis un autre appareil" : ""}.`);
+    ok = true;
+  } catch (e) {
+    messageSync(ERREURS_SYNC[e.code] ?? `Synchronisation impossible (${e.code ?? e.message}).`);
+    SYNC.derniereErreur = e.code ?? "inconnue";
+  } finally { SYNC.enCours = false; rendreSynchro(); }
+  return ok;
+}
+
+function rendreSynchro() {
+  const zone = $("#synchro-corps");
+  if (!zone) return;
+  if (etat.db) { zone.innerHTML = `<p class="note">Indisponible : cet environnement a déjà son propre stockage partagé.</p>`; return; }
+  const c = SYNC.cfg;
+  if (!syncActive()) {
+    zone.innerHTML = `
+      <div class="ligne-actions"><input class="texte" id="sync-pin" type="password" autocomplete="new-password" maxlength="64" placeholder="PIN (facultatif, à retaper sur chaque appareil)" aria-label="PIN facultatif"><button type="button" class="principal" id="btn-sync-activer">🔄 Activer sur cet appareil</button></div>
+      <p class="note" style="margin:12px 0 6px">Déjà activé sur un autre appareil ? Colle son lien (ou son code). Les profils déjà enregistrés ici seront fusionnés avec ceux du groupe.</p>
+      <div class="ligne-actions"><input class="texte" id="sync-lien" type="text" autocomplete="off" spellcheck="false" placeholder="Lien ou code de synchronisation" aria-label="Lien ou code de synchronisation" value="${echapper(SYNC.lienEntrant ? formaterCode(SYNC.lienEntrant) : "")}"><input class="texte" id="sync-pin2" type="password" autocomplete="off" maxlength="64" placeholder="PIN (si défini)" aria-label="PIN" style="max-width:150px"><button type="button" id="btn-sync-rejoindre">Rejoindre</button></div>`;
+    return;
+  }
+  const lien = creerLien(c.code, location.href);
+  zone.innerHTML = `
+    <p class="small" style="margin:0 0 6px">✓ Synchronisation <b>active</b> sur cet appareil${c.derniere ? ` · dernière à ${heureFR(c.derniere)}` : ""}${c.pin ? " · PIN requis sur les autres appareils" : ""}.</p>
+    <div class="ligne-actions"><input class="texte" id="sync-lien-copie" type="text" readonly value="${echapper(lien)}" aria-label="Lien de synchronisation"><button type="button" id="btn-sync-copier">📋 Copier le lien</button></div>
+    <p class="note" style="margin:6px 0 10px">Ouvre ce lien sur ton autre appareil. Il donne accès à tes données : ne l'envoie qu'à toi-même (message à soi, gestionnaire de mots de passe). Code à saisir à la main : <b class="num">${echapper(formaterCode(c.code))}</b></p>
+    <div class="ligne-actions"><button type="button" id="btn-sync-maintenant">Synchroniser maintenant</button><button type="button" id="btn-sync-stop">Arrêter sur cet appareil</button><button type="button" class="lien" id="btn-sync-effacer">Effacer du serveur…</button></div>`;
+}
+
+async function copierTexte(texte, champ) {
+  try { await navigator.clipboard.writeText(texte); return true; } catch { /* repli : sélection manuelle */ }
+  if (champ) { champ.select(); try { return document.execCommand("copy"); } catch { return false; } }
+  return false;
+}
+
+async function activerSync() {
+  oublierCles();
+  enregistrerCfgSync({ code: genererCode(), pin: ($("#sync-pin")?.value ?? "").trim(), rev: 0, modifieLe: new Date().toISOString(), derniere: null });
+  rendreSynchro();
+  await lancerSync(true);
+  if (["sync_indisponible", "reseau"].includes(SYNC.derniereErreur) && !SYNC.cfg?.derniere) { const t = SYNC.message; enregistrerCfgSync(null); rendreSynchro(); messageSync(t); }
+}
+
+async function rejoindreSync() {
+  const code = extraireCode($("#sync-lien")?.value);
+  if (!code) { messageSync("Lien ou code invalide : colle le lien complet ou les 26 caractères du code."); return; }
+  oublierCles();
+  SYNC.lienEntrant = null;
+  enregistrerCfgSync({ code, pin: ($("#sync-pin2")?.value ?? "").trim(), rev: 0, modifieLe: "", derniere: null });
+  rendreSynchro();
+  await lancerSync(true, { sansCreation: true }); // rejoindre ne crée jamais un groupe : un code mal recopié est refusé
+  if (SYNC.derniereErreur || !SYNC.cfg?.derniere) { const t = SYNC.message; enregistrerCfgSync(null); SYNC.lienEntrant = code; rendreSynchro(); messageSync(t || "Synchronisation impossible."); } // le code reste dans le champ : seul le PIN est à corriger
+}
+
+$("#bloc-synchro")?.addEventListener("click", async (e) => {
+  const id = e.target.closest("button")?.id;
+  if (id === "btn-sync-activer") await activerSync();
+  else if (id === "btn-sync-rejoindre") await rejoindreSync();
+  else if (id === "btn-sync-maintenant") await lancerSync(true);
+  else if (id === "btn-sync-copier") {
+    const ok = await copierTexte($("#sync-lien-copie").value, $("#sync-lien-copie"));
+    messageSync(ok ? "Lien copié. Garde-le pour toi : il donne accès à tes données chiffrées." : "Copie automatique impossible : sélectionne le lien et copie-le à la main.");
+  } else if (id === "btn-sync-stop") {
+    clearTimeout(SYNC.minuteur); oublierCles(); enregistrerCfgSync(null); rendreSynchro();
+    messageSync("Cet appareil n'est plus synchronisé. Tes données restent ici et, chiffrées, sur le serveur (bouton « Effacer du serveur »).");
+  } else if (id === "btn-sync-effacer") {
+    if (!confirm("Effacer définitivement du serveur les données synchronisées ? Elles resteront sur les appareils qui les ont déjà, mais ne seront plus synchronisées.")) return;
+    try { await effacerDistant(SYNC.cfg.code); clearTimeout(SYNC.minuteur); oublierCles(); enregistrerCfgSync(null); rendreSynchro(); messageSync("Données effacées du serveur. La synchronisation est arrêtée."); }
+    catch (err) { messageSync(ERREURS_SYNC[err.code] ?? `Effacement impossible (${err.code ?? err.message}).`); }
+  }
+});
+
+// Lien « …/#sync=CODE » : le code est retiré de la barre d'adresse (et de l'historique) dès qu'il est lu
+function lireLienEntrant() {
+  const code = extraireCode(location.hash);
+  if (!code) return;
+  history.replaceState(null, "", `${location.pathname}${location.search}#mon-profil`);
+  rendreVue();
+  if (syncActive() || etat.db) { rendreSynchro(); messageSync(syncActive() ? "Cet appareil est déjà synchronisé : arrête d'abord la synchronisation pour rejoindre un autre groupe." : ""); return; }
+  SYNC.lienEntrant = code;
+  rendreSynchro();
+  messageSync("Lien de synchronisation détecté : saisis ton PIN s'il y en a un, puis clique sur « Rejoindre ».");
+  $("#bloc-synchro")?.scrollIntoView({ block: "center" });
+}
+window.addEventListener("hashchange", lireLienEntrant);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") planifierSync(800); });
+window.addEventListener("online", () => planifierSync(800));
+function demarrerSynchro() {
+  rendreSynchro();
+  lireLienEntrant();
+  planifierSync(1500);
+}
 
 // ---------------------------------------------------------------- mode discrétion
 // Remplace les montants en euros par •••• (les pourcentages restent visibles), pour montrer son profil à quelqu'un
@@ -3957,3 +4099,4 @@ monterAssistant({
   annulerSimulation,
 });
 brancherStockage();
+demarrerSynchro();

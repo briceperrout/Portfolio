@@ -20,6 +20,10 @@ Assistant IA
                       événement SSE {"modele": "..."}. Toute erreur OpenAI (HTTP ≥ 400) est
                       journalisée avec son corps JSON exact sur la console du serveur.
 
+Synchronisation multi-appareils (chiffrée de bout en bout dans le navigateur, voir sync.js)
+  GET | PUT | DELETE /api/sync/<id>  → enveloppe opaque stockée dans .sync_local/ (ignoré par Git) ;
+                      en production, worker.js la range dans Cloudflare KV. PUT exige la révision courante (409 « conflit » sinon).
+
 La clé OPENAI_API_KEY est lue dans l'environnement ou dans le fichier `.env`
 (ignoré par Git). Elle ne quitte jamais ce processus : le navigateur n'en
 voit pas la couleur, et rien n'est loggé. Voir .env.example.
@@ -422,13 +426,85 @@ def limite_atteinte() -> bool:
         return False
 
 
+# ---------------------------------------------------------------- synchronisation chiffrée (stockage de développement)
+# Le serveur ne voit qu'une enveloppe opaque chiffrée dans le navigateur (voir sync.js) : il ne peut pas la lire.
+# En production, c'est worker.js + Cloudflare KV qui joue ce rôle ; ici, un fichier par identifiant dans .sync_local/
+# (dossier caché : jamais servi par ce serveur, ignoré par Git).
+DOSSIER_SYNC = RACINE / ".sync_local"
+RE_ID_SYNC = re.compile(r"^[A-Za-z0-9_-]{43}$")
+RE_B64URL = re.compile(r"^[A-Za-z0-9_-]+$")
+MAX_SYNC = 256 * 1024
+_VERROU_SYNC = threading.Lock()
+
+
+def valider_enveloppe_sync(e) -> tuple[dict, int]:
+    """Valide l'enveloppe reçue ; ne conserve que les champs attendus. Retourne (enveloppe, révision de départ)."""
+    def entier(x) -> bool:
+        return isinstance(x, int) and not isinstance(x, bool)
+    ok = (
+        isinstance(e, dict) and e.get("v") == 1 and e.get("kdf") == "PBKDF2-SHA256"
+        and entier(e.get("iter")) and 100_000 <= e["iter"] <= 1_000_000
+        and entier(e.get("rev")) and 1 <= e["rev"] < 10**9
+        and entier(e.get("base")) and e["base"] == e["rev"] - 1
+    )
+    if ok:
+        for cle, mini, maxi in (("sel", 16, 64), ("iv", 16, 16), ("ct", 22, MAX_SYNC)):
+            v = e.get(cle)
+            if not (isinstance(v, str) and mini <= len(v) <= maxi and RE_B64URL.match(v)):
+                ok = False
+    if not ok:
+        raise ErreurAPI(400, "enveloppe_invalide")
+    return {k: e[k] for k in ("v", "rev", "kdf", "iter", "sel", "iv", "ct")}, e["base"]
+
+
+def _fichier_sync(id_sync: str) -> Path:
+    if not RE_ID_SYNC.match(id_sync):  # empêche toute traversée de dossier
+        raise ErreurAPI(400, "identifiant_invalide")
+    return DOSSIER_SYNC / f"{id_sync}.json"
+
+
+def lire_sync(id_sync: str) -> str | None:
+    try:
+        return _fichier_sync(id_sync).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+
+
+def ecrire_sync(id_sync: str, enveloppe: dict, base: int) -> tuple[bool, int]:
+    """Écriture avec verrou optimiste. Retourne (acceptée, révision courante)."""
+    fichier = _fichier_sync(id_sync)
+    with _VERROU_SYNC:
+        actuel = lire_sync(id_sync)
+        rev = 0
+        if actuel is not None:
+            try:
+                rev = int(json.loads(actuel).get("rev") or 0)
+            except (ValueError, AttributeError):
+                rev = 0
+        if rev != base:
+            return False, rev
+        DOSSIER_SYNC.mkdir(mode=0o700, exist_ok=True)
+        tmp = fichier.with_suffix(".tmp")
+        tmp.write_text(json.dumps(enveloppe), encoding="utf-8")
+        os.replace(tmp, fichier)  # écriture atomique
+        return True, enveloppe["rev"]
+
+
+def effacer_sync(id_sync: str) -> None:
+    with _VERROU_SYNC:
+        try:
+            _fichier_sync(id_sync).unlink()
+        except FileNotFoundError:
+            pass
+
+
 # ---------------------------------------------------------------- serveur HTTP
 # Les modules ES exigent un type MIME JavaScript valide.
 mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("image/svg+xml", ".svg")
 
 # Fichiers qui ne doivent jamais être servis (secrets, sources serveur, config).
-INTERDITS = {"serveur.py", "worker.js", "claude.md", "license"}
+INTERDITS = {"serveur.py", "worker.js", "claude.md", "license", "wrangler.toml"}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -473,10 +549,72 @@ class Handler(SimpleHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return False
 
+    # -- synchronisation chiffrée : GET / PUT / DELETE /api/sync/<id>
+    def _sync(self, methode: str) -> None:
+        try:
+            if not self._origine_ok():
+                raise ErreurAPI(403, "origine_refusee")
+            id_sync = self._chemin()[len("/api/sync/"):]
+            _fichier_sync(id_sync)  # valide l'identifiant (400 sinon)
+            if methode == "GET":
+                brut = lire_sync(id_sync)
+                if brut is None:
+                    raise ErreurAPI(404, "introuvable")
+                corps = brut.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(corps)))
+                self.end_headers()
+                self.wfile.write(corps)
+            elif methode == "DELETE":
+                effacer_sync(id_sync)
+                self._json(200, {"ok": True})
+            else:
+                try:
+                    longueur = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    longueur = -1
+                if longueur < 0:
+                    raise ErreurAPI(400, "requete_invalide")
+                if longueur > MAX_SYNC + 1024:
+                    raise ErreurAPI(413, "taille_excessive")
+                try:
+                    corps = json.loads(self.rfile.read(longueur).decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    raise ErreurAPI(400, "json_invalide")
+                enveloppe, base = valider_enveloppe_sync(corps)
+                acceptee, rev = ecrire_sync(id_sync, enveloppe, base)
+                if not acceptee:
+                    self._json(409, {"erreur": "conflit", "rev": rev})
+                else:
+                    self._json(200, {"ok": True, "rev": rev})
+        except ErreurAPI as e:
+            self._json(e.statut, {"erreur": e.code})
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except OSError as e:  # disque : jamais de détail (chemin) vers le navigateur
+            sys.stderr.write(f"[plan-patrimoine] erreur de stockage sync : {type(e).__name__}\n")
+            self._json(500, {"erreur": "interne"})
+
+    def do_PUT(self):
+        if self._chemin().startswith("/api/sync/"):
+            self._sync("PUT")
+        else:
+            self.send_error(404, "Introuvable")
+
+    def do_DELETE(self):
+        if self._chemin().startswith("/api/sync/"):
+            self._sync("DELETE")
+        else:
+            self.send_error(404, "Introuvable")
+
     # -- routes
     def do_GET(self):
         if self._chemin_interdit():
             self.send_error(404, "Introuvable")
+            return
+        if self._chemin().startswith("/api/sync/"):
+            self._sync("GET")
             return
         if self._chemin() == "/api/statut":
             if not self._origine_ok():

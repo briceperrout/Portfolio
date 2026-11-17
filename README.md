@@ -75,7 +75,11 @@ Portfolio_Project/
 ├── prix-m2.json          # Références DVF et loyers (~35 000 communes)
 ├── assistant.js          # Assistant : RAG léger sur les fiches, profil anonymisé, repli local, widget
 ├── serveur.py            # Serveur local (stdlib Python) : fichiers statiques + relais /api/chat vers OpenAI
-├── worker.js             # Relais équivalent pour Cloudflare Workers (production)
+├── worker.js             # Relais équivalent pour Cloudflare Workers (production) + route /api/sync (KV)
+├── sync.js               # Synchronisation multi-appareils chiffrée de bout en bout (WebCrypto AES-GCM + PBKDF2)
+├── wrangler.toml         # Déploiement Cloudflare (Worker + fichiers statiques)
+├── _headers              # Content Security Policy et en-têtes de sécurité (production)
+├── .assetsignore         # Fichiers jamais publiés (secrets, sources serveur, tests)
 ├── .env.example          # Variables d'environnement documentées (aucun secret)
 ├── LICENSE               # MIT
 └── CLAUDE.md             # Conventions techniques du dépôt
@@ -114,9 +118,34 @@ Servie en HTTPS (Cloudflare Pages) ou sur `localhost`, l'application est install
 
 > **À chaque déploiement** qui modifie un fichier du shell (HTML, JS, icônes), incrémentez `CACHE_VERSION` dans `service-worker.js` : l'ancien cache est purgé à l'activation.
 
+### Déploiement permanent (Cloudflare) et synchronisation
+
+Un seul déploiement sert le site **et** `/api/*` (même origine : pas de CORS) sur une URL HTTPS fixe, avec la clé OpenAI uniquement côté Cloudflare.
+
+```bash
+npx wrangler login
+npx wrangler secret put OPENAI_API_KEY        # la clé reste chez Cloudflare, jamais dans le dépôt
+npx wrangler deploy                           # → https://plan-patrimoine.<votre-sous-domaine>.workers.dev
+```
+
+- `.assetsignore` exclut du déploiement `.env`, `worker.js`, `serveur.py`, les tests, `Prompt/` et `CLAUDE.md` : **tout ce qui n'y figure pas est public**.
+- `_headers` applique une CSP stricte (`default-src 'self'`) ; seules les polices Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) sont autorisées en dehors de l'origine.
+- Facultatif : `TURNSTILE_SECRET_KEY` (`wrangler secret put`) et, pour deux domaines distincts, `ALLOWED_ORIGIN` dans `wrangler.toml`.
+- Après chaque déploiement qui modifie le shell, incrémentez `CACHE_VERSION` (`service-worker.js`).
+
+**Synchronisation entre appareils (facultative)** : panneau « Synchroniser mes appareils » (onglet Mon profil). Les profils enregistrés, relevés de suivi et scénarios sont **chiffrés dans le navigateur** (AES-GCM 256 bits, clé dérivée par PBKDF2 de `code + PIN`) avant l'envoi : le serveur ne stocke qu'un blob illisible, rangé sous un hash du code. Le lien `…/#sync=CODE` met le code dans le fragment d'URL (jamais transmis au serveur ; retiré de la barre d'adresse à l'ouverture). Pour l'activer en production :
+
+```bash
+npx wrangler kv namespace create SYNC_KV      # puis décommenter le bloc [[kv_namespaces]] de wrangler.toml avec l'id obtenu
+npx wrangler deploy
+```
+
+Sans ce namespace, `/api/sync` répond 503 et l'application reste 100 % locale. En local, `python3 serveur.py` offre la même route avec un stockage dans `.sync_local/` (ignoré par Git). Limites assumées : les suppressions de fiches ne se propagent pas entre appareils ; KV est à cohérence éventuelle (la fusion côté client rattrape les écritures simultanées) ; qui possède le lien possède les données, il ne faut l'envoyer qu'à soi-même. Posez une règle de *rate limiting* Cloudflare sur `/api/*` pour un plafond strict.
+
 ## Confidentialité
 
 - Vos saisies restent dans le navigateur (`localStorage`) ; vos exports `.json` sont à vous et ignorés par Git (voir `.gitignore`).
+- La synchronisation est optionnelle et chiffrée de bout en bout : sans activation, rien ne quitte le navigateur ; une fois activée, le serveur ne voit que des données chiffrées.
 - Aucune clé API n'est présente dans le code. Les clés futures resteront strictement côté serveur.
 
 ## Feuille de route

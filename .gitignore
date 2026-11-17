@@ -13,6 +13,9 @@
 *.pem
 *.key
 .quota-tokens.json
+.sync_local/
+.wrangler/
+.dev.vars
 
 # ── Python ───────────────────────────────────────────
 __pycache__/
