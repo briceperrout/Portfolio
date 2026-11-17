@@ -63,7 +63,11 @@ export const MATRICE = {
     "achat-trajectoire": I, "t-achat": I, "t-reel": I, "tr-tuiles": I, "tr-objectifs": I, "tr-tranches": I, "tr-eventail": I, "tr-rapporte": I, "bloc-liberte": I,
     "tr-composition": A, "bloc-crise": A, "tr-apres-impots": A, "bloc-ab": A, "bloc-fiscal": A,
   },
-  retraite: {},
+  // Retraite : ids du gabarit de rendreRetraite() (app.js). En Débutant la page est remplacée par « ret-simple » + « ret-verdict-bloc » (data-seul).
+  retraite: {
+    "ret-hypotheses": I, "ret-objectifs": I, "ret-age": I, "bloc-liberte": I, "bloc-pension": I, "ret-resultat": I, "ret-capital": I,
+    "r-loyers": A, "ret-decaissement": A, "ret-impots": A,
+  },
 };
 
 // Comptes « Autres » (PER, SCPI, or, crypto…) : lecture seule en débutant, détail à saisir en Intermédiaire (groupes définis dans moteur.js).

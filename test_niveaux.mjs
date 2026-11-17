@@ -37,6 +37,13 @@ for (const [cle, min] of Object.entries(MATRICE.trajectoire)) {
   const ligne = lignes.find((l) => l.includes(`id="${cle}"`)) ?? appJs.find((l) => l.includes(`id="${cle}"`));
   egal(ligne?.match(/data-min="([a-z]+)"/)?.[1], min, `data-min de « ${cle} » (trajectoire)`);
 }
+// Retraite : chaque clé de MATRICE.retraite porte son data-min dans le gabarit de rendreRetraite() (app.js)
+for (const [cle, min] of Object.entries(MATRICE.retraite)) {
+  const ligne = appJs.find((l) => l.includes(`id="${cle}"`));
+  egal(ligne?.match(/data-min="([a-z]+)"/)?.[1], min, `data-min de « ${cle} » (retraite)`);
+}
+verifier(appJs.some((l) => l.includes('id="ret-simple"') && l.includes('data-seul="debutant"')) && appJs.some((l) => l.includes('id="ret-verdict-bloc"') && l.includes('data-seul="debutant"')), "retraite débutant : réglages et verdict (data-seul)");
+verifier(/if \(niveauCourant\(\) === "debutant"\) \{ rendreRetraiteDebutant\(\)/.test(appJs.join("\n")), "retraite : le niveau Débutant a sa propre page");
 verifier(appJs.some((l) => l.includes('id="tr-avenir"') && l.includes('data-seul="debutant"')), "panneau « Mon avenir en 3 chiffres » (data-seul)");
 verifier(/siNiveau\("avance", \(\) => `<section class="panneau" id="bloc-crise"/.test(appJs.join("\n")) && /siNiveau\("intermediaire", \(\) => `<section class="panneau" id="tr-eventail"/.test(appJs.join("\n")), "crise et éventail produits via siNiveau");
 verifier(/siNiveau\("avance", \(\) => blocRythme\(res\)\)/.test(appJs.join("\n")) && /siNiveau\("intermediaire", \(\) => blocPocheBourse\(res\)\)/.test(appJs.join("\n")), "panneaux coûteux produits via siNiveau");

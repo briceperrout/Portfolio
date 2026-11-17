@@ -7,7 +7,7 @@ import { CONSIGNE_VOCALE, DELAI_SILENCE_MS, choisirVoixFr, decouperPhrases, extr
 
 import { PLAN } from "./plan.js";
 import { FAMILLES_ALLOCATION, grouperAllocation, GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent } from "./moteur.js";
-import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS, projeter, projeterCentral, libertePatrimoine, moisPrecaution } from "./projection.js";
+import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS, projeter, projeterCentral, libertePatrimoine, moisPrecaution, capitalNecessaire } from "./projection.js";
 
 export const resultats = { ok: 0, echecs: [] };
 function verifier(condition, message) {
@@ -264,6 +264,17 @@ egal(libelleModele(undefined), "", "libellé absent");
     verifier(central.eventail === null && central.simulations === 0 && central.retraite?.probaDure === null, `${nom} : aucun tirage au hasard`);
     const L1 = libertePatrimoine(complet, PLAN.hypotheses), L2 = libertePatrimoine(central, PLAN.hypotheses);
     egal(L2, L1, `${nom} : liberté financière identique`);
+  }
+  // Verdict Débutant : projection allégée, mêmes tirages donc même probabilité que la projection complète
+  for (const p of profils) {
+    const complet = projeter(PLAN, p, {}), legere = projeter(PLAN, p, { legere: true });
+    const nom = `légère ${p.age} ans`;
+    egal(legere.retraite?.probaDure, complet.retraite?.probaDure, `${nom} : même probabilité que la projection complète`);
+    egal(legere.central, complet.central, `${nom} : même scénario central`);
+    verifier(legere.eventail === null && legere.retraite?.revenuPreserve === null, `${nom} : ni éventail ni recherche de revenus`);
+    // Capital nécessaire : celui qu'il faut au départ pour que le scénario central dure ; plus le revenu est élevé, plus il monte
+    const cap = capitalNecessaire(PLAN, p), plus = capitalNecessaire(PLAN, { ...p, retraite: { revenu: 6000 } });
+    verifier(cap === null || (cap.capital > 0 && plus && plus.capital >= cap.capital), `${nom} : capital nécessaire croissant avec le revenu`);
   }
   // Liberté financière : capital de 25 fois les besoins annuels
   const r = projeterCentral(PLAN, profils[0]), L = libertePatrimoine(r, PLAN.hypotheses);

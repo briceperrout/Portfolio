@@ -1,7 +1,7 @@
 import { PLAN } from "./plan.js";
 import { analyser, capitalDe, GROUPES_PLACEMENTS, grouperAllocation, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer } from "./moteur.js";
 import { projetLocatifDe, analyseLocatif, mensualitePret } from "./locatif.js";
-import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, libertePatrimoine, moisPrecaution, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, CRISES, simulerCrise, fluxLocatif } from "./projection.js";
+import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, libertePatrimoine, moisPrecaution, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, capitalNecessaire, CRISES, simulerCrise, fluxLocatif } from "./projection.js";
 import { SCENARIOS_FISCAUX, NEUTRE, optionFiscale, comparerTaux } from "./evolution-fiscale.js";
 import { echeancesProfil, echeancesGenerales, versCSV } from "./calendrier.js";
 import { genererRecapHTML, encoderProfilPartage, decoderProfilPartage } from "./recap.js";
@@ -821,13 +821,18 @@ function planifierTrajectoire() {
 // Le central est identique dans les deux ; une projection complète déjà en cache sert aussi au besoin central.
 let cacheProjection = { cle: null, r: null };
 let cacheCentral = { cle: null, r: null };
-function projectionCourante(inclureAchat = true, { central = false } = {}) {
+let cacheLegere = { cle: null, r: null }; // tirages au hasard mais sans éventail (verdict Débutant de l'onglet Retraite)
+function projectionCourante(inclureAchat = true, { central = false, legere = false } = {}) {
   const r = { ...(etat.profil.retraite ?? {}) };
   const cle = JSON.stringify([etat.brouillon, { ...etat.profil, retraite: r }, inclureAchat]);
   if (cacheProjection.cle === cle) return cacheProjection.r;
   if (central) {
     if (cacheCentral.cle !== cle) cacheCentral = { cle, r: projeterCentral(etat.brouillon, profilPourMoteur(), { inclureAchat }) };
     return cacheCentral.r;
+  }
+  if (legere) {
+    if (cacheLegere.cle !== cle) cacheLegere = { cle, r: projeter(etat.brouillon, profilPourMoteur(), { inclureAchat, legere: true }) };
+    return cacheLegere.r;
   }
   cacheProjection = { cle, r: projeter(etat.brouillon, profilPourMoteur(), { inclureAchat }) };
   return cacheProjection.r;
@@ -1366,6 +1371,7 @@ function blocLiberte(r) {
   </section>`;
 }
 function rendreRetraite() {
+  if (niveauCourant() === "debutant") { rendreRetraiteDebutant(); return; }
   const plan = etat.brouillon, H = plan.hypotheses;
   let r;
   try { r = projectionCourante(true); }
@@ -1380,7 +1386,7 @@ function rendreRetraite() {
   const repere = dernierSalaire > 0 ? `Repère : on vise souvent 70 à 80 % de son dernier salaire. Le tien serait d'environ ${eur(dernierSalaire)} par mois (en euros d'aujourd'hui) à ${C[iDernier].age} ans, soit ${eur(Math.round(dernierSalaire * 0.7 / 50) * 50)} à ${eur(Math.round(dernierSalaire * 0.8 / 50) * 50)} par mois.` : "";
   const optionsAge = Array.from({ length: Math.max(0, ageLegal - ageAuj + 1) }, (_, k) => ageAuj + k).map((a) => `<option value="${a}" ${a === ageDepart ? "selected" : ""}>${a} ans${a === ageLegal ? " (au plus tard)" : ""}</option>`).join("");
   const aLoyers = !!((etat.profil.proprietaire && etat.profil.logement?.usage === "loue") || etat.profil.projetLocatif?.actif);
-  const saisie = `<section class="panneau"><h2>Tes hypothèses</h2>
+  const saisie = `<section class="panneau" id="ret-hypotheses" data-min="intermediaire"><h2>Tes hypothèses</h2>
     <div class="champs" style="max-width:600px;margin-top:10px">
       <div class="champ"><label for="r-revenu"><b>Une retraite convenable pour toi</b>, par mois, après impôt, en euros d'aujourd'hui</label><div class="saisie"><input id="r-revenu" type="number" min="0" step="100" value="${p0.retraite?.revenu ?? ""}" placeholder="${plan.retraite?.revenuMensuelDefaut ?? 2000}"><span>€/mois</span></div></div>
       ${repere ? `<p class="note" style="margin:-4px 0 0">${repere}</p>` : ""}
@@ -1388,8 +1394,8 @@ function rendreRetraite() {
       <div class="champ"><label for="r-mode">Retraite publique</label><select id="r-mode">${[["auto", "Estimée automatiquement (suit l'âge d'arrêt)"], ["manuel", "Montant que j'indique"], ["zero", "Ne pas la compter (prudence)"]].map(([v, l]) => `<option value="${v}" ${(etat.profil.retraite?.modePension ?? "auto") === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
       <div class="champ"><label for="r-pension">Retraite publique comptée (nette après impôt, en euros d'aujourd'hui)</label><div class="saisie"><input id="r-pension" type="number" min="0" step="10" value="${p0.retraite?.pension ?? ""}" placeholder="0" ${(etat.profil.retraite?.modePension ?? "auto") === "manuel" ? "" : "disabled"}><span>€/mois</span></div></div>
       <p class="note" style="margin:-4px 0 0">${(etat.profil.retraite?.modePension ?? "auto") === "auto" ? `Calculée pour un arrêt à ${ageDepart} ans${(Number(p0.retraite?.pension) || 0) > 0 ? `, versée à partir de ${R?.agePension ?? ageLegal} ans` : ""} : elle change toute seule quand tu changes l'âge d'arrêt (moins de trimestres = retraite plus basse). Détail plus bas, dans « Estimer ta retraite publique ».` : (Number(p0.retraite?.pension) || 0) > 0 ? `Versée à partir de ${R?.agePension ?? ageLegal} ans.` : "Aucune retraite publique comptée : tout vient de tes placements."}</p>
-      ${aLoyers ? `<label class="coche"><input type="checkbox" id="r-loyers" ${etat.profil.retraite?.compterLoyers !== false ? "checked" : ""}> Compter les loyers nets de mes biens loués dans mes revenus à la retraite</label>
-      <p class="note" style="margin:-4px 0 0">${etat.profil.retraite?.compterLoyers !== false ? "Oui, ils sont comptés : chaque année, les loyers nets (après charges, impôt et crédit) rejoignent tes placements, ce qui réduit ce que tu dois y puiser. Décoche pour voir ta retraite sans eux (bien vendu, travaux, vacance…)." : "Non comptés : à partir de ta retraite, les loyers nets ne servent plus à financer ton revenu (le crédit encore en cours, lui, reste payé)."}</p>` : ""}
+      ${aLoyers ? `<label class="coche" data-min="avance"><input type="checkbox" id="r-loyers" ${etat.profil.retraite?.compterLoyers !== false ? "checked" : ""}> Compter les loyers nets de mes biens loués dans mes revenus à la retraite</label>
+      <p class="note" data-min="avance" style="margin:-4px 0 0">${etat.profil.retraite?.compterLoyers !== false ? "Oui, ils sont comptés : chaque année, les loyers nets (après charges, impôt et crédit) rejoignent tes placements, ce qui réduit ce que tu dois y puiser. Décoche pour voir ta retraite sans eux (bien vendu, travaux, vacance…)." : "Non comptés : à partir de ta retraite, les loyers nets ne servent plus à financer ton revenu (le crédit encore en cours, lui, reste payé)."}</p>` : ""}
     </div>
     <p class="note" style="margin:8px 0 0">${(Number(p0.retraite?.pension) || 0) > 0 ? `Tes placements complètent la retraite publique à partir de ${R?.agePension ?? ageLegal} ans, et paient tout avant.` : "Par prudence, le plan compte 0 € de retraite publique : tout vient de tes placements. Pour l'estimer, voir « Estimer ta retraite publique » plus bas."} Tu arrêtes de travailler et d'épargner à ${ageDepart} ans (${ageLegal} ans au plus tard), puis tu te verses ce revenu jusqu'à ${R?.ageFin ?? ageLegal + (plan.retraite?.dureeAnnees ?? 30)} ans, relevé chaque année de l'inflation (${pct(H.inflation ?? 0)} par an)${R ? ` : ${eur(R.revenu)} d'aujourd'hui vaudront environ ${eur(R.revenu * Math.pow(1 + (H.inflation ?? 0) / 100, R.iR))} par mois en ${new Date().getFullYear() + R.iR}` : ""}.</p>
   </section>`;
@@ -1411,7 +1417,7 @@ function rendreRetraite() {
     [`Chances que l'argent dure jusqu'à ${C[iF].age} ans`, probaTxt],
     [`À transmettre à ${C[iF].age} ans (médiane)`, eur(Math.max(0, medF))],
   ];
-  const ok = R.probaDure >= 0.9, moyen = R.probaDure >= 0.7;
+  const ok = R.probaDure >= SEUIL_TENABLE, moyen = R.probaDure >= SEUIL_FRAGILE;
   const verdict = `<p class="verdict ${ok ? "ok" : "ko"}"><b>${ok ? "Objectif tenable." : moyen ? "Objectif fragile." : "Objectif risqué."}</b> Avec ${eur(R.revenu)} par mois (en euros d'aujourd'hui)${R.pension > 0 ? `, dont ${eur(R.pension)} de retraite publique` : ""}, l'argent dure jusqu'à ${C[iF].age} ans dans ${probaTxt} des scénarios.${R.epuiseA ? ` Dans le scénario central, les placements sont épuisés à ${R.epuiseA} ans.` : ` Dans le scénario central, il reste ${eur(Math.max(0, capF))} (en euros d'aujourd'hui) à ${C[iF].age} ans.`}${R.revenuPreserve != null ? ` Pour transmettre au moins le capital de départ (${eur(capR)}), le revenu possible est d'environ ${eur(R.revenuPreserve)} par mois.` : ""}${ok ? "" : " Leviers : épargner plus, partir plus tard, viser un revenu plus bas, ou garder une part de bourse plus importante à la retraite."}</p>`;
 
   // Évolution pendant la retraite (en euros d'aujourd'hui)
@@ -1441,7 +1447,7 @@ function rendreRetraite() {
   const cleP = clePessimiste();
   const P = pessimiste.cle === cleP ? pessimiste : null;
   const fmtAge = (a, enCours) => (enCours ? '<span class="muted small">calcul en cours…</span>' : a == null ? `pas avant ${ageLegal} ans` : `${a} ans`);
-  const blocAge = `<section class="panneau"><h2>À quel âge peux-tu t'arrêter ?</h2>
+  const blocAge = `<section class="panneau" id="ret-age" data-min="intermediaire"><h2>À quel âge peux-tu t'arrêter ?</h2>
     <p class="note" style="margin:4px 0 0">Le plus tôt possible pour te verser ${eur(R.revenu)} par mois jusqu'à ${R.ageFin} ans <b>en transmettant à ${R.ageFin} ans tout le capital que tu avais en arrêtant</b> (en euros d'aujourd'hui). À ${ageLegal} ans, on s'arrête quoi qu'il arrive.</p>
     <div class="tuiles" style="grid-template-columns:repeat(2,minmax(0,1fr))">
       <div class="tuile"><span>Scénario central (rendements moyens)</span><b class="num">${fmtAge(centralAge)}</b></div>
@@ -1450,8 +1456,8 @@ function rendreRetraite() {
     <div class="ligne-actions" id="actions-age">${boutonsAge(centralAge, P?.age, ageDepart, ageLegal)}</div>
     <p class="note" style="margin:8px 0 0">Pessimiste : on rejoue 200 scénarios de marchés tirés au hasard (krachs compris) ; l'âge retenu est celui où le capital est transmis intact dans au moins 9 scénarios sur 10. C'est la version prudente à retenir.</p>
   </section>`;
-  $("#retraite").innerHTML = saisie + blocObjectifs(r) + blocAge + blocLiberte(r) + blocPension(p0) + `
-    <section class="panneau"><h2>Ce que ça donne</h2>
+  $("#retraite").innerHTML = saisie + blocObjectifs(r, 'id="ret-objectifs" data-min="intermediaire"') + blocAge + blocLiberte(r) + blocPension(p0) + `
+    <section class="panneau" id="ret-resultat" data-min="intermediaire"><h2>Ce que ça donne</h2>
       <div class="tuiles">${tuiles.map(([k, v]) => `<div class="tuile"><span>${k}</span><b class="num">${v}</b></div>`).join("")}</div>
       <div class="tuiles" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:0">
         <div class="tuile"><span>Pessimiste (9 cas sur 10) : revenu possible sans entamer le capital</span><b class="num" id="pess-preserve">${P ? `${eur(P.revenuPreserve)}/mois` : '<span class="muted small">calcul en cours…</span>'}</b></div>
@@ -1460,12 +1466,12 @@ function rendreRetraite() {
       ${verdict}
       <p class="note" style="margin:10px 0 0">Tous les montants sont en euros d'aujourd'hui (inflation déduite). Les revenus possibles sont calculés dans le scénario central (rendements moyens), impôts sur les ventes compris : environ ${pct(100 * (R.taux ?? 0))} de chaque retrait la première année, puis un peu plus chaque année, car la part de gains dans ce qu'il reste augmente (le capital restant continue de rapporter). Chaque scénario tiré au hasard est taxé avec ses propres gains. Non déduit : l'abattement annuel de l'assurance-vie de plus de 8 ans (4 600 € de gains par an sans impôt sur le revenu, 9 200 € pour un couple marié ou pacsé), ce qui rend le calcul un peu prudent, de quelques centaines d'euros d'impôt par an au plus.</p>
     </section>
-    <section class="panneau"><h2>Ton capital pendant la retraite</h2>
+    <section class="panneau" id="ret-capital" data-min="intermediaire"><h2>Ton capital pendant la retraite</h2>
       <p class="note" style="margin:4px 0 8px">Chaque année, le revenu est pris sur les placements, et le reste continue d'être placé selon le plan (de plus en plus prudent avec l'âge). En euros d'aujourd'hui.</p>
       ${graphe}
       <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Âge</th><th class="m">Revenu versé / mois</th><th class="m">Pessimiste</th><th class="m">Médiane</th><th class="m">Optimiste</th><th class="m">Central</th></tr></thead><tbody>${lignes}</tbody></table></div>
     </section>
-    <section class="panneau"><h2>Comment se verser ce revenu</h2>
+    <section class="panneau" id="ret-decaissement" data-min="avance"><h2>Comment se verser ce revenu</h2>
       <ol class="points" style="margin-top:10px">
         <li>${texteLie(`Une fois par an (en janvier, par exemple), retirer 12 mois de revenu : environ ${eur(reel(brut1, iR))} la première année (en euros d'aujourd'hui), impôts compris, soit ${pct(tauxRetrait)} du capital. On le met sur le compte courant ou un livret, et on se fait un virement automatique chaque mois.`)}</li>
         <li>${texteLie(`Garder une réserve sans risque (livrets, fonds euros, obligations) d'au moins 2 à 3 ans de retraits. Avec le plan, elle représente ${anneesReserve != null ? `environ ${String(Math.round(anneesReserve * 10) / 10).replace(".", ",")} années de retraits` : "—"} au départ.`)}</li>
@@ -1477,7 +1483,7 @@ function rendreRetraite() {
       ${aDeLOr ? `<p class="${vendreOr ? "verdict ko" : "note"}" style="margin:0 0 6px">${vendreOr ? "<b>Tu as choisi de vendre aussi ton or physique.</b> C'est possible, mais déconseillé : " : "<b>Ton or physique n'est pas vendu.</b> "}${vendreOr ? "l'or" : "L'or"} physique n'est pas fait pour financer la retraite : il protège contre les crises graves et se transmet (pièces et lingots, avec une fiscalité de transmission comme le reste du patrimoine). Mieux vaut le garder et puiser dans la bourse, l'assurance-vie et l'épargne. Il ne serait vendu qu'en dernier recours, si tout le reste était épuisé. <a class="lien-fiche" href="#mon-profil">Changer ce choix (« Ta retraite » dans Mon profil)</a></p>` : ""}
       <div class="table-wrap"><table><thead><tr><th>Placement</th><th class="m">Montant à ${pR.age} ans</th><th class="m">Part</th><th class="m">À vendre dans l'année</th></tr></thead><tbody>${lignesVentes}</tbody></table></div>
     </section>
-    <section class="panneau"><h2>Impôts et transmission</h2>
+    <section class="panneau" id="ret-impots" data-min="avance"><h2>Impôts et transmission</h2>
       <ul class="points" style="margin-top:10px">
         <li>${texteLie("Assurance-vie de plus de 8 ans : rachats partiels réguliers ; chaque année, 4 600 € de gains (9 200 € pour un couple) sont exonérés d'impôt sur le revenu. Seule la part de gains de chaque retrait est imposée.")}</li>
         <li>${texteLie("PEA de plus de 5 ans : retraits sans impôt sur le revenu, seulement 18,6 % de prélèvements sociaux sur la part de gains. Le PEA reste ouvert.")}</li>
@@ -1491,8 +1497,117 @@ function rendreRetraite() {
   majPension();
   lancerPessimiste();
 }
+// ---- Retraite, niveau Débutant : une seule question, « Est-ce que ma retraite tient ? ».
+// Mêmes tirages et mêmes seuils que « Ce que ça donne » (projeter en version allégée) : aucun écart entre les deux niveaux.
+const SEUIL_TENABLE = 0.9, SEUIL_FRAGILE = 0.7;
+const verdictRetraite = (proba) => (proba >= SEUIL_TENABLE ? "tenable" : proba >= SEUIL_FRAGILE ? "fragile" : "pas-tenable");
+let cacheNecessaire = { cle: null, r: null };
+let suggestionRetraite = { cle: null, res: null };
+let jetonSuggestion = 0;
+function htmlSuggestionRetraite(s) {
+  if (!s) return `<p class="small muted" style="margin:0">Je cherche la solution la plus simple… calcul en cours.</p>`;
+  const { age, revenu } = s;
+  if (age == null && revenu == null) return `<p class="note" style="margin:0">Aucun départ plus tardif ni revenu plus bas ne suffit avec ce plan. Pour aller plus loin, épargne davantage dans « Mon profil » : le détail est dans le niveau Intermédiaire.</p>`;
+  const phrase = age != null && revenu != null ? `En t'arrêtant à ${age} ans, ou avec un revenu de ${eur(revenu)} par mois, ça tient.`
+    : age != null ? `En t'arrêtant à ${age} ans, ça tient.` : `Avec un revenu de ${eur(revenu)} par mois, ça tient.`;
+  return `<p style="margin:0 0 8px"><b>${phrase}</b></p>
+    <div class="ligne-actions">${age != null ? `<button type="button" class="principal" data-age-depart="${age}">Arrêter à ${age} ans</button>` : ""}${revenu != null ? `<button type="button" ${age == null ? 'class="principal" ' : ""}data-revenu-retraite="${revenu}">Viser ${eur(revenu)} par mois</button>` : ""}</div>`;
+}
+// Cherche le départ le plus proche, et le revenu le plus proche, pour lesquels le verdict devient « Tenable ».
+// Recherche rapide (moins de tirages), puis confirmation avec les tirages du verdict : la suggestion appliquée donne bien « Tenable ».
+async function chercherSuggestionRetraite(R, ageLegal, jeton, cle) {
+  const RAPIDE = 200;
+  const proba = async (modif, tirages) => {
+    await pause();
+    if (jeton !== jetonSuggestion) throw new Error("annulé");
+    const p = normaliserProfil({ ...etat.profil, retraite: { ...(etat.profil.retraite ?? {}), ...modif } });
+    return projeter(etat.brouillon, p, { inclureAchat: true, legere: true, tirages })?.retraite?.probaDure ?? 0;
+  };
+  try {
+    const okAge = async (a, t) => (await proba({ ageDepart: a >= ageLegal ? null : a }, t)) >= SEUIL_TENABLE;
+    let age = null;
+    const de = R.age + 1;
+    if (de <= ageLegal && await okAge(ageLegal, RAPIDE)) {
+      let bas = de, haut = ageLegal;
+      while (bas < haut) { const m = Math.floor((bas + haut) / 2); if (await okAge(m, RAPIDE)) haut = m; else bas = m + 1; }
+      age = haut;
+      while (age <= ageLegal && !(await okAge(age))) age++;
+      if (age > ageLegal) age = null;
+    }
+    const PAS = 50;
+    const okRevenu = async (k, t) => (await proba({ revenu: k * PAS }, t)) >= SEUIL_TENABLE;
+    let revenu = null;
+    const kMax = Math.ceil(R.revenu / PAS) - 1;
+    if (kMax >= 1) {
+      let bas = 0, haut = kMax;
+      while (bas < haut) { const m = Math.ceil((bas + haut) / 2); if (await okRevenu(m, RAPIDE)) bas = m; else haut = m - 1; }
+      let k = bas;
+      while (k > 0 && !(await okRevenu(k))) k--;
+      revenu = k > 0 ? k * PAS : null;
+    }
+    if (jeton !== jetonSuggestion) return;
+    suggestionRetraite = { cle, res: { age, revenu } };
+    const el = $("#ret-suggestion");
+    if (el) el.innerHTML = htmlSuggestionRetraite(suggestionRetraite.res);
+  } catch (e) {
+    if (e.message !== "annulé") { console.error(e); const el = $("#ret-suggestion"); if (el) el.innerHTML = ""; }
+  }
+}
+function rendreRetraiteDebutant() {
+  const plan = etat.brouillon, H = plan.hypotheses;
+  let r;
+  try { r = projectionCourante(true, { legere: true }); }
+  catch (e) { console.error(e); $("#retraite").innerHTML = `<div class="erreur">Calcul impossible : ${echapper(e.message)}.</div>`; return; }
+  const R = r.retraite, C = r.central;
+  const p0 = normaliserProfil(etat.profil);
+  const ageAuj = Math.ceil(p0.age ?? 0), ageLegal = H.ageRetraite ?? 64, ageDepart = R?.age ?? ageLegal;
+  const optionsAge = Array.from({ length: Math.max(0, ageLegal - ageAuj + 1) }, (_, k) => ageAuj + k).map((a) => `<option value="${a}" ${a === ageDepart ? "selected" : ""}>${a} ans${a === ageLegal ? " (au plus tard)" : ""}</option>`).join("");
+  const reglages = `<section class="panneau" id="ret-simple" data-seul="debutant"><h2>Ta retraite en 2 questions</h2>
+    <div class="champs" style="max-width:600px;margin-top:10px">
+      ${optionsAge ? `<div class="champ"><label for="r-age">Âge où tu veux arrêter de travailler</label><select id="r-age">${optionsAge}</select></div>` : ""}
+      <div class="champ"><label for="r-revenu">Revenu voulu par mois, après impôt, en euros d'aujourd'hui</label><div class="saisie"><input id="r-revenu" type="number" min="0" step="100" value="${p0.retraite?.revenu ?? ""}" placeholder="${plan.retraite?.revenuMensuelDefaut ?? 2000}"><span>€/mois</span></div></div>
+    </div>
+  </section>`;
+  if (!R) {
+    $("#retraite").innerHTML = reglages + `<section class="panneau" data-seul="debutant"><p class="muted" style="margin:0">${(p0.age ?? 0) >= ageLegal ? "Ce profil a déjà l'âge de la retraite : la simulation part de la situation actuelle." : "Retraite hors de la période projetée."}</p></section>`;
+    return;
+  }
+  const infl = (H.inflation ?? 0) / 100, reel = (v, i) => v / Math.pow(1 + infl, i);
+  const mode = etat.profil.retraite?.modePension ?? "auto";
+  const lignePension = mode === "zero" ? "Retraite publique : non comptée (réglage prudent, modifiable en niveau Intermédiaire)."
+    : R.pension > 0 ? `Retraite publique ${mode === "auto" ? "estimée" : "comptée (montant saisi en niveau Intermédiaire)"} : ${eur(R.pension)}/mois à partir de ${R.agePension} ans.`
+    : "Retraite publique : pas encore estimée (indique ton salaire dans « Mon profil »). Pour l'instant, tes placements paient tout.";
+  const proba = R.probaDure, k = verdictRetraite(proba);
+  const titre = { tenable: "Tenable", fragile: "Fragile", "pas-tenable": "Pas tenable" }[k];
+  const probaTxt = `${Math.round(100 * proba)} %`;
+  const capR = reel(C[R.iR].financier, R.iR);
+  const cle = JSON.stringify([etat.brouillon, etat.profil]);
+  if (cacheNecessaire.cle !== cle) cacheNecessaire = { cle, r: capitalNecessaire(etat.brouillon, profilPourMoteur(), { inclureAchat: true }) };
+  const nec = cacheNecessaire.r ? reel(cacheNecessaire.r.capital, R.iR) : null;
+  const ecart = nec == null ? "" : capR >= nec
+    ? (k === "tenable" ? "" : ` Avec des rendements moyens, ton capital suffirait ; mais quelques mauvaises années de bourse au mauvais moment suffisent à le vider : c'est ce qui rend le résultat ${k === "fragile" ? "fragile" : "risqué"}.`)
+    : ` Il manque environ ${eur(nec - capR)} pour tenir avec des rendements moyens.`;
+  const verdict = `<p class="verdict ${k === "tenable" ? "ok" : "ko"}" id="ret-verdict"><b>${titre}.</b> Avec ${eur(R.revenu)} par mois (en euros d'aujourd'hui), ton argent dure jusqu'à ${R.ageFin} ans dans ${probaTxt} des cas simulés (bonnes et mauvaises années de bourse).${k === "tenable" ? "" : " Plus ce chiffre est bas, plus tu risques de manquer d'argent."}${ecart}</p>`;
+  let suggestion = "";
+  if (k !== "tenable") {
+    const memoire = suggestionRetraite.cle === cle ? suggestionRetraite.res : null;
+    suggestion = `<div id="ret-suggestion" style="margin-top:10px">${htmlSuggestionRetraite(memoire)}</div>`;
+    if (!memoire) { const jeton = ++jetonSuggestion; chercherSuggestionRetraite(R, ageLegal, jeton, cle); }
+  } else jetonSuggestion++;
+  const tuiles = [
+    [`Capital nécessaire à ${R.age} ans`, nec != null ? eur(nec) : "—", `pour que l'argent dure jusqu'à ${R.ageFin} ans (rendements moyens)`],
+    [`Capital prévu à ${R.age} ans`, eur(capR), "ce que ton plan aura mis de côté (rendements moyens)"],
+  ];
+  $("#retraite").innerHTML = reglages + `<section class="panneau" id="ret-verdict-bloc" data-seul="debutant"><h2>Est-ce que ma retraite tient ?</h2>
+      ${verdict}
+      ${suggestion}
+      <div class="tuiles" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px">${tuiles.map(([t, v, sous]) => `<div class="tuile"><span>${t}</span><b class="num">${v}</b><span class="small muted">${sous}</span></div>`).join("")}</div>
+      <p class="note" style="margin:10px 0 0">${lignePension} <a class="lien-fiche" href="#fiche-retraite-publique">Comment elle est estimée</a></p>
+      <p class="note" style="margin:6px 0 0">Tous les montants sont en euros d'aujourd'hui (inflation déduite). Tu arrêtes de travailler et d'épargner à ${R.age} ans ; tu te verses ensuite ce revenu jusqu'à ${R.ageFin} ans, pris sur tes placements.</p>
+    </section>`;
+}
 // Chances de réussite de chaque objectif (parmi les scénarios tirés au hasard)
-function blocObjectifs(r) {
+function blocObjectifs(r, attrs = "") {
   const R = r.retraite, n = r.simulations, E = r.eventail;
   const items = [];
   if (r.achat) items.push([`Acheter ta résidence principale (${eur(r.achat.prix)}) à ${r.achat.age} ans`, 1 - r.achatsRates / n]);
@@ -1503,7 +1618,7 @@ function blocObjectifs(r) {
   }
   if (!items.length) return "";
   const niveau = (p) => (p >= 0.9 ? ["Très probable", "var(--s3)"] : p >= 0.7 ? ["Probable", "var(--s4)"] : p >= 0.5 ? ["Incertain", "var(--s2)"] : ["Peu probable", "var(--s2)"]);
-  return `<section class="panneau"><h2>Tes objectifs : chances de réussite</h2>
+  return `<section class="panneau"${attrs ? ` ${attrs}` : ""}><h2>Tes objectifs : chances de réussite</h2>
     <p class="note" style="margin:4px 0 10px">En suivant le plan, sur ${n} scénarios de marchés tirés au hasard (bonnes et mauvaises années, krachs compris).</p>
     <ul class="objectifs">${items.map(([t, p]) => { const [l, c] = niveau(p); const v = Math.round(100 * p); return `<li><span>${echapper(t)}</span><span class="jauge" role="img" aria-label="${v} %"><span style="width:${v}%;background:${c}"></span></span><b class="num">${p >= 0.995 && p < 1 ? "> 99" : v} %</b><span class="small muted">${l}</span></li>`; }).join("")}</ul>
   </section>`;
@@ -1514,7 +1629,7 @@ function blocPension(p0) {
   const plan = etat.brouillon, RP = plan.retraitePublique ?? {};
   const rr = p0.retraite ?? {};
   const ages = Array.from({ length: 70 - 62 + 1 }, (_, k) => 62 + k);
-  return `<section class="panneau" id="bloc-pension"><h2>Estimer ta retraite publique</h2>
+  return `<section class="panneau" id="bloc-pension" data-min="intermediaire"><h2>Estimer ta retraite publique</h2>
     <p class="note" style="margin:4px 0 10px">Estimation simplifiée pour un salarié du privé, à partir de ton salaire et de ta carrière (voir la fiche <a class="lien-fiche" href="#fiche-retraite-publique">Retraite publique</a>). Ton relevé officiel est sur info-retraite.fr.</p>
     <div class="estimateur" style="max-width:640px">
       <div class="champ"><label for="pp-debut">Âge de ton premier emploi</label><div class="saisie"><input id="pp-debut" type="number" min="14" max="40" step="1" value="${rr.ageDebutCarriere ?? ""}" placeholder="${RP.ageDebutCarriere ?? 22}"><span>ans</span></div></div>
@@ -2023,6 +2138,15 @@ function choisirAgeDepart(a) {
   rendreRetraite();
 }
 $("#vue-retraite").addEventListener("click", (e) => { const b = e.target.closest?.("[data-age-depart]"); if (b) choisirAgeDepart(Number(b.dataset.ageDepart)); });
+$("#vue-retraite").addEventListener("click", (e) => {
+  const b = e.target.closest?.("[data-revenu-retraite]"); if (!b) return;
+  etat.profil.retraite ??= {};
+  etat.profil.retraite.revenu = Number(b.dataset.revenuRetraite);
+  memo.set("profil-v2", etat.profil);
+  syncRetraite0();
+  planifierSauvegardeProfil();
+  rendreRetraite();
+});
 $("#vue-retraite").addEventListener("change", (e) => {
   if (e.target.id === "r-age") choisirAgeDepart(Number(e.target.value));
   if (e.target.id === "r-mode" || e.target.id === "r-loyers") {

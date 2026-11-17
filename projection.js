@@ -290,6 +290,8 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
     // Retraite : on se verse le revenu voulu (en euros d'aujourd'hui, donc relevé de l'inflation),
     // pris sur tous les placements au prorata ; impôt sur les gains vendus compris
     if (retraite && age >= retraite.age) {
+      // facteurCapital (recherche du capital nécessaire) : capital de départ multiplié, gains et base dans les mêmes proportions
+      if (retraite.facteurCapital != null && age === retraite.age) for (const c of classes) { v[c] *= retraite.facteurCapital; base[c] *= retraite.facteurCapital; }
       const net = 12 * besoinA(retraite, age) * Math.pow(1 + (H.inflation ?? 0) / 100, y);
       // Taux d'impôt de l'année : impôt moyen sur les gains × part de gains dans les placements de CE scénario.
       // La part de gains monte avec les années (le capital restant continue de gagner), donc le taux aussi.
@@ -445,14 +447,17 @@ function centralEtRetraite(planSaisi, profilSaisi, { inclureAchat = true, prolon
   return { profil, PR, plan, achat, per, iR, retraite, central };
 }
 
-export function projeter(planSaisi, profilSaisi, { inclureAchat = true, prolonger = true, analyseRetraite = true, fiscF = null } = {}) {
+// `legere` (niveau Débutant) : mêmes tirages (même graine, même nombre) donc même probaDure, mais sans l'éventail
+// ni le détail « après impôts » ni la recherche des revenus possibles ; `eventail` vaut alors null.
+// `tirages` : nombre de scénarios imposé (recherches rapides ; sans lui, celui du plan).
+export function projeter(planSaisi, profilSaisi, { inclureAchat = true, prolonger = true, analyseRetraite = true, fiscF = null, legere = false, tirages = null } = {}) {
   const { profil, PR, plan, achat, per, iR, retraite, central } = centralEtRetraite(planSaisi, profilSaisi, { inclureAchat, prolonger, fiscF });
-  const n = Math.max(50, Math.min(2000, plan.hypotheses.simulations ?? 500));
+  const n = Math.max(50, Math.min(2000, tirages ?? plan.hypotheses.simulations ?? 500));
   const gauss = generateur(20261111);
   const chemins = [];
-  const ansImpots = new Set(central.map((p, i) => i).filter((i) => i % 5 === 0 || i === iR || i === central.length - 1 || central[i].evenement === "achat"));
+  const ansImpots = legere ? null : new Set(central.map((p, i) => i).filter((i) => i % 5 === 0 || i === iR || i === central.length - 1 || central[i].evenement === "achat"));
   for (let k = 0; k < n; k++) chemins.push(simuler(plan, profil, { achat, gauss, per, retraite, ansImpots, fiscF }));
-  const eventail = central.map((p, i) => {
+  const eventail = legere ? null : central.map((p, i) => {
     const vals = chemins.map((c) => c[i].financier).sort((a, b) => a - b);
     const gagnants = chemins.filter((c) => c[i].financier >= c[i].verse).length;
     const e = { age: p.age, p10: quantile(vals, 0.1), p50: quantile(vals, 0.5), p90: quantile(vals, 0.9), probaGain: gagnants / n };
@@ -474,7 +479,7 @@ export function projeter(planSaisi, profilSaisi, { inclureAchat = true, prolonge
     const tient = chemins.filter((c) => c[dernier].financier > 0.5).length / n;
     const transmet = chemins.filter((c) => c[iR].financier > 0 && reel(c[dernier].financier, dernier) >= reel(c[iR].financier, iR)).length / n;
     let preserve = null, consomme = null;
-    if (analyseRetraite) {
+    if (analyseRetraite && !legere) {
       const essai = (revenu) => simuler(plan, profil, { achat, per, retraite: { ...retraite, revenu }, fiscF });
       const chercher = (ok) => { let bas = 0, haut = 50000; for (let k = 0; k < 24; k++) { const m = (bas + haut) / 2; if (ok(essai(m))) bas = m; else haut = m; } return bas; };
       preserve = chercher((pts) => reel(pts[dernier].financier, dernier) >= reel(pts[iR].financier, iR));
@@ -498,6 +503,20 @@ export function projeterCentral(planSaisi, profilSaisi, { inclureAchat = true, f
         epuiseA: central.find((p, i) => i > iR && p.financier <= 0.5)?.age ?? null }
     : null;
   return { central, iR, dernier, achat, per, eventail: null, simulations: 0, achatsRates: 0, retraite: ret };
+}
+
+// Capital nécessaire à l'âge d'arrêt pour que l'argent dure jusqu'à la fin (scénario central, rendements moyens) :
+// le capital de départ est multiplié par un facteur, cherché par dichotomie sur le même moteur que le reste.
+// Retourne { capital, facteur } en euros de l'époque (à déflater comme le capital projeté), ou null si non défini.
+export function capitalNecessaire(planSaisi, profilSaisi, { inclureAchat = true } = {}) {
+  const { profil, plan, achat, per, iR, retraite, central } = centralEtRetraite(planSaisi, profilSaisi, { inclureAchat });
+  const dernier = central.length - 1;
+  if (!(iR >= 0 && iR < dernier) || !(central[iR].financier > 0)) return null;
+  const dure = (f) => simuler(plan, profil, { achat, per, retraite: { ...retraite, facteurCapital: f } })[dernier].financier > 0.5;
+  let bas = 0, haut = 1;
+  while (!dure(haut)) { bas = haut; haut *= 2; if (haut > 64) return null; }
+  for (let k = 0; k < 22; k++) { const m = (bas + haut) / 2; if (dure(m)) haut = m; else bas = m; }
+  return { capital: central[iR].financier * haut, facteur: haut };
 }
 
 // Liberté financière (règle des 4 %) : capital de 25 fois les besoins annuels, âge où le capital placé l'atteint (« fire »)
