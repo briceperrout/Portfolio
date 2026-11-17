@@ -352,3 +352,47 @@ export function plafondPERIndependant({ forme, revenuPro, pass, passN1 }) {
   const plafond = Math.max(0.1 * passN1, 0.1 * Math.min(rev, 8 * passN1));
   return { plafond, regle: "163 quatervicies", detail: "10 % du revenu professionnel (jusqu'à 8 PASS de l'an dernier), au moins 10 % du PASS" };
 }
+
+// =====================================================================
+//  EXIT TAX (art. 167 bis CGI) — imposition des plus-values latentes lors du
+//  transfert du domicile fiscal hors de France. Fonction pure, estimation.
+// =====================================================================
+export const EXIT_TAX = Object.freeze({
+  SEUIL_TITRES: 800000,            // valeur globale des titres
+  PART_BENEFICES: 50,              // ou participation ≥ 50 % des bénéfices sociaux d'une société
+  ANNEES_RESIDENCE: 6,             // résidence fiscale en France au moins 6 des 10 dernières années
+  FENETRE_ANNEES: 10,
+  SEUIL_DEGREVEMENT_LONG: 2570000, // au-delà : dégrèvement après 5 ans, sinon 2 ans
+  DEGREVEMENT_COURT: 2,
+  DEGREVEMENT_LONG: 5,
+  VERIFIE_LE: "2026-11-17",
+});
+
+export function exitTax({ valeurTitres = 0, plusValuesLatentes = 0, moinsValuesLatentes = 0, participation50 = false, anneesResidence10 = 10, destination = "ue" } = {}, prelevements = PRELEVEMENTS) {
+  const num = (x) => { const n = Number(x); return Number.isFinite(n) ? n : 0; };
+  const titres = Math.max(0, num(valeurTitres)), pv = Math.max(0, num(plusValuesLatentes)), mv = Math.max(0, num(moinsValuesLatentes));
+  const annees = num(anneesResidence10), participation = participation50 === true;
+  const residence = annees >= EXIT_TAX.ANNEES_RESIDENCE;
+  const seuil = titres > EXIT_TAX.SEUIL_TITRES;
+  const assujetti = residence && (seuil || participation);
+  const motifs = [];
+  if (!residence) motifs.push(`Résidence fiscale en France inférieure à ${EXIT_TAX.ANNEES_RESIDENCE} ans sur les ${EXIT_TAX.FENETRE_ANNEES} dernières années : l'exit tax ne s'applique pas.`);
+  if (seuil) motifs.push(`Valeur globale des titres supérieure à ${EXIT_TAX.SEUIL_TITRES.toLocaleString("fr-FR")} €.`);
+  if (participation) motifs.push(`Participation d'au moins ${EXIT_TAX.PART_BENEFICES} % des bénéfices sociaux d'une société.`);
+  if (residence && !seuil && !participation) motifs.push(`Valeur des titres inférieure ou égale à ${EXIT_TAX.SEUIL_TITRES.toLocaleString("fr-FR")} € et aucune participation d'au moins ${EXIT_TAX.PART_BENEFICES} % : l'exit tax ne s'applique pas.`);
+  if (!assujetti) return { assujetti: false, motifs, base: 0, impotIR: 0, prelevementsSociaux: 0, total: 0, sursis: null, degrevementApresAns: null, notes: [] };
+  const base = Math.max(0, pv - mv);
+  const impotIR = Math.round(base * prelevements.IR_PFU / 100);
+  const prelevementsSociaux = Math.round(base * prelevements.PS_CAPITAL / 100);
+  return {
+    assujetti, motifs, base, impotIR, prelevementsSociaux, total: impotIR + prelevementsSociaux,
+    sursis: destination === "ue" ? "automatique" : "sur demande, avec garanties",
+    degrevementApresAns: titres <= EXIT_TAX.SEUIL_DEGREVEMENT_LONG ? EXIT_TAX.DEGREVEMENT_COURT : EXIT_TAX.DEGREVEMENT_LONG,
+    notes: [
+      "L'option pour le barème progressif de l'impôt sur le revenu n'est pas simulée : le prélèvement forfaitaire est appliqué.",
+      "PEA et assurance-vie ne sont pas intégrés à l'assiette de ce simulateur : à vérifier au cas par cas.",
+      "Taux de prélèvements sociaux de résident appliqué ; le régime peut différer en cas d'affiliation à la sécurité sociale d'un autre État de l'UE.",
+      "Le dégrèvement n'est acquis que si les titres sont toujours détenus à l'échéance indiquée.",
+    ],
+  };
+}

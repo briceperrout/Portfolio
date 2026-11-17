@@ -1,5 +1,5 @@
 // Tests de la fiscalité des indépendants et de la centralisation des taux — node test_fiscal.mjs
-import { PFU, PRELEVEMENTS, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes } from "./fiscal.js";
+import { PFU, PRELEVEMENTS, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes, exitTax } from "./fiscal.js";
 import { PLAN } from "./plan.js";
 import { estimerPension } from "./pension.js";
 
@@ -132,6 +132,30 @@ verifier("marge TMI dépassée", margeTranche(40000, { parts: 1, partsBase: 1, t
 }
 for (const x of [0, 9000, 25000, 70000]) verifier(`barème indexé 1 = barème ${x}`, impotBaremeIndexe(x, 1, 1, 1).impot, impotBareme(x, 1, 1).impot, 1e-9);
 verifier("barème indexé 1,1", impotBaremeIndexe(33000, 2, 2, 1.1).impot, impotBareme(30000, 2, 2).impot * 1.1, 1e-6);
+
+// Exit tax (art. 167 bis CGI)
+{
+  verifier("exit 800000 non assujetti", exitTax({ valeurTitres: 800000 }).assujetti, false);
+  verifier("exit 800001 assujetti", exitTax({ valeurTitres: 800001 }).assujetti, true);
+  verifier("exit 5 ans non assujetti", exitTax({ valeurTitres: 1000000, anneesResidence10: 5 }).assujetti, false);
+  verifier("exit 6 ans assujetti", exitTax({ valeurTitres: 1000000, anneesResidence10: 6 }).assujetti, true);
+  verifier("exit participation50", exitTax({ valeurTitres: 100000, participation50: true }).assujetti, true);
+  const e = exitTax({ valeurTitres: 1000000, plusValuesLatentes: 300000 });
+  verifier("exit IR", e.impotIR, 38400, 0);
+  verifier("exit PS", e.prelevementsSociaux, 55800, 0);
+  verifier("exit total", e.total, 94200, 0);
+  verifier("exit notes", e.notes.length >= 3, true);
+  verifier("exit moins-values", exitTax({ valeurTitres: 1000000, plusValuesLatentes: 300000, moinsValuesLatentes: 100000 }).base, 200000, 0);
+  verifier("exit base négative", exitTax({ valeurTitres: 1000000, plusValuesLatentes: 10, moinsValuesLatentes: 100 }).total, 0, 0);
+  verifier("exit non assujetti total", exitTax({ valeurTitres: 500000, plusValuesLatentes: 300000 }).total, 0, 0);
+  verifier("exit dégrèvement 2 ans", exitTax({ valeurTitres: 2570000 }).degrevementApresAns, 2, 0);
+  verifier("exit dégrèvement 5 ans", exitTax({ valeurTitres: 2570001 }).degrevementApresAns, 5, 0);
+  verifier("exit sursis ue", exitTax({ valeurTitres: 900000 }).sursis, "automatique");
+  verifier("exit sursis autre", exitTax({ valeurTitres: 900000, destination: "autre" }).sursis, "sur demande, avec garanties");
+  verifier("exit non assujetti sursis", exitTax({ valeurTitres: 1 }).sursis, null);
+  const vide = exitTax({}), junk = exitTax({ valeurTitres: "x", plusValuesLatentes: NaN, moinsValuesLatentes: undefined, anneesResidence10: "abc" });
+  for (const r of [vide, junk]) verifier("exit sans NaN", [r.base, r.impotIR, r.prelevementsSociaux, r.total].every(Number.isFinite), true);
+}
 
 console.log(`${ok} vérifications réussies, ${ko} échec(s)`);
 process.exit(ko ? 1 : 0);

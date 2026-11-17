@@ -102,7 +102,7 @@ export const GROUPES_PLACEMENTS = {
   livrets: ["livretA", "ldds", "lep", "livretJeune", "livretBancaire"],
   assuranceVie: ["assuranceVie", "assuranceVieUC"],
   bourse: ["pea", "cto"],
-  autres: ["per", "scpi", "orPhysique", "plateformeCrypto", "coldWallet", "epargneSalariale", "pel"],
+  autres: ["per", "scpi", "orPhysique", "plateformeCrypto", "coldWallet", "epargneSalariale", "pel", "comptesEtrangers"],  // comptesEtrangers : solde dérivé (devises.js), lecture seule, jamais réécrit par repartirGroupe
 };
 const GROUPES_MODIFIABLES = ["livrets", "assuranceVie", "bourse"];
 const TOLERANCE_GROUPE = 1; // € : écart d'arrondi toléré entre le détail saisi et la répartition automatique
@@ -191,6 +191,43 @@ export function profilRisque(plan, profil) {
   return { id, ...(P[id] ?? {}) };
 }
 export const resideEnFrance = (profil) => !profil.pays || profil.pays === "FR";
+// Conséquences d'un départ de France sur chaque enveloppe détenue (solde > 0). Fonction pure, à confirmer auprès de l'établissement.
+// Un pays peut porter `etnc: true` dans plan.residence.pays (État ou territoire non coopératif) : le PEA y est alors clôturé.
+// Les comptes étrangers (profil.comptesEtrangers) ne sont pas concernés : ils sont déjà hors de France.
+export function consequencesDepart(plan, profil, codePays) {
+  const pays = plan.residence?.pays?.[codePays] ?? plan.residence?.pays?.AUTRE ?? {};
+  const nomPays = pays.libelle ?? "le pays de destination";
+  const regles = {
+    lep: ["cloturer", "Réservé aux résidents fiscaux de France : à clôturer au départ."],
+    ldds: ["cloturer", "Réservé aux résidents fiscaux de France : à clôturer au départ."],
+    livretJeune: ["cloturer", "Réservé aux résidents fiscaux de France : à clôturer au départ."],
+    livretA: ["conserver", "Le livret peut être conservé ; ses intérêts restent exonérés en France."],
+    livretBancaire: ["conserver", "Compte conservé ; ses intérêts sont imposables dans le pays de résidence selon la convention."],
+    pel: ["conserver", "Le plan est conservé mais aucun nouveau versement ni nouveau plan n'est possible depuis l'étranger."],
+    pea: pays.etnc === true
+      ? ["cloturer", `${nomPays} est un État ou territoire non coopératif : le PEA doit être clôturé.`]
+      : ["conserver", "Le PEA est conservé (loi PACTE) ; plus de versements possibles depuis l'étranger, gains imposés selon le pays de résidence."],
+    assuranceVie: ["conserver", "Contrat conservé ; la fiscalité des rachats dépend de la convention fiscale avec le pays de résidence."],
+    assuranceVieUC: ["conserver", "Contrat conservé ; la fiscalité des rachats dépend de la convention fiscale avec le pays de résidence."],
+    per: ["gelerVersements", "Plan conservé, mais les versements ne sont plus déductibles en France : on les arrête."],
+    epargneSalariale: ["conserver", "Avoirs conservés auprès du teneur de compte de l'entreprise ; la sortie reste soumise aux règles françaises."],
+    cto: ["conserver", "Compte conservé ; plus-values imposables selon le pays de résidence (voir l'exit tax ci-dessous)."],
+    plateformeCrypto: ["conserver", "Actifs conservés ; imposition selon le pays de résidence."],
+    coldWallet: ["conserver", "Actifs conservés ; imposition selon le pays de résidence."],
+    orPhysique: ["conserver", "Bien conservé ; imposition d'une revente selon le pays de résidence."],
+    scpi: ["conserver", "Parts conservées ; les loyers restent imposables en France (revenus fonciers de source française)."],
+  };
+  const lignes = [];
+  for (const [id, e] of Object.entries(plan.enveloppes ?? {})) {
+    if (id === "comptesEtrangers") continue;
+    const solde = Number(profil.placements?.[id]) || 0;
+    if (!(solde > 0)) continue;
+    const [action, explication] = regles[id] ?? ["conserver", "Compte conservé ; règles à vérifier auprès de l'établissement."];
+    lignes.push({ id, libelle: e.libelle ?? id, solde, action, explication });
+  }
+  return lignes;
+}
+export const NOTE_CONSEQUENCES_DEPART = "Règles à confirmer auprès de l'établissement avant le départ.";
 export function paysDe(plan, profil) {
   const P = plan.residence?.pays ?? {};
   const p = P[profil.pays] ?? P.AUTRE ?? {};
@@ -279,6 +316,7 @@ export function comptesBloques(plan, profil) {
   if ((profil.placements?.per ?? 0) > 0 && (profil.age ?? 0) < (plan.hypotheses?.ageRetraite ?? 64)) bloque.per = true;
   if ((profil.placements?.pel ?? 0) > 0) bloque.pel = true; // pas de retrait partiel : un retrait clôture le PEL
   if ((profil.placements?.epargneSalariale ?? 0) > 0) bloque.epargneSalariale = true; // PEE 5 ans, PER d'entreprise jusqu'à la retraite
+  if ((profil.placements?.comptesEtrangers ?? 0) > 0) bloque.comptesEtrangers = true; // 401(k), 3a, etc. : jamais vendus pour rééquilibrer (mobilisables seulement en retraite)
   // Comptes qu'on ne vend jamais (l'or physique) : ce qu'on a est gardé
   for (const e of plan.reequilibrage?.jamaisVendre ?? []) if ((profil.placements?.[e] ?? 0) > 0) bloque[e] = true;
   return bloque;
@@ -860,6 +898,7 @@ const RAISON_BLOCAGE = { orPhysique: "on garde l'or physique, on n'en revend pas
 // ------------------------------------------------------------- notes sur les mouvements
 const NOTE_RETRAIT = {
   cto: "Vente : plus-value imposable",
+  comptesEtrangers: "Vente : plus-value imposable (régime du pays à vérifier)",
   orPhysique: "Revente : fiscalité de l'or à prévoir",
   plateformeCrypto: "Vente : plus-value imposable",
   coldWallet: "Vente : plus-value imposable",

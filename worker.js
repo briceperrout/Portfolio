@@ -13,6 +13,9 @@
 //    GET | PUT | DELETE /api/sync/:id → synchronisation multi-appareils : enveloppe chiffrée de bout en bout (voir sync.js),
 //                        stockée dans Cloudflare KV (liaison SYNC_KV). Le serveur ne peut pas la lire ; PUT exige la révision
 //                        courante (verrou optimiste, 409 « conflit » sinon) ; 256 Ko max ; expiration 400 jours sans écriture.
+//    GET  /api/taux    → taux de change du jour de la BCE (USD, CAD, CHF, GBP ; 1 EUR = x devise) :
+//                        { date, source: "BCE", base: "EUR", taux }. Donnée publique, aucune donnée utilisateur transmise,
+//                        pas de Turnstile ; mis en cache 6 h. Échec amont : 502 « taux indisponibles ».
 //
 //  Secrets (jamais dans le code, jamais côté navigateur) :
 //    wrangler secret put OPENAI_API_KEY
@@ -404,6 +407,42 @@ async function sync(request, env, id) {
   return json(200, { ok: true, rev: enveloppe.rev });
 }
 
+const URL_BCE = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml";
+const DEVISES_BCE = ["USD", "CAD", "CHF", "GBP"];
+
+// Extrait date et taux (1 EUR = x devise) du XML quotidien de la BCE ; null si invalide.
+export function analyserTauxBCE(xml) {
+  if (typeof xml !== "string") return null;
+  const d = /\btime\s*=\s*['"](\d{4})-(\d{2})-(\d{2})['"]/.exec(xml);
+  if (!d) return null;
+  const [, a, m, j] = d;
+  const t = new Date(Date.UTC(+a, +m - 1, +j));
+  if (t.getUTCFullYear() !== +a || t.getUTCMonth() !== +m - 1 || t.getUTCDate() !== +j) return null;
+  const taux = {};
+  for (const c of xml.matchAll(/<Cube\s+currency\s*=\s*['"]([A-Z]{3})['"]\s+rate\s*=\s*['"]([^'"]*)['"]\s*\/?>/g)) {
+    const v = Number(c[2]);
+    if (DEVISES_BCE.includes(c[1]) && Number.isFinite(v) && v > 0) taux[c[1]] = v;
+  }
+  if (!Object.keys(taux).length) return null;
+  return { date: `${a}-${m}-${j}`, source: "BCE", base: "EUR", taux };
+}
+
+async function tauxBCE() {
+  const ctrl = new AbortController();
+  const minuteur = setTimeout(() => ctrl.abort(), 5000);
+  try {
+    const rep = await fetch(URL_BCE, { signal: ctrl.signal, headers: { "User-Agent": "PlanPatrimoine/1.0" }, cf: { cacheTtl: 21600, cacheEverything: true } });
+    if (!rep.ok) return json(502, { erreur: "taux indisponibles" });
+    const donnees = analyserTauxBCE(await rep.text());
+    if (!donnees) return json(502, { erreur: "taux indisponibles" });
+    return json(200, donnees, { "Cache-Control": "public, max-age=21600" });
+  } catch {
+    return json(502, { erreur: "taux indisponibles" });
+  } finally {
+    clearTimeout(minuteur);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -414,6 +453,10 @@ export default {
         return json(200, { actif: cleValide(env) !== null, modele: modeleChat(env) });
       }
       if (url.pathname === "/api/chat" && request.method === "POST") return await chat(request, env);
+      if (url.pathname === "/api/taux") {
+        if (request.method !== "GET") return json(405, { erreur: "methode_non_autorisee" }, { Allow: "GET" });
+        return await tauxBCE();
+      }
       if (url.pathname.startsWith("/api/")) return json(404, { erreur: "introuvable" });
       if (env.ASSETS) return env.ASSETS.fetch(request);
       return json(404, { erreur: "introuvable" });

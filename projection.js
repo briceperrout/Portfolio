@@ -269,7 +269,7 @@ function registreRetraite(plan, profil, v, base, cumulPER, annees) {
       if (ENVELOPPES_LIVRETS.includes(e)) reg.livrets.valeur += vl;
       else if (ENVELOPPES_AV.includes(e)) { avTotal.valeur += vl; avTotal.gain += gl; }
       else if (e === "pea") { reg.pea.valeur += vl; reg.pea.versements += vl - gl; }
-      else if (e === "cto") { reg.cto.valeur += vl; reg.cto.base += vl - gl; }
+      else if (e === "cto" || e === "comptesEtrangers") { reg.cto.valeur += vl; reg.cto.base += vl - gl; }
       else if (e === "per") { reg.per.valeur += vl; reg.per.versementsDeduits += vl - gl; }
       else autre(e, "env", e, vl, vl - gl);
     }
@@ -343,7 +343,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
   // Frais réels au-delà des frais de référence du plan : retirés chaque année du rendement de la classe
   const FR = plan.fraisReference ?? {}, FP = profil.frais ?? {};
   const fraisEnv = (e) => {
-    const k = e === "assuranceVie" || e === "assuranceVieUC" ? "assuranceVie" : e === "per" ? "per" : e === "pea" || e === "cto" ? "bourse" : null;
+    const k = e === "assuranceVie" || e === "assuranceVieUC" ? "assuranceVie" : e === "per" ? "per" : e === "pea" || e === "cto" || e === "comptesEtrangers" ? "bourse" : null;
     return k && FP[k] !== "" && FP[k] != null ? Math.max(0, Number(FP[k]) - (FR[k] ?? 0)) : 0;
   };
   const fraisClasse = Object.fromEntries(classes.map((c) => [c, (ratioClasse(c, fraisEnv) ?? 0) / 100]));

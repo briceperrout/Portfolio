@@ -95,6 +95,8 @@ nav.onglets a:focus-visible, button:focus-visible, input:focus-visible, select:f
 .champs { display: grid; gap: 10px; }
 .champ { display: grid; grid-template-columns: minmax(0, 1fr) 128px; align-items: center; gap: 8px; }
 .champ label { font-size: 0.9rem; }
+.ligne-ce { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.ligne-ce select, .ligne-ce input { min-width: 0; width: 100%; }
 .champ input[readonly] { color: var(--muted); cursor: default; }
 .champs .ligne-pd { display: grid; gap: 4px; }
 .ligne-pd button.lien { justify-self: start; padding-left: 0; color: var(--accent); text-decoration: underline; }
@@ -726,6 +728,19 @@ html.discret .num { letter-spacing: 0.05em; }
             <p class="note" style="margin:0">Le solde de chaque compte aujourd'hui (dans l'appli de ta banque). Le « ? » ouvre la fiche du compte.</p>
             <div class="champs" id="placements"></div>
             <div class="total-capital"><span>Capital total</span><b class="num" id="total-capital">0 €</b></div>
+            <p class="note small num" id="total-capital-etranger" style="margin:0" hidden></p>
+          </fieldset></div>
+          <div class="panneau" data-min="avance"><fieldset id="bloc-comptes-etrangers" data-min="avance">
+            <legend>Comptes à l'étranger</legend>
+            <p class="note" style="margin:0">401(k), IRA, REER, CELI, Pilier 3a, compte-titres ou épargne à l'étranger : saisis le solde dans la devise du compte, il est converti en euros pour les calculs (le plan les traite comme un compte-titres, sans y verser d'argent neuf).</p>
+            <div id="liste-comptes-etrangers"></div>
+            <div class="ligne-actions"><button type="button" id="ajout-compte-etranger">Ajouter un compte</button></div>
+            <div class="total-capital"><span>Total converti</span><b class="num" id="total-comptes-etrangers">0 €</b></div>
+            <p class="note small" id="note-taux-change" style="margin:0"></p>
+            <details id="taux-change"><summary>Taux de change</summary>
+              <p class="note" style="margin:4px 0">1 euro = x devise. Laisse vide pour utiliser le taux automatique.</p>
+              <div class="champs" id="champs-taux-change"></div>
+            </details>
           </fieldset></div>
           <div class="panneau" data-min="intermediaire"><fieldset>
             <legend>Ouverture des contrats</legend>
@@ -894,6 +909,20 @@ html.discret .num { letter-spacing: 0.05em; }
             <div class="champ" id="tm-ch-don-annees" data-min="intermediaire"><label for="tm-don-annees">Années avant le décès (pour la comparaison)</label><div class="saisie"><input id="tm-don-annees" type="number" min="0" step="1" data-p="succession.projetDonation.annees" placeholder="15" max="60"><span>ans</span></div></div>
         </div>
         <div id="tm-donation-resultat"></div>
+      </fieldset></div>
+      <div class="panneau" id="bloc-depart" data-min="avance"><fieldset>
+        <legend>Quitter la France</legend>
+        <p class="note" style="margin:0">Exit tax (art. 167 bis du CGI) et sort de chacun de tes comptes si tu pars vivre à l'étranger. Estimation pédagogique : à valider avec un conseiller fiscal. Tes saisies sont enregistrées dans ton profil.</p>
+        <div class="champs">
+          <div class="champ"><label for="dp-pays">Pays de destination</label><select id="dp-pays" data-p="simulationDepart.pays"></select></div>
+          <div class="champ"><label for="dp-destination">Type de destination</label><select id="dp-destination" data-p="simulationDepart.destination"><option value="ue">Union européenne ou EEE (avec convention d'assistance administrative)</option><option value="autre">Autre pays</option></select></div>
+          <div class="champ"><label for="dp-titres">Valeur globale des titres (compte-titres, comptes étrangers)</label><div class="saisie"><input id="dp-titres" type="number" min="0" step="1000" data-p="simulationDepart.valeurTitres" placeholder="0"><span>€</span></div></div>
+          <div class="champ"><label for="dp-pv">Plus-values latentes</label><div class="saisie"><input id="dp-pv" type="number" min="0" step="1000" data-p="simulationDepart.plusValuesLatentes" placeholder="0"><span>€</span></div></div>
+          <div class="champ"><label for="dp-mv">Moins-values latentes</label><div class="saisie"><input id="dp-mv" type="number" min="0" step="1000" data-p="simulationDepart.moinsValuesLatentes" placeholder="0"><span>€</span></div></div>
+          <label class="coche"><input id="dp-part" type="checkbox" data-p="simulationDepart.participation50"> Je détiens au moins 50 % des bénéfices d'une société</label>
+          <div class="champ"><label for="dp-annees">Années de résidence fiscale en France sur les 10 dernières</label><div class="saisie"><input id="dp-annees" type="number" min="0" max="10" step="1" data-p="simulationDepart.anneesResidence10" placeholder="10"><span>ans</span></div></div>
+        </div>
+        <div id="dp-resultat"></div>
       </fieldset></div>
     </div>
   </section>

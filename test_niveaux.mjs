@@ -129,6 +129,7 @@ const PTZ_DEFAUT = { actif: false, zone: "B1", tranche: 2, typeOperation: "colle
 const PROFIL_EXEMPLE = {
   age: 32, salaireNetMensuel: 3200, epargneMensuelle: 1000, depensesMensuelles: 1800, tmi: "30",
   pays: "FR", statutPro: "stable", eligibleLEP: false, creditsMensuels: 0,
+  comptesEtrangers: [], tauxChange: {},
   futur: { actif: false, age: 40, capital: null, salaire: null, epargne: null },
   proprietaire: false, loyerMensuel: 900,
   placements: { livretA: 22950, ldds: 12000, livretBancaire: 5050, assuranceVie: 25000, assuranceVieUC: 0, pea: 30000, cto: 0, orPhysique: 0, plateformeCrypto: 5000, coldWallet: 0, scpi: 0, per: 0 },
@@ -146,6 +147,7 @@ const PROFIL_EXEMPLE = {
 const PROFIL_VIDE = {
   age: 30, salaireNetMensuel: 0, epargneMensuelle: 0, depensesMensuelles: 0, proprietaire: false, loyerMensuel: 0,
   pays: "FR", statutPro: "", eligibleLEP: false, creditsMensuels: 0,
+  comptesEtrangers: [], tauxChange: {},
   futur: { actif: false, age: null, capital: null, salaire: null, epargne: null },
   placements: {}, pea: { ouvert: false, versements: 0, etablissement: "" }, assuranceVie: { ouverte: false, type: "" },
   projetRP: { actif: false, prix: 0, type: "ancien", imperatif: false, horizonAnnees: 0, aideFamiliale: 0, ageChoisi: null, departement: "", commune: "", typeLogement: "appartement", surface: null, ptz: { ...PTZ_DEFAUT }, loyerEquivalent: null, chargesCoproMensuelles: null },

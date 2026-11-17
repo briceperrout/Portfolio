@@ -5,6 +5,7 @@
 //  Contient aussi le codec du « lien magique » (profil ↔ texte URL-safe), pur et testable.
 // =====================================================================
 import { eur, pct } from "./moteur.js";
+import { tauxEffectifs, consoliderEtrangers, expositionChange, NOM_DEVISE, TYPES_COMPTES_ETRANGERS } from "./devises.js";
 
 const e = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const COULEURS = { bourse: "#2a78d6", bitcoin: "#eb6834", prudent: "#1baf7a", or: "#eda100", projet: "#e87ba4", securite: "#008300", scpi: "#6250d6" };
@@ -12,11 +13,26 @@ const ORDRE = ["bourse", "bitcoin", "prudent", "or", "projet", "securite", "scpi
 const signe = (v) => (Math.abs(v) < 0.5 ? "0 €" : `${v > 0 ? "+" : "−"}${eur(Math.abs(v))}`);
 const dateLongue = (d) => d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 
-export function genererRecapHTML({ plan, nom, profil, res, proj, echeances, fiches, planDate, niveauNom }) {
+export function genererRecapHTML({ plan, nom, profil, res, proj, echeances, fiches, planDate, niveauNom, tauxDuJour = null }) {
   const C = res.capital || 1;
   const env = (id) => plan.enveloppes[id]?.libelle ?? id;
   const lib = (c) => plan.classes[c]?.libelle ?? c;
   const aujourdHui = dateLongue(new Date());
+
+  // Comptes à l'étranger : famille, devise, équivalent en euros et date du taux ; jamais de libellé
+  let etrangers = "";
+  try {
+    const T = tauxEffectifs(profil, tauxDuJour), C0 = consoliderEtrangers(profil, T.taux);
+    if (C0.lignes.length) {
+      const x = expositionChange(plan, profil, T.taux), horsEuro = 100 - (x.pourcentages.EUR ?? 0);
+      const date = new Date(`${T.date}T12:00:00`).toLocaleDateString("fr-FR");
+      etrangers = `<h2>Comptes à l'étranger</h2>
+  <table><thead><tr><th>Famille</th><th>Devise</th><th class="m">Équivalent en euros</th></tr></thead><tbody>
+  ${C0.lignes.map((l) => `<tr><td>${e(TYPES_COMPTES_ETRANGERS[l.type]?.libelle ?? l.type)}</td><td>${e(NOM_DEVISE[l.devise] ?? l.devise)}</td><td class="m">${eur(l.soldeEUR)}</td></tr>`).join("")}
+  </tbody></table>
+  <p class="note">Taux de change du ${e(date)}. Exposition hors euro : ${pct(Math.max(0, horsEuro))}.</p>`;
+    }
+  } catch { /* section facultative */ }
 
   // Situation
   const situation = [
@@ -138,6 +154,8 @@ export function genererRecapHTML({ plan, nom, profil, res, proj, echeances, fich
   ${classes.map((c) => `<tr><td><span class="pastille" style="background:${COULEURS[c]}"></span>${e(lib(c))}</td><td class="m">${eur(res.actuel[c])}</td><td class="m">${eur(res.alloc[c])}</td><td class="m">${pct((100 * res.alloc[c]) / C)}</td><td class="m">${signe(res.alloc[c] - res.actuel[c])}</td></tr>`).join("")}
   </tbody></table>
 
+  ${etrangers}
+
   <h2>Comptes</h2>
   <p class="note">${res.reeq.moisEquilibre ? `Équilibre atteint en environ ${res.reeq.moisEquilibre} mois avec l'épargne du mois et des transferts progressifs.` : "Rééquilibrage progressif avec l'épargne du mois."}</p>
   <table><thead><tr><th>Compte</th><th class="m">Actuel</th><th class="m">Cible</th><th class="m">Écart</th></tr></thead><tbody>
@@ -198,6 +216,7 @@ export function encoderProfilPartage(profil, base = {}) {
   const sansNom = (pea) => { if (pea && !ETAB_GENERIQUES.has(pea.etablissement)) pea.etablissement = ""; };
   if (p.conjoint) { p.conjoint.prenom = ""; sansNom(p.conjoint.pea); }
   sansNom(p.pea);
+  if (Array.isArray(p.comptesEtrangers)) for (const c of p.comptesEtrangers) if (c && typeof c === "object") delete c.libelle; // usage local libre : jamais partagé
   let bin = "";
   for (const o of new TextEncoder().encode(JSON.stringify(diff(base, p) ?? {}))) bin += String.fromCharCode(o);
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");

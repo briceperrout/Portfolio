@@ -16,8 +16,8 @@ import { PRELEVEMENTS, PFU } from "./fiscal.js";
 const AV_8ANS = Math.round((PRELEVEMENTS.IR_AV_8ANS + PRELEVEMENTS.PS_PATRIMOINE) * 10) / 10; // 24,7 %
 
 export const PLAN = {
-  version: 9,
-  misAJourLe: "2026-11-11",
+  version: 10,
+  misAJourLe: "2026-11-17",
 
   // -------------------------------------------------------------------
   // 1. CLASSES D'ACTIFS
@@ -139,7 +139,7 @@ export const PLAN = {
     jamaisVendre: ["orPhysique"],
     // Comptes où chaque vente coûte des frais (courtage, plateforme) : on vend en une fois par an,
     // et pas du tout pour un petit excédent (l'épargne du mois rééquilibre à la place)
-    venteGroupee: ["pea", "cto", "plateformeCrypto", "coldWallet", "scpi"],
+    venteGroupee: ["pea", "cto", "comptesEtrangers", "plateformeCrypto", "coldWallet", "scpi"],
     venteMinimum: 1000,         // PROPOSITION : en dessous, pas de vente
     venteUniqueJusqua: 5000,    // PROPOSITION : jusqu'à ce montant, tout est vendu en une seule fois
   },
@@ -162,6 +162,7 @@ export const PLAN = {
     assuranceVieUC:   { libelle: "Assurance-vie (unités de compte)",  plafond: null,   fiche: "assurance-vie", arbitrageDepuis: "assuranceVie" },
     pea:              { libelle: "PEA",                               plafond: 150000, fiche: "pea", parPersonne: true },
     cto:              { libelle: "Compte-titres (CTO)",               plafond: null,   fiche: "cto" },
+    comptesEtrangers: { libelle: "Comptes à l'étranger",              plafond: null,   fiche: "etranger", nouveauxVersements: false },  // solde dérivé de profil.comptesEtrangers (devises.js), jamais saisi ici ; traité comme un CTO, sans argent neuf
     orPhysique:       { libelle: "Or physique (pièces / lingots)",    plafond: null,   fiche: "or" },
     plateformeCrypto: { libelle: "Plateforme crypto agréée",          plafond: null,   fiche: "bitcoin" },
     coldWallet:       { libelle: "Portefeuille matériel (cold wallet)", plafond: null, fiche: "bitcoin", transfertDepuis: "plateformeCrypto" },  // on transfère ses bitcoins, on ne les vend pas
@@ -178,7 +179,7 @@ export const PLAN = {
     securite: ["lep", "livretJeune", "livretA", "ldds", "livretBancaire"],
     projet:   ["lep", "livretJeune", "livretA", "ldds", "pel", "livretBancaire", "assuranceVie"],  // PEL : seulement l'existant ; assurance-vie : fonds euros
     prudent:  ["assuranceVie"],
-    bourse:   ["pea", "cto", "assuranceVieUC", "epargneSalariale", "per"],  // l'AV en unités de compte existante est conservée, l'argent neuf va au PEA puis au CTO
+    bourse:   ["pea", "cto", "comptesEtrangers", "assuranceVieUC", "epargneSalariale", "per"],  // l'AV en unités de compte existante est conservée, l'argent neuf va au PEA puis au CTO
     or:       ["orPhysique"],
     bitcoin:  [{ id: "plateformeCrypto", max: 5000 }, "coldWallet"],  // au-delà de 5 k€ de bitcoin, on sort sur un cold wallet
     scpi:     ["scpi"],
@@ -196,7 +197,8 @@ export const PLAN = {
   // -------------------------------------------------------------------
   // 6 quinquies. RÉSIDENCE FISCALE HORS DE FRANCE
   //    Les comptes réservés aux résidents français ne reçoivent plus d'argent
-  //    neuf (un compte existant est conservé). Les gains sont imposés dans le
+  //    neuf ; un compte existant est conservé, sauf LEP, LDDS et Livret Jeune,
+  //    à clôturer (voir consequencesDepart dans moteur.js). Les gains sont imposés dans le
   //    pays de résidence : taux moyen approximatif, à vérifier sur place.
   // -------------------------------------------------------------------
   residence: {
@@ -399,7 +401,7 @@ export const PLAN = {
     gains: {
       livretA: 0, ldds: 0, lep: 0, livretJeune: 0, livretBancaire: PFU, pel: PFU,
       assuranceVie: AV_8ANS, assuranceVieUC: AV_8ANS,
-      pea: PRELEVEMENTS.PS_CAPITAL, cto: PFU,
+      pea: PRELEVEMENTS.PS_CAPITAL, cto: PFU, comptesEtrangers: PFU,
       plateformeCrypto: PFU, coldWallet: PFU,
       scpi: 30 + PRELEVEMENTS.PS_PATRIMOINE /* TMI 30 % supposée */, per: PFU,
     },

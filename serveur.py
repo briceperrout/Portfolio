@@ -20,6 +20,10 @@ Assistant IA
                       événement SSE {"modele": "..."}. Toute erreur OpenAI (HTTP ≥ 400) est
                       journalisée avec son corps JSON exact sur la console du serveur.
 
+Taux de change (donnée publique, aucune donnée utilisateur transmise)
+  GET  /api/taux    → taux BCE du jour {"date", "source": "BCE", "base": "EUR", "taux": {USD, CAD, CHF, GBP}} ;
+                      cache mémoire 6 h (dernier succès réutilisé si la BCE ne répond pas) ; 502 sinon.
+
 Synchronisation multi-appareils (chiffrée de bout en bout dans le navigateur, voir sync.js)
   GET | PUT | DELETE /api/sync/<id>  → enveloppe opaque stockée dans .sync_local/ (ignoré par Git) ;
                       en production, worker.js la range dans Cloudflare KV. PUT exige la révision courante (409 « conflit » sinon).
@@ -263,6 +267,53 @@ def corps_erreur_openai(e: urllib.error.HTTPError, limite: int = 2000) -> str:
         return "(corps illisible)"
     brut = re.sub(r"sk-[A-Za-z0-9*_\-.]{4,}", "sk-…", re.sub(r"\s+", " ", brut).strip())  # OpenAI masque déjà la clé ; ceinture et bretelles
     return (brut[:limite] + "…") if len(brut) > limite else (brut or "(corps vide)")
+
+
+DEVISES_BCE = ("USD", "CAD", "CHF", "GBP")
+URL_BCE = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
+TTL_TAUX = 6 * 3600
+_cache_taux: dict = {"t": 0.0, "donnees": None}
+_verrou_taux = threading.Lock()
+
+
+def analyser_taux_bce(xml: str) -> dict | None:
+    """Extrait date et taux (1 EUR = x devise) du XML quotidien de la BCE ; None si invalide."""
+    if not isinstance(xml, str):
+        return None
+    d = re.search(r"""\btime\s*=\s*['"](\d{4})-(\d{2})-(\d{2})['"]""", xml)
+    if not d:
+        return None
+    try:
+        datetime(int(d.group(1)), int(d.group(2)), int(d.group(3)))
+    except ValueError:
+        return None
+    taux = {}
+    for devise, brut in re.findall(r"""<Cube\s+currency\s*=\s*['"]([A-Z]{3})['"]\s+rate\s*=\s*['"]([^'"]*)['"]\s*/?>""", xml):
+        try:
+            v = float(brut)
+        except ValueError:
+            continue
+        if devise in DEVISES_BCE and v == v and 0 < v < float("inf"):
+            taux[devise] = v
+    if not taux:
+        return None
+    return {"date": "-".join(d.groups()), "source": "BCE", "base": "EUR", "taux": taux}
+
+
+def taux_bce() -> dict | None:
+    """Taux du jour avec cache de 6 h ; en cas d'échec amont, réutilise le dernier succès."""
+    with _verrou_taux:
+        if _cache_taux["donnees"] and time.time() - _cache_taux["t"] < TTL_TAUX:
+            return _cache_taux["donnees"]
+        try:
+            req = urllib.request.Request(URL_BCE, headers={"User-Agent": "PlanPatrimoine/1.0"})
+            with urllib.request.urlopen(req, timeout=5) as rep:
+                donnees = analyser_taux_bce(rep.read(200_000).decode("utf-8", "replace"))
+        except Exception:
+            donnees = None
+        if donnees:
+            _cache_taux["t"], _cache_taux["donnees"] = time.time(), donnees
+        return _cache_taux["donnees"]
 
 
 class ErreurAPI(Exception):
@@ -622,6 +673,19 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             self._json(200, {"actif": cle_openai() is not None, "modele": modele_chat()})
             return
+        if self._chemin() == "/api/taux":
+            donnees = taux_bce()
+            if donnees is None:
+                self._json(502, {"erreur": "taux indisponibles"})
+                return
+            corps = json.dumps(donnees).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "public, max-age=21600")
+            self.send_header("Content-Length", str(len(corps)))
+            self.end_headers()
+            self.wfile.write(corps)
+            return
         if self._chemin().startswith("/api/"):
             self.send_error(404, "Introuvable")
             return
@@ -634,6 +698,9 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_HEAD()
 
     def do_POST(self):
+        if self._chemin() == "/api/taux":
+            self._json(405, {"erreur": "methode_non_autorisee"})
+            return
         if self._chemin() != "/api/chat":
             self.send_error(404, "Introuvable")
             return

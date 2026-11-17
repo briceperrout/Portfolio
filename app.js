@@ -1,5 +1,6 @@
 import { PLAN } from "./plan.js";
-import { analyser, capitalDe, GROUPES_PLACEMENTS, grouperAllocation, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer } from "./moteur.js";
+import { analyserTaux, DEVISES, NOM_DEVISE, devisesParDefaut, DEVISES_COMPTES, TYPES_COMPTES_ETRANGERS, TAUX_REFERENCE, tauxEffectifs, consoliderEtrangers, avecComptesEtrangers, expositionChange } from "./devises.js";
+import { analyser, capitalDe, GROUPES_PLACEMENTS, grouperAllocation, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer, consequencesDepart, NOTE_CONSEQUENCES_DEPART } from "./moteur.js";
 import { projetLocatifDe, analyseLocatif, mensualitePret } from "./locatif.js";
 import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, libertePatrimoine, moisPrecaution, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, capitalNecessaire, CRISES, simulerCrise, fluxLocatif, backtesterHistorique, scenarioInflation, SCENARIO_INFLATION } from "./projection.js";
 import { HISTORIQUE } from "./historique.js";
@@ -11,7 +12,7 @@ import { LEXIQUE, lierTermes } from "./lexique.js";
 import { DEPARTEMENTS, chargerPrix, prixCharges, estimer, estimerLoyer, libelleCommune, chercherCommunes, codeCommune } from "./immobilier.js";
 import { estimerPension, ageEnTexte } from "./pension.js";
 import { entreeDepuisProfil, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, optionsPossibles, reserveAVTransmissible } from "./succession.js";
-import { decomposerSalaire, foyerFiscal, impotBareme, BAREME } from "./fiscal.js";
+import { decomposerSalaire, foyerFiscal, impotBareme, BAREME, exitTax } from "./fiscal.js";
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
 import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER, etatReleve, comparerReleve } from "./moteur.js";
 import { monterAssistant } from "./assistant.js";
@@ -76,9 +77,11 @@ const lienFiche = (id, texte) => (FICHES[id] ? `<a class="lien-fiche" href="#fic
 // ---------------------------------------------------------------- état
 const PTZ_DEFAUT = { actif: false, zone: "B1", tranche: 2, typeOperation: "collectifNeuf", personnes: null, travauxPctCout: 0 };
 const SUCCESSION_DEFAUT = { union: "mariage", regime: "communaute_legale", optionConjoint: "auto", donationDernierVivant: false, enfantsNonCommuns: 0, testament: false, enfantMineurAuFoyer: false, biensPropres: 0, clauseAV: "conjoint_puis_enfants", quotiteAssuranceEmprunteur: 100, donationAnterieure: { annee: null, montantParEnfant: 0 }, projetDonation: { valeur: 0, croissance: 3, annees: 15 } };
+const DEPART_DEFAUT = { pays: "", destination: "ue", valeurTitres: null, plusValuesLatentes: null, moinsValuesLatentes: null, participation50: false, anneesResidence10: null };
 const PROFIL_EXEMPLE = {
   age: 32, salaireNetMensuel: 3200, epargneMensuelle: 1000, depensesMensuelles: 1800, tmi: "30",
   pays: "FR", statutPro: "stable", eligibleLEP: false, creditsMensuels: 0,
+  comptesEtrangers: [], tauxChange: {},
   futur: { actif: false, age: 40, capital: null, salaire: null, epargne: null },
   proprietaire: false, loyerMensuel: 900,
   placements: { livretA: 22950, ldds: 12000, livretBancaire: 5050, assuranceVie: 25000, assuranceVieUC: 0, pea: 30000, cto: 0, orPhysique: 0, plateformeCrypto: 5000, coldWallet: 0, scpi: 0, per: 0 },
@@ -97,6 +100,7 @@ const PROFIL_EXEMPLE = {
 const PROFIL_VIDE = {
   age: 30, salaireNetMensuel: 0, epargneMensuelle: 0, depensesMensuelles: 0, proprietaire: false, loyerMensuel: 0,
   pays: "FR", statutPro: "", eligibleLEP: false, creditsMensuels: 0,
+  comptesEtrangers: [], tauxChange: {},
   futur: { actif: false, age: null, capital: null, salaire: null, epargne: null },
   placements: {}, pea: { ouvert: false, versements: 0, etablissement: "" }, assuranceVie: { ouverte: false, type: "" },
   projetRP: { actif: false, prix: 0, type: "ancien", imperatif: false, horizonAnnees: 0, aideFamiliale: 0, ageChoisi: null, departement: "", commune: "", typeLogement: "appartement", surface: null, ptz: { ...PTZ_DEFAUT }, loyerEquivalent: null, chargesCoproMensuelles: null },
@@ -137,10 +141,14 @@ const etat = {
   // claude.ai (aperçu local), pas de droits à vérifier.
   auteur: !window.claude,
   chargement: true,
+  tauxDuJour: null,           // taux de change du jour (BCE) : rempli plus tard, jamais enregistré ; sinon taux de référence de devises.js
 };
 const modifie = () => JSON.stringify(etat.brouillon) !== JSON.stringify(etat.reference);
 
-function profilPourMoteur() { return normaliserProfil(etat.profil); }
+// Profil passé aux calculs : le profil enregistré + le total converti des comptes étrangers dans placements.comptesEtrangers
+// (dérivé ici, jamais écrit dans etat.profil, donc jamais sauvegardé, exporté ni synchronisé).
+function profilDeCalcul(profil = etat.profil) { return avecComptesEtrangers(profil, tauxEffectifs(profil, etat.tauxDuJour).taux); }
+function profilPourMoteur() { return profilDeCalcul(normaliserProfil(etat.profil)); }
 // Profil utilisé par « Rééquilibrage » : la situation d'aujourd'hui, ou celle d'un âge futur
 function profilSimule() {
   const p = profilPourMoteur();
@@ -160,6 +168,10 @@ function completerProfil(p) {
   const acces0 = p.abondement?.acces ?? (p.abondement?.actif ? (p.abondement.plan === "pee" ? "pee" : "per") : "?");
   p.abondement = { actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false, ...(p.abondement ?? {}), acces: acces0 };
   p.succession = { ...SUCCESSION_DEFAUT, ...(p.succession ?? {}), donationAnterieure: { ...SUCCESSION_DEFAUT.donationAnterieure, ...(p.succession?.donationAnterieure ?? {}) }, projetDonation: { ...SUCCESSION_DEFAUT.projetDonation, ...(p.succession?.projetDonation ?? {}) } };
+  p.simulationDepart = { ...DEPART_DEFAUT, ...(p.simulationDepart ?? {}) };
+  if (!Array.isArray(p.comptesEtrangers)) p.comptesEtrangers = [];
+  if (!p.tauxChange || typeof p.tauxChange !== "object" || Array.isArray(p.tauxChange)) p.tauxChange = {};
+  if (p.placements) delete p.placements.comptesEtrangers; // solde dérivé au calcul, jamais enregistré
   p.assuranceVie ??= {};
   if (p.assuranceVie.ouverte == null) p.assuranceVie.ouverte = !!(p.assuranceVie.type || p.assuranceVie.dateOuverture || (p.placements?.assuranceVie ?? 0) + (p.placements?.assuranceVieUC ?? 0) > 0);
   return p;
@@ -474,22 +486,6 @@ function blocAchat(res) {
 
 // Poche bourse : combien acheter de chaque ETF avec le virement du mois, sur quel compte, et l'exposition par devise
 let montantDCA = null;
-const DEVISES = ["USD", "EUR", "GBP", "CHF", "JPY", "Autres"];
-const NOM_DEVISE = { USD: "Dollar (USD)", EUR: "Euro (EUR)", GBP: "Livre (GBP)", CHF: "Franc suisse (CHF)", JPY: "Yen (JPY)", Autres: "Autres devises" };
-// Exposition par défaut d'un ETF : celle du plan, sinon déduite du nom de l'indice
-function devisesParDefaut(x) {
-  const ref = (x.devises ? x : PLAN.investissementBourse?.find((y) => y.nom === x.nom)) ?? {};
-  if (ref.devises) {
-    const o = {}; for (const [k, v] of Object.entries(ref.devises)) { const c = DEVISES.find((d) => k.includes(`(${d})`)) ?? "Autres"; o[c] = (o[c] ?? 0) + v; } return o;
-  }
-  const n = x.nom.toLowerCase();
-  if (/s&p|nasdaq|usa|etats-unis|états-unis|\bus\b/.test(n)) return { USD: 100 };
-  if (/europe 600|stoxx 600|msci europe/.test(n)) return { EUR: 51, GBP: 23, CHF: 15, Autres: 11 };
-  if (/world|monde|acwi/.test(n)) return { USD: 72, EUR: 9, JPY: 5, GBP: 4, CHF: 3, Autres: 7 };
-  if (/émergent|emergent|emerging|\bem\b/.test(n)) return { Autres: 100 };
-  if (/cac|euro stoxx|emu|zone euro/.test(n)) return { EUR: 100 };
-  return null;
-}
 const NOM_COMPTE = { pea: "PEA", cto: "compte-titres", per: "PER", assuranceVieUC: "assurance-vie (unités de compte)" };
 const PARTS_ENTIERES = ["pea", "cto"];
 function blocPocheBourse(res) {
@@ -604,7 +600,9 @@ function rendreResultats() {
   const niveau = niveauCourant(), deb = niveau === "debutant";
   etat.resultat = res;
   if (!$("#vue-ideale").hidden) rendreEpargneIdeale();
+  const etranger = sim.futur ? 0 : consoliderEtrangers(etat.profil, tauxEffectifs(etat.profil, etat.tauxDuJour).taux).totalEUR;
   $("#total-capital").textContent = eur(res.capital);
+  { const n = $("#total-capital-etranger"); if (n) { n.hidden = !(etranger > 0); n.textContent = etranger > 0 ? `dont ${eur(etranger)} à l'étranger` : ""; } }
   $("#total-capital-debutant").textContent = eur(res.capital);
   $("#total-capital-bas").textContent = eur(res.capital);
   const env = (id) => (id ? plan.enveloppes[id]?.libelle ?? id : "⚠ aucun compte");
@@ -661,6 +659,7 @@ function rendreResultats() {
           ${rythme ? `<div id="res-rythme" data-min="avance">${rythme}</div>` : ""}
           <div class="table-wrap"><table><thead><tr><th>Compte</th><th class="m">Actuel</th><th class="m">Cible</th><th class="m">Écart</th></tr></thead><tbody>${comptes}</tbody></table></div></section>`)}
         <section class="panneau" id="res-repartition"><h2>Répartition cible</h2><p class="note" style="margin:4px 0 0">${deb ? "Comment le plan répartit ton capital en trois familles : l'argent à l'abri pour les imprévus et tes projets, une part prudente qui bouge peu, et une part dynamique pour le long terme." : "Comment le plan répartit ton capital entre les grandes familles de placements."}</p>${deb ? blocFamilles(res) : blocAllocation(res)}</section>
+        ${siNiveau("avance", () => blocExpositionChange())}
         ${deb ? ligneBourseDebutant : siNiveau("intermediaire", () => blocPocheBourse(res))}
         <div class="etape" style="margin:0"><a class="bouton" href="#mon-profil">← ${nomVue("profil", niveauCourant())}</a><a class="bouton principal" href="#trajectoire">Étape 3 : ${suiteVue("trajectoire", niveauCourant())} →</a></div>
       </div>
@@ -712,7 +711,7 @@ $("#resultats").addEventListener("click", async (e) => {
     const { suivi } = suiviCourant();
     const echeances = [...echeancesProfil(plan, profilPourMoteur(), { releves: suivi?.releves ?? [] }), ...echeancesGenerales(plan)].sort((a, b) => a.date - b.date);
     const planDate = etat.source === "partage" && etat.majLe ? new Date(etat.majLe).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }) : null;
-    const html = genererRecapHTML({ plan, nom, profil: res.profil, res, proj, echeances, fiches: CONTENU_FICHES, planDate, niveauNom: INFOS_NIVEAUX[niveauCourant()].nom });
+    const html = genererRecapHTML({ plan, nom, profil: res.profil, res, proj, echeances, fiches: CONTENU_FICHES, planDate, niveauNom: INFOS_NIVEAUX[niveauCourant()].nom, tauxDuJour: etat.tauxDuJour });
     const d = new Date();
     await etat.downloads.save({ filename: `plan-action-${slug(nom)}-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}.html`, data: new Blob([html], { type: "text/html" }) });
     recapMessage = "Fichier enregistré : ouvre-le dans un navigateur, puis « Imprimer ou enregistrer en PDF ».";
@@ -2525,8 +2524,133 @@ function rendreChampsPlacements() {
     livretBancaire: "« Super livret » d'une banque, hors Livret A, LDDS et LEP. Pas le compte courant, qui n'est pas compté ici.",
     pel: "Plan d'épargne logement : compté dans l'apport pour la résidence principale.",
   };
-  $("#placements").innerHTML = Object.entries(plan.enveloppes).filter(([id]) => id !== "assuranceVieUC").map(([id, e]) => id === "assuranceVie" ? champsAV(plan) :
+  $("#placements").innerHTML = Object.entries(plan.enveloppes).filter(([id]) => id !== "assuranceVieUC" && id !== "comptesEtrangers").map(([id, e]) => id === "assuranceVie" ? champsAV(plan) :
     `<div class="champ"><label for="pl-${id}">${echapper(e.libelle)}${aideFiche(e.fiche, e.libelle)}</label><div class="saisie"><input id="pl-${id}" type="number" min="0" step="500" data-p="placements.${id}"><span>€</span></div></div>${AIDE[id] ? `<p class="note" style="margin:-4px 0 0">${AIDE[id]}</p>` : ""}`).join("");
+}
+// ---------------------------------------------------------------- Comptes à l'étranger (calculs dans devises.js)
+// Le solde est saisi dans la devise du compte et stocké dans profil.comptesEtrangers ; son équivalent en euros est dérivé
+// à chaque calcul (profilDeCalcul) et n'est jamais écrit dans profil.placements. Le libellé libre n'entre dans le DOM que par value/textContent.
+const NOM_DEVISE_COMPTE = { ...NOM_DEVISE, CAD: "Dollar canadien (CAD)" };
+const nomDevise = (d) => NOM_DEVISE_COMPTE[d] ?? d;
+const ORIGINE_TAUX = { manuel: "saisi", jour: "du jour", reference: "de référence" };
+const nouvelIdCompteEtranger = () => `ce-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+function creerChampCE(balise, attrs) { const e = document.createElement(balise); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; }
+function ligneCompteEtranger(c) {
+  const ligne = creerChampCE("div", { class: "ligne-ce", "data-ce-id": c.id });
+  const type = creerChampCE("select", { "data-ce": "type", "aria-label": "Type de compte étranger" });
+  for (const [id, t] of Object.entries(TYPES_COMPTES_ETRANGERS)) { const o = creerChampCE("option", { value: id }); o.textContent = `${t.libelle} (${t.exemples.join(", ")})`; type.append(o); }
+  type.value = c.type;
+  const devise = creerChampCE("select", { "data-ce": "devise", "aria-label": "Devise du compte" });
+  for (const d of DEVISES_COMPTES) { const o = creerChampCE("option", { value: d }); o.textContent = nomDevise(d); devise.append(o); }
+  devise.value = c.devise;
+  const solde = creerChampCE("input", { type: "number", min: "0", step: "100", "data-ce": "solde", "aria-label": "Solde dans la devise du compte", placeholder: "Solde" });
+  solde.value = c.solde > 0 ? c.solde : "";
+  const libelle = creerChampCE("input", { type: "text", maxlength: "60", "data-ce": "libelle", "aria-label": "Usage local (facultatif)", placeholder: "Usage local (facultatif)" });
+  libelle.value = c.libelle ?? "";
+  const equiv = creerChampCE("span", { class: "small muted num", "data-ce-equiv": c.id });
+  const suppr = creerChampCE("button", { type: "button", class: "lien", "data-ce-suppr": c.id, "aria-label": "Supprimer ce compte" });
+  suppr.textContent = "Supprimer";
+  ligne.append(type, devise, solde, libelle, equiv, suppr);
+  return ligne;
+}
+// Taux du jour (BCE via /api/taux) : demandé seulement si un compte étranger en devise est renseigné, mis en cache 12 h dans localStorage
+// (clé « tauxDuJour », jamais synchronisée). Échec réseau : silencieux, les taux de référence de devises.js restent utilisés.
+const CLE_TAUX_JOUR = "tauxDuJour", DUREE_CACHE_TAUX = 12 * 3600 * 1000;
+let tauxEnCours = false;
+const aCompteEtrangerEnDevise = () => (etat.profil.comptesEtrangers ?? []).some((c) => c?.type in TYPES_COMPTES_ETRANGERS && DEVISES_COMPTES.includes(c.devise) && c.devise !== "EUR");
+function tauxDuJourEnCache() {
+  try {
+    const c = JSON.parse(localStorage.getItem(CLE_TAUX_JOUR));
+    const t = analyserTaux(c);
+    const age = Date.now() - Date.parse(c?.recupereLe);
+    return t && Number.isFinite(age) && age >= 0 && age < DUREE_CACHE_TAUX ? t : null;
+  } catch { return null; }
+}
+async function chargerTauxDuJour() {
+  if (etat.tauxDuJour || tauxEnCours || !aCompteEtrangerEnDevise()) return;
+  const appliquer = (t) => { etat.tauxDuJour = t; rendreComptesEtrangers(); rendreResultats(); };
+  const cache = tauxDuJourEnCache();
+  if (cache) { appliquer(cache); return; }
+  tauxEnCours = true;
+  try {
+    const r = await fetch("/api/taux", { headers: { Accept: "application/json" } });
+    if (!r.ok) return;
+    const t = analyserTaux(await r.json());
+    if (!t) return;
+    try { localStorage.setItem(CLE_TAUX_JOUR, JSON.stringify({ ...t, recupereLe: new Date().toISOString() })); } catch { /* stockage indisponible */ }
+    appliquer(t);
+  } catch { /* réseau indisponible : taux de référence */ }
+  finally { tauxEnCours = false; }
+}
+function rendreComptesEtrangers() {
+  const liste = $("#liste-comptes-etrangers"); if (!liste) return;
+  liste.replaceChildren(...(etat.profil.comptesEtrangers ?? []).map(ligneCompteEtranger));
+  const auto = tauxEffectifs({}, etat.tauxDuJour).taux;
+  const champs = $("#champs-taux-change");
+  champs.replaceChildren(...DEVISES_COMPTES.filter((d) => d !== "EUR").map((d) => {
+    const div = creerChampCE("div", { class: "champ" });
+    const lab = creerChampCE("label", { for: `ce-taux-${d}` }); lab.textContent = `1 € = … ${d}`;
+    const inp = creerChampCE("input", { id: `ce-taux-${d}`, type: "number", min: "0", step: "0.0001", "data-ce-taux": d, placeholder: String(auto[d]) });
+    inp.value = Number(etat.profil.tauxChange?.[d]) > 0 ? etat.profil.tauxChange[d] : "";
+    div.append(lab, inp); return div;
+  }));
+  majEquivalentsCE();
+}
+// Met à jour les équivalents en euros, le total et la note sur les taux, sans reconstruire les champs (le focus reste en place)
+function majEquivalentsCE() {
+  if (!$("#liste-comptes-etrangers")) return;
+  const T = tauxEffectifs(etat.profil, etat.tauxDuJour), C = consoliderEtrangers(etat.profil, T.taux);
+  const parId = new Map(C.lignes.map((l) => [l.id, l]));
+  document.querySelectorAll("#liste-comptes-etrangers [data-ce-equiv]").forEach((e) => { const l = parId.get(e.dataset.ceEquiv); e.textContent = l ? `≈ ${eur(l.soldeEUR)}` : "—"; });
+  $("#total-comptes-etrangers").textContent = eur(C.totalEUR);
+  const utilisees = [...new Set((etat.profil.comptesEtrangers ?? []).map((c) => c.devise))].filter((d) => d !== "EUR" && d in T.taux);
+  const fmt = (n) => n.toLocaleString("fr-FR", { maximumFractionDigits: 5 });
+  const date = new Date(`${T.date}T12:00:00`).toLocaleDateString("fr-FR");
+  $("#note-taux-change").textContent = utilisees.length
+    ? `Taux utilisés : ${utilisees.map((d) => `1 € = ${fmt(T.taux[d])} ${d} (${ORIGINE_TAUX[T.origine[d]]})`).join(" ; ")}. Taux BCE du ${date} quand ils ne sont pas saisis.`
+    : "Aucun compte en devise étrangère : les montants en euros sont repris tels quels.";
+}
+function saisieComptesEtrangers(el) {
+  if (el.dataset.ceTaux) {
+    const v = Number(el.value);
+    etat.profil.tauxChange ??= {};
+    if (el.value !== "" && Number.isFinite(v) && v > 0) etat.profil.tauxChange[el.dataset.ceTaux] = v; else delete etat.profil.tauxChange[el.dataset.ceTaux];
+  } else {
+    const c = (etat.profil.comptesEtrangers ?? []).find((x) => x.id === el.closest("[data-ce-id]")?.dataset.ceId);
+    if (!c) return;
+    if (el.dataset.ce === "solde") c.solde = el.value === "" ? 0 : Math.max(0, Number(el.value) || 0);
+    else if (el.dataset.ce === "libelle") c.libelle = el.value.slice(0, 60);
+    else if (el.dataset.ce === "type" && el.value in TYPES_COMPTES_ETRANGERS) c.type = el.value;
+    else if (el.dataset.ce === "devise" && DEVISES_COMPTES.includes(el.value)) c.devise = el.value;
+  }
+  majEquivalentsCE();
+  apresSaisieProfil();
+  if (el.dataset.ce === "devise") chargerTauxDuJour();
+}
+$("#bloc-comptes-etrangers").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.id === "ajout-compte-etranger") {
+    (etat.profil.comptesEtrangers ??= []).push({ id: nouvelIdCompteEtranger(), type: "epargneEtrangere", devise: "USD", solde: 0, libelle: "" });
+    rendreComptesEtrangers();
+    $("#liste-comptes-etrangers .ligne-ce:last-child [data-ce='solde']")?.focus();
+    apresSaisieProfil();
+    chargerTauxDuJour();
+  } else if (b.dataset.ceSuppr) {
+    etat.profil.comptesEtrangers = (etat.profil.comptesEtrangers ?? []).filter((c) => c.id !== b.dataset.ceSuppr);
+    rendreComptesEtrangers();
+    apresSaisieProfil();
+  }
+});
+// Bloc « Exposition au change » du rééquilibrage : part de chaque devise dans le patrimoine financier (devises.js, approximation documentée)
+function blocExpositionChange() {
+  const profil = profilPourMoteur(), T = tauxEffectifs(etat.profil, etat.tauxDuJour);
+  const x = expositionChange(etat.brouillon, profil, T.taux);
+  if (!(x.totalEUR > 0)) return "";
+  const lignes = Object.entries(x.parDevise).filter(([, v]) => v > 0.5).sort((a, b) => b[1] - a[1])
+    .map(([d, v]) => `<tr><td>${echapper(nomDevise(d))}</td><td class="m">${x.pourcentages[d].toFixed(1).replace(".", ",")} %</td><td class="m">${eur(v)}</td></tr>`).join("");
+  return `<section class="panneau" id="bloc-exposition-change" data-min="avance"><h2>Exposition au change</h2>
+    <p class="note" style="margin:4px 0 8px">Part de ton patrimoine financier selon la devise : les ETF des enveloppes boursières sont répartis selon leur indice (réglable dans la poche bourse), les comptes à l'étranger restent dans leur devise, tout le reste est compté en euros. Approximation.</p>
+    <div class="table-wrap"><table><thead><tr><th>Devise</th><th class="m">Part</th><th class="m">Montant</th></tr></thead><tbody>${lignes}</tbody></table></div></section>`;
 }
 // Petit « ? » à côté d'un libellé : mène à la fiche, sa définition s'affiche au survol
 function aideFiche(fiche, nom) {
@@ -2739,6 +2863,8 @@ function remplirProfil() {
   });
   remplirAV();
   remplirPlacementsDebutant();
+  rendreComptesEtrangers();
+  chargerTauxDuJour();
   rendreChoixProfil();
   majVisibiliteProfil();
   marquerBudget();
@@ -2962,6 +3088,7 @@ function majAideRetraite0() {
 }
 $("#profil").addEventListener("input", (e) => {
   const el = e.target;
+  if (el.closest("#bloc-comptes-etrangers")) { saisieComptesEtrangers(el); return; }
   if (el.id === "av-total" || el.id === "av-euros") { saisieAV(); apresSaisieProfil(); return; }
   if (el.dataset.groupe) { saisieGroupeDebutant(el); return; }
   if (!el.dataset.p) return;
@@ -3775,7 +3902,7 @@ function rendreSuivi() {
 
   // Comptes proposés dans la saisie : ceux qui ont un montant, ou tous sur demande
   const montants = { ...(etat.profil.placements ?? {}), ...(brouillonReleve ?? {}) };
-  const ids = Object.keys(plan.enveloppes).filter((id) => tousLesComptes || (Number(montants[id]) || 0) > 0 || (der?.placements?.[id] ?? 0) > 0);
+  const ids = Object.keys(plan.enveloppes).filter((id) => id !== "comptesEtrangers").filter((id) => tousLesComptes || (Number(montants[id]) || 0) > 0 || (der?.placements?.[id] ?? 0) > 0);
   const lignesSaisie = ids.map((id) => `<tr><td>${lienFiche(plan.enveloppes[id].fiche, env(id)) || echapper(env(id))}</td>
     <td class="m muted">${der ? eur(der.placements?.[id] ?? 0) : "—"}</td>
     <td class="m"><div class="saisie"><input type="number" min="0" step="10" data-releve="${id}" value="${Number(montants[id]) || 0}" aria-label="Solde ${echapper(env(id))}"><span>€</span></div></td></tr>`).join("");
@@ -4547,7 +4674,7 @@ function valeursFraisSim() {
   const ageRetraite = etat.brouillon?.hypotheses?.ageRetraite ?? 64;
   const parDefaut = Math.min(40, Math.max(10, ageRetraite - (Number(p.age) || 30)));
   return {
-    capital: fraisSim.capital ?? Math.round(capitalDe(p)),
+    capital: fraisSim.capital ?? Math.round(capitalDe(profilDeCalcul(p))),
     mensuel: fraisSim.mensuel ?? Math.round(Number(p.epargneMensuelle) || 0),
     annees: fraisSim.annees ?? parDefaut,
   };
@@ -4666,9 +4793,78 @@ const OPTION_TEXTE = {
   communaute_universelle: "Si changement de régime (notaire) : communauté universelle",
 };
 const heritierTexte = (h) => (h.lien === "conjoint" ? "Conjoint survivant" : h.lien === "pacs" ? "Partenaire de PACS" : h.lien === "concubin" ? "Concubin" : `Enfant ${h.id.replace("enfant", "")}`);
+// ---------------------------------------------------------------- Quitter la France : exit tax et sort des comptes (fiscal.js, moteur.js)
+// Les champs « simulationDepart.* » sont liés au profil par data-p ; le rendu est construit sans innerHTML (textContent) et les montants passent par eur() (mode discrétion).
+const ACTION_DEPART = { conserver: "Conserver", cloturer: "Clôturer", gelerVersements: "Conserver, arrêter les versements" };
+function noeudDepart(balise, texte, attrs = {}) { const e = creerChampCE(balise, attrs); if (texte != null) e.textContent = texte; return e; }
+function ligneTableDepart(cellules) {
+  const tr = document.createElement("tr");
+  cellules.forEach(([texte, montant]) => tr.append(noeudDepart("td", texte, montant ? { class: "m num" } : {})));
+  return tr;
+}
+function rendreDepart() {
+  const bloc = $("#dp-resultat"); if (!bloc) return;
+  const plan = etat.brouillon, p = etat.profil, D = { ...DEPART_DEFAUT, ...(p.simulationDepart ?? {}) };
+  const select = $("#dp-pays");
+  if (!select.options.length) {
+    select.append(noeudDepart("option", "Choisis un pays", { value: "" }));
+    for (const [code, v] of Object.entries(plan.residence?.pays ?? {})) if (code !== "FR") select.append(noeudDepart("option", v.libelle ?? code, { value: code }));
+  }
+  const calcul = profilPourMoteur();
+  const T = tauxEffectifs(p, etat.tauxDuJour);
+  const epargneEtrangere = consoliderEtrangers(p, T.taux).lignes.filter((l) => l.type === "epargneEtrangere").reduce((t, l) => t + l.soldeEUR, 0);
+  const titresDefaut = Math.round((Number(calcul.placements?.cto) || 0) + epargneEtrangere);
+  $("#dp-titres").placeholder = String(titresDefaut);
+  const titres = D.valeurTitres == null ? titresDefaut : Number(D.valeurTitres) || 0;
+  const annees = D.anneesResidence10 == null ? 10 : Number(D.anneesResidence10) || 0;
+  const x = exitTax({ valeurTitres: titres, plusValuesLatentes: D.plusValuesLatentes, moinsValuesLatentes: D.moinsValuesLatentes, participation50: D.participation50 === true, anneesResidence10: annees, destination: D.destination === "autre" ? "autre" : "ue" });
+  const enfants = [];
+  const verdict = noeudDepart("p", null, { style: "margin:8px 0 4px" });
+  verdict.append(noeudDepart("b", x.assujetti ? "Exit tax : tu serais assujetti(e)." : "Exit tax : tu ne serais pas assujetti(e)."));
+  enfants.push(verdict);
+  const motifs = noeudDepart("ul", null, { class: "points" });
+  x.motifs.forEach((m) => motifs.append(noeudDepart("li", m)));
+  enfants.push(motifs);
+  if (x.assujetti) {
+    const tab = noeudDepart("table"), corps = noeudDepart("tbody");
+    corps.append(
+      ligneTableDepart([["Base imposable (plus-values latentes moins moins-values latentes)", false], [eur(x.base), true]]),
+      ligneTableDepart([["Impôt sur le revenu (prélèvement forfaitaire)", false], [eur(x.impotIR), true]]),
+      ligneTableDepart([["Prélèvements sociaux", false], [eur(x.prelevementsSociaux), true]]),
+      ligneTableDepart([["Total", false], [eur(x.total), true]]),
+      ligneTableDepart([["Sursis de paiement", false], [x.sursis === "automatique" ? "Automatique (UE ou EEE avec convention)" : "Sur demande, avec garanties", false]]),
+      ligneTableDepart([["Dégrèvement possible si les titres sont gardés", false], [`${x.degrevementApresAns} ans`, false]]),
+    );
+    corps.lastElementChild.previousElementSibling.previousElementSibling.classList.add("tm-ligne-total");
+    tab.append(corps);
+    const wrap = noeudDepart("div", null, { class: "table-wrap" }); wrap.append(tab); enfants.push(wrap);
+    const notes = noeudDepart("ul", null, { class: "points small muted" });
+    x.notes.forEach((m) => notes.append(noeudDepart("li", m)));
+    enfants.push(notes);
+  }
+  // Sort de chaque compte
+  const lignes = consequencesDepart(plan, calcul, D.pays || "AUTRE");
+  enfants.push(noeudDepart("h3", "Sort de tes comptes", { style: "margin:12px 0 4px" }));
+  if (!lignes.length) enfants.push(noeudDepart("p", "Aucun compte avec un solde à examiner (les comptes à l'étranger ne sont pas concernés).", { class: "muted", style: "margin:0" }));
+  else {
+    const wrap = noeudDepart("div", null, { class: "table-wrap" }), tab = noeudDepart("table"), tete = noeudDepart("thead"), tr = document.createElement("tr");
+    ["Compte", "Solde", "Décision", "Pourquoi"].forEach((t, i) => tr.append(noeudDepart("th", t, i === 1 ? { class: "m" } : {})));
+    tete.append(tr);
+    const corps = noeudDepart("tbody");
+    lignes.forEach((l) => {
+      const ligne = document.createElement("tr");
+      ligne.append(noeudDepart("td", l.libelle), noeudDepart("td", eur(l.solde), { class: "m num" }), noeudDepart("td", ACTION_DEPART[l.action] ?? l.action), noeudDepart("td", l.explication));
+      corps.append(ligne);
+    });
+    tab.append(tete, corps); wrap.append(tab); enfants.push(wrap);
+  }
+  enfants.push(noeudDepart("p", NOTE_CONSEQUENCES_DEPART, { class: "small muted", style: "margin:8px 0 0" }));
+  bloc.replaceChildren(...enfants);
+}
 function rendreTransmission() {
   const sortie = $("#tm-resultat"); if (!sortie) return;
   const p = etat.profil;
+  rendreDepart();
   // Champs liés au profil (sauf celui qu'on est en train de saisir)
   document.querySelectorAll("#vue-transmission [data-p]").forEach((el) => {
     if (el === document.activeElement) return;
@@ -4677,7 +4873,7 @@ function rendreTransmission() {
   });
   const annee = new Date().getFullYear();
   let entree, r;
-  try { entree = entreeDepuisProfil(p, annee); r = simulerSuccession(entree); }
+  try { entree = entreeDepuisProfil(profilDeCalcul(p), annee); r = simulerSuccession(entree); }
   catch (e) { console.error(e); sortie.innerHTML = `<p class="erreur">Simulation impossible : ${echapper(e.message)}</p>`; return; }
   const sit = entree.situation, couple = sit === "mariage" || sit === "pacs", avecEnfants = entree.enfants > 0;
   $("#tm-rappel").innerHTML = `Repris de ton profil : <b>${SITUATION_TEXTE[sit]}</b> · tu as <b>${entree.ageDefunt} ans</b>${sit !== "seul" ? ` · ton conjoint ou partenaire a <b>${entree.ageConjoint} ans</b>` : ""} · <b>${entree.enfants}</b> enfant${entree.enfants > 1 ? "s" : ""}. Pour les changer, va dans <a class="lien-fiche" href="#mon-profil">Mon profil</a>.`;
@@ -4797,6 +4993,14 @@ function migrer(stocke) {
     if ((stocke?.version ?? 1) < 6 && plan.achatRP?.tauxCredit === 3.3) plan.achatRP.tauxCredit = PLAN.achatRP.tauxCredit;
     // Version 7 : immobilier valorisé comme l'inflation (au lieu de 1 %), bitcoin suivi en dollars
     if ((stocke?.version ?? 1) < 7 && plan.hypotheses?.valorisationImmobiliere === 1) plan.hypotheses.valorisationImmobiliere = PLAN.hypotheses.valorisationImmobiliere;
+    // Version 10 : « Comptes à l'étranger » (traités comme un compte-titres) ajoutés aux listes de comptes
+    if ((stocke?.version ?? 1) < 10) {
+      if (Array.isArray(plan.reequilibrage?.venteGroupee) && !plan.reequilibrage.venteGroupee.includes("comptesEtrangers")) {
+        const k = plan.reequilibrage.venteGroupee.indexOf("cto");
+        plan.reequilibrage.venteGroupee.splice(k >= 0 ? k + 1 : plan.reequilibrage.venteGroupee.length, 0, "comptesEtrangers");
+      }
+      if (plan.fiscalite?.gains && plan.fiscalite.gains.comptesEtrangers == null) plan.fiscalite.gains.comptesEtrangers = PLAN.fiscalite.gains.comptesEtrangers;
+    }
     plan.version = PLAN.version;
   }
   return plan;
@@ -5010,7 +5214,7 @@ apresChangementPlan();
 majBandeauScenario(); // lien partagé ouvert au chargement : bandeau « Scénario partagé »
 // Assistant : lit le plan, le profil et le dernier résultat à chaque question (aucun état dupliqué)
 monterAssistant({
-  getContexte: () => ({ plan: etat.brouillon, res: etat.resultat, profil: etat.profil, niveau: niveauCourant() }), // le niveau règle seulement le ton de la réponse
+  getContexte: () => ({ plan: etat.brouillon, res: etat.resultat, profil: etat.profil, niveau: niveauCourant(), tauxDuJour: etat.tauxDuJour }), // le niveau règle seulement le ton de la réponse
   getCleProfil: cleProfilCourant, // historique du chat : une clé par profil (chat-hist:<col>:<id>)
   appliquerPatch: appliquerSimulation,
   annulerSimulation,

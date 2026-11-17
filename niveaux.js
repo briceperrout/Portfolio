@@ -69,6 +69,7 @@ export const MATRICE = {
     "Ton employeur": I,
     "Foyer": I, "c-pea-date": A, "c-pea-etab": A, "c-pea-vers": A,
     "Tester une situation future": A,
+    "bloc-comptes-etrangers": A,
     "Placements actuels": I, // le débutant a sa version regroupée (bloc data-seul="debutant" « Ton argent placé aujourd'hui »)
     "Ouverture des contrats": I,
     "Argent versé et frais réels": A,
@@ -83,7 +84,7 @@ export const MATRICE = {
   onglets: { suivi: I, transmission: I, plan: A },
   // Complétés aux étapes 3 à 5
   // Rééquilibrage : les clés sont les id générés dans rendreResultats() (app.js), qui portent aussi data-min
-  reequilibrage: { "res-futur": A, "res-profil-risque": I, "res-infos": I, "res-montants": I, "res-rythme": A, "poche-bourse": I },
+  reequilibrage: { "res-futur": A, "res-profil-risque": I, "res-infos": I, "res-montants": I, "res-rythme": A, "poche-bourse": I, "bloc-exposition-change": A },
   // Trajectoire : ids de index.html et du gabarit de rendreTrajectoire() (app.js). Absent = tous niveaux (dont « Trajectoire du patrimoine »).
   // « tr-avenir » (data-seul="debutant") est la version simplifiée ; « bloc-liberte » est affiché dans l'onglet Retraite ; « tr-tranches » inclut les bascules du plan.
   trajectoire: {
@@ -96,7 +97,7 @@ export const MATRICE = {
   transmission: {
     "tm-ch-union": I, "tm-ch-regime": I, "tm-ch-testament": I, "tm-ch-mineur": I, "tm-ch-clause": I,
     "tm-ch-option": A, "tm-ch-ddv": A, "tm-ch-noncommuns": A, "tm-ch-propres": A, "tm-ch-assurance": A, "tm-ch-donation-anterieure": A, "tm-ch-donation-annee": A,
-    "tm-options": A, "tm-donation": I,
+    "tm-options": A, "tm-donation": I, "bloc-depart": A,
     "tm-ch-don-valeur": I, "tm-ch-don-croissance": I, "tm-ch-don-annees": I,
   },
   // Retraite : ids du gabarit de rendreRetraite() (app.js). En Débutant la page est remplacée par « ret-simple » + « ret-verdict-bloc » (data-seul).
@@ -130,6 +131,7 @@ const REGLES = [
   { libelle: "Profil de risque choisi à la main", niveauRequis: I, actif: (p, d) => !vide(p.profilRisque) && p.profilRisque !== d.profilRisque },
   { libelle: "Tranche d'imposition saisie à la main", niveauRequis: I, actif: (p, d) => !vide(p.tmi) && !egal(String(p.tmi), String(d.tmi ?? "")) },
   { libelle: "Retraite publique saisie à la main", niveauRequis: I, actif: (p) => !vide(p.retraite?.modePension) && p.retraite.modePension !== "auto" },
+  { libelle: "Comptes à l'étranger renseignés", niveauRequis: A, actif: (p) => Array.isArray(p.comptesEtrangers) && p.comptesEtrangers.length > 0 },
   { libelle: "Placements détaillés dans des comptes « Autres »", niveauRequis: I, actif: (p) => Object.entries(p.placements ?? {}).some(([c, v]) => COMPTES_AUTRES.includes(c) && nombre(v) > 0) },
 ];
 

@@ -28,6 +28,7 @@
 import { FICHES, VERIFIE_LE } from "./fiches.js";
 import { LEXIQUE, lierTermes } from "./lexique.js";
 import { eur, pct, endettementBancaire, seuilAchatBitcoin } from "./moteur.js";
+import { tauxEffectifs, consoliderEtrangers, expositionChange } from "./devises.js";
 
 // ---------------------------------------------------------------- outils texte
 const echapper = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -238,6 +239,15 @@ export function resumerProfilPourLLM(ctx) {
   }
   const comptes = (res?.reeq?.comptes ?? []).filter((c) => cap > 0 && ((c.actuel ?? 0) > 0 || (c.cible ?? 0) > 0));
   if (comptes.length) L.push(`- Allocation actuelle → cible du plan (% du capital) : ${comptes.slice(0, 9).map((c) => `${libelleCourt(plan, c.enveloppe)} ${fr((100 * c.actuel) / cap)} → ${fr((100 * c.cible) / cap)}`).join(" ; ")}.`);
+  // Change : pourcentages par devise (hors euro) et nombre de comptes étrangers par famille ; jamais de libellé, de solde ni de montant
+  try {
+    const T = tauxEffectifs(P, ctx?.tauxDuJour ?? null);
+    const etrangers = consoliderEtrangers(P, T.taux).lignes;
+    if (etrangers.length) L.push(`- Comptes à l'étranger : ${etrangers.filter((l) => l.type === "retraiteEtrangere").length} de retraite, ${etrangers.filter((l) => l.type === "epargneEtrangere").length} d'épargne.`);
+    const x = expositionChange(plan, P, T.taux);
+    const horsEuro = Object.entries(x.pourcentages).filter(([d, v]) => d !== "EUR" && v > 0).sort((a, b) => b[1] - a[1]);
+    if (x.totalEUR > 0 && horsEuro.length) L.push(`- Exposition au change du patrimoine financier (hors euro) : ${horsEuro.map(([d, v]) => `${d} ${fr(v, 1)} %`).join(" ; ")}.`);
+  } catch { /* exposition indisponible : sans effet */ }
   const RP = P.projetRP;
   if (RP?.actif) {
     const ideal = res?.achat?.ideal;

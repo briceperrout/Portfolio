@@ -3,7 +3,7 @@
 // Aucun appel réseau : le `fetch` vers OpenAI est remplacé par un faux amont.
 
 import worker, { MODEL_FAST, MODEL_REASONING, choisirModele, choixRepli, corpsOpenAI, questionComplexe, tokensDuJour } from "./worker.js";
-import { CONSIGNE_VOCALE, CONSIGNES_NIVEAU, DELAI_SILENCE_MS, choisirVoixFr, decouperPhrases, extraireBalises, libelleModele, preparerRequeteCloud, texteParle } from "./assistant.js";
+import { CONSIGNE_VOCALE, CONSIGNES_NIVEAU, DELAI_SILENCE_MS, choisirVoixFr, decouperPhrases, extraireBalises, libelleModele, preparerRequeteCloud, texteParle, resumerProfilPourLLM } from "./assistant.js";
 
 import { PLAN } from "./plan.js";
 import { planifierRetraits, impotsAuDeces, STRATEGIES_DECUMULATION } from "./pension.js";
@@ -11,6 +11,9 @@ import { impotBaremeIndexe, margeTranche } from "./fiscal.js";
 import { FICHES, PARCOURS_DEBUTANT } from "./fiches.js";
 import { FAMILLES_ALLOCATION, grouperAllocation, GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent } from "./moteur.js";
 import { HISTORIQUE } from "./historique.js";
+import { DEVISES, DEVISES_COMPTES, TAUX_REFERENCE, TYPES_COMPTES_ETRANGERS, analyserTaux, tauxEffectifs, convertir, consoliderEtrangers, avecComptesEtrangers, expositionChange } from "./devises.js";
+import { capitalDe, repartirEnEnveloppes, accepteArgentNeuf, consequencesDepart } from "./moteur.js";
+import { encoderProfilPartage, decoderProfilPartage } from "./recap.js";
 import { BITCOIN_DEBUT, comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS, projeter, projeterCentral, libertePatrimoine, moisPrecaution, capitalNecessaire, generateur, fenetresHistoriques, backtesterHistorique, MATRICES_CORRELATION, REGIMES, cholesky, etalonnerRegimes, preparerCorrelations, rendementsCorreles, SCENARIO_INFLATION, scenarioInflation } from "./projection.js";
 
 export const resultats = { ok: 0, echecs: [] };
@@ -697,6 +700,94 @@ egal(libelleModele(undefined), "", "libellé absent");
     verifier(sc.patrimoine.scenarioReel < sc.patrimoine.centralReel && sc.patrimoine.ecart < 0 && sc.patrimoine.ecartPct < 0, `inflation persistante : patrimoine réel inférieur au central (${Math.round(sc.patrimoine.scenarioReel)} < ${Math.round(sc.patrimoine.centralReel)})`);
     egal(scenarioInflation(PLAN, pr, { taux: H.inflation, duree: 0 }).patrimoine.ecart, 0, "inflation persistante : durée nulle = central");
   }
+}
+
+// ---------------------------------------------------------------- devises.js : comptes à l'étranger et exposition au change
+{
+  const T = { EUR: 1, USD: 1.25, CAD: 1.5, CHF: 0.9, GBP: 0.8 };
+  egal(convertir(100, "EUR", T), 100, "devises : EUR = identité");
+  egal(convertir(125, "USD", T), 100, "devises : USD converti en euros (1 EUR = 1,25 USD)");
+  egal([convertir(100, "JPY", T), convertir(100, "USD", {}), convertir(100, "USD", { USD: 0 }), convertir("abc", "USD", T)], [0, 0, 0, 0], "devises : devise inconnue, taux absent ou invalide, montant non numérique = 0");
+  verifier(DEVISES_COMPTES.includes("EUR") && DEVISES.includes("JPY") && TAUX_REFERENCE.source === "BCE" && Object.isFrozen(TAUX_REFERENCE.taux), "devises : constantes exportées et figées");
+  // Priorité des taux : saisi > du jour > référence
+  const jour = { date: "2026-12-01", taux: { USD: 1.1, CAD: 1.6 } };
+  const te = tauxEffectifs({ tauxChange: { USD: 1.3, CAD: "", CHF: -2 } }, jour);
+  egal([te.taux.USD, te.origine.USD], [1.3, "manuel"], "taux : le taux saisi l'emporte");
+  egal([te.taux.CAD, te.origine.CAD], [1.6, "jour"], "taux : à défaut, le taux du jour");
+  egal([te.taux.CHF, te.origine.CHF, te.taux.GBP, te.origine.GBP], [TAUX_REFERENCE.taux.CHF, "reference", TAUX_REFERENCE.taux.GBP, "reference"], "taux : à défaut, la référence embarquée (taux saisi négatif ignoré)");
+  egal([te.taux.EUR, te.date], [1, "2026-12-01"], "taux : EUR = 1, date des taux du jour");
+  egal(tauxEffectifs({}, null).date, TAUX_REFERENCE.date, "taux : sans taux du jour, date de référence");
+  // Validation d'une réponse de taux
+  egal(analyserTaux({ date: "2026-11-17", taux: { USD: 1.09, EUR: 1, JPY: 160, CAD: 99, CHF: "0.92", GBP: 0.01 } }), { date: "2026-11-17", source: "BCE", taux: { USD: 1.09 } }, "analyserTaux : ne garde que les taux plausibles USD/CAD/CHF/GBP");
+  egal([analyserTaux(null), analyserTaux({ date: "17/11/2026", taux: { USD: 1.1 } }), analyserTaux({ date: "2026-13-45", taux: { USD: 1.1 } }), analyserTaux({ date: "2026-11-17", taux: { USD: "x", CAD: NaN } }), analyserTaux({ date: "2026-11-17" })], [null, null, null, null, null], "analyserTaux : rejette date invalide, valeurs non numériques ou absentes");
+  // Consolidation
+  const comptes = [
+    { id: "ce-1", type: "retraiteEtrangere", devise: "USD", solde: 12500, libelle: "401(k)" },
+    { id: "ce-2", type: "epargneEtrangere", devise: "CHF", solde: 900 },
+    { id: "ce-3", type: "epargneEtrangere", devise: "USD", solde: -5 },
+    { id: "ce-4", type: "inconnu", devise: "USD", solde: 100 },
+    { id: "ce-5", type: "epargneEtrangere", devise: "JPY", solde: 100 },
+    { id: "ce-6", type: "epargneEtrangere", devise: "GBP", solde: NaN },
+    null,
+  ];
+  const profilE = { age: 40, placements: { pea: 1000 }, comptesEtrangers: comptes };
+  const co = consoliderEtrangers(profilE, T);
+  egal(co.lignes.map((l) => l.id), ["ce-1", "ce-2"], "comptes étrangers : lignes invalides ignorées");
+  egal([co.parDevise.USD, co.parDevise.CHF, co.totalEUR], [10000, 1000, 11000], "comptes étrangers : conversion et total");
+  egal(consoliderEtrangers({}, T), { totalEUR: 0, parDevise: {}, lignes: [] }, "comptes étrangers : profil sans compte");
+  const avant = JSON.stringify(profilE), ap = avecComptesEtrangers(profilE, T);
+  egal(JSON.stringify(profilE), avant, "avecComptesEtrangers : l'entrée n'est pas modifiée");
+  egal([ap.placements.comptesEtrangers, ap.placements.pea, "comptesEtrangers" in profilE.placements], [11000, 1000, false], "avecComptesEtrangers : total en euros ajouté aux placements");
+  verifier(!("comptesEtrangers" in avecComptesEtrangers({ placements: { comptesEtrangers: 5 } }, T).placements), "avecComptesEtrangers : clé absente sans compte, valeur stockée écartée");
+  // Invariance : sans compte étranger, mêmes résultats
+  const sans = { age: 35, salaireNet: 3000, epargneMensuelle: 500, depensesMensuelles: 2000, placements: { livretA: 10000, pea: 20000 }, comptesEtrangers: [] };
+  egal(JSON.stringify(projeter(PLAN, avecComptesEtrangers(sans, T), { legere: true })), JSON.stringify(projeter(PLAN, sans, { legere: true })), "devises : sans compte étranger, projeter est identique");
+  // Capital et versements
+  const p10k = { ...sans, comptesEtrangers: [{ id: "ce-a", type: "epargneEtrangere", devise: "USD", solde: 10000 }] };
+  const dedans = avecComptesEtrangers(p10k, T);
+  verifier(Math.abs(capitalDe(dedans) - capitalDe(sans) - 10000 / T.USD) < 1e-6, "devises : 10 000 USD ajoutent 10 000 / taux USD au capital");
+  verifier(!accepteArgentNeuf(PLAN, dedans, "comptesEtrangers"), "comptes à l'étranger : n'acceptent pas d'argent neuf");
+  const alloc = { securite: 5000, bourse: 60000 };
+  const lignes = repartirEnEnveloppes(PLAN, alloc, dedans.placements, dedans);
+  const surEtr = lignes.filter((l) => l.enveloppe === "comptesEtrangers").reduce((t, l) => t + l.montant, 0);
+  verifier(Math.abs(surEtr - 10000 / T.USD) < 1e-6, `comptes à l'étranger : gardent leur solde, sans versement (${surEtr})`);
+  const lignes0 = repartirEnEnveloppes(PLAN, { securite: 5000, bourse: 60000 }, sans.placements, sans);
+  verifier(!lignes0.some((l) => l.enveloppe === "comptesEtrangers"), "comptes à l'étranger : aucun versement sans solde existant");
+  // Exposition au change
+  const x = expositionChange(PLAN, dedans, T);
+  verifier(Math.abs(Object.values(x.pourcentages).reduce((a, b) => a + b, 0) - 100) < 1e-9, "exposition : pourcentages sommant à 100");
+  verifier(Math.abs(x.totalEUR - capitalDe(dedans)) < 1e-6, "exposition : total = capital en euros");
+  verifier(x.parDevise.USD > 10000 / T.USD, "exposition : USD = compte étranger + part des ETF");
+  const livrets = expositionChange(PLAN, { placements: { livretA: 1000 } }, T);
+  egal([livrets.pourcentages.EUR, livrets.parDevise.EUR], [100, 1000], "exposition : livrets = 100 % euro");
+  const choisi = expositionChange(PLAN, { placements: { pea: 1000 }, devisesBourse: { "ETF S&P 500": { EUR: 100 }, "ETF STOXX Europe 600": { EUR: 100 } } }, T);
+  egal(choisi.pourcentages.EUR, 100, "exposition : devisesBourse saisies prises en compte");
+}
+
+// ---------------------------------------------------------------- départ de France, partage et assistant (comptes étrangers)
+{
+  const profil = { placements: { lep: 5000, livretA: 10000, per: 8000, pea: 3000, cto: 0, scpi: 0, comptesEtrangers: 20000 } };
+  const lignes = consequencesDepart(PLAN, profil, "CH");
+  const par = Object.fromEntries(lignes.map((l) => [l.id, l.action]));
+  egal([par.lep, par.livretA, par.per, par.pea], ["cloturer", "conserver", "gelerVersements", "conserver"], "départ : LEP clôturé, Livret A conservé, PER gelé, PEA conservé");
+  verifier(!("cto" in par) && !("scpi" in par) && !("comptesEtrangers" in par), "départ : enveloppes à 0 et comptes étrangers absents");
+  verifier(lignes.every((l) => l.solde > 0 && l.explication.length > 0), "départ : chaque ligne a un solde et une explication");
+  const etnc = { ...PLAN, residence: { ...PLAN.residence, pays: { ...PLAN.residence.pays, XX: { libelle: "Pays test", etnc: true } } } };
+  egal(consequencesDepart(etnc, profil, "XX").find((l) => l.id === "pea").action, "cloturer", "départ : PEA clôturé vers un État non coopératif");
+
+  const compte = { id: "ce-1", type: "retraiteEtrangere", devise: "USD", solde: 90000, libelle: "Fidelity de Jean Dupont" };
+  const code = encoderProfilPartage({ comptesEtrangers: [compte], tauxChange: {}, age: 40 }, {});
+  const decode = decoderProfilPartage(code);
+  verifier(Array.isArray(decode?.comptesEtrangers) && decode.comptesEtrangers[0].devise === "USD", "partage : comptes étrangers conservés");
+  verifier(!JSON.stringify(decode).includes("libelle") && !JSON.stringify(decode).includes("Dupont"), "partage : libellé des comptes étrangers retiré");
+  verifier(compte.libelle === "Fidelity de Jean Dupont", "partage : le profil d'origine n'est pas modifié");
+
+  const P = { age: 40, salaireNetMensuel: 3000, epargneMensuelle: 500, depensesMensuelles: 1800, creditsMensuels: 0, pays: "FR",
+    placements: { pea: 20000, comptesEtrangers: 90000 }, comptesEtrangers: [compte, { id: "ce-2", type: "epargneEtrangere", devise: "CHF", solde: 5000, libelle: "UBS Zurich" }] };
+  const resume = resumerProfilPourLLM({ plan: PLAN, res: { profil: P, capital: 110000 } });
+  verifier(!/Dupont|Fidelity|UBS|Zurich/.test(resume), "assistant : aucun libellé de compte étranger");
+  verifier(!/\d\s?(€|euros?)/i.test(resume) && !/90\s?000|\b5\s?000\b/.test(resume), "assistant : aucun montant en euros");
+  verifier(/Exposition au change[^\n]*USD \d/.test(resume) && /1 de retraite, 1 d'épargne/.test(resume), "assistant : exposition en pourcentages et nombre de comptes par famille");
 }
 
 if (typeof process !== "undefined" && process.argv?.[1]?.endsWith("test_js.mjs")) {

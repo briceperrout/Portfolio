@@ -419,7 +419,7 @@ export function simulerDonationNP({ valeur, ageDonateur, enfants, donations = []
 // Libellés des lignes de placements reprises comme actifs du défunt (assurance-vie et PER sont traités à part).
 const LIBELLES_PLACEMENTS = Object.freeze({
   livretA: "Livret A", ldds: "LDDS", lep: "LEP", livretJeune: "Livret Jeune", livretBancaire: "Livret bancaire", pel: "PEL",
-  pea: "PEA", cto: "Compte-titres", scpi: "SCPI", orPhysique: "Or physique", plateformeCrypto: "Crypto (plateforme)", coldWallet: "Crypto (cold wallet)", epargneSalariale: "Épargne salariale",
+  pea: "PEA", cto: "Compte-titres", comptesEtrangers: "Comptes à l'étranger", scpi: "SCPI", orPhysique: "Or physique", plateformeCrypto: "Crypto (plateforme)", coldWallet: "Crypto (cold wallet)", epargneSalariale: "Épargne salariale",
 });
 const COMPTES_HORS_ACTIFS = Object.freeze(["assuranceVie", "assuranceVieUC", "per"]);
 

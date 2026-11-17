@@ -30,18 +30,19 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 - `index.html` (CSS inline inclus) : Structure de l'interface, onglets, modales et thèmes (clair/sombre).
 - `app.js` : Point d'entrée UI, gestion de l'état global (`etat`), écouteurs d'événements, exports et mode discrétion (`Alt+H`).
 - `plan.js` : Allocation d'actifs dynamique par paliers de patrimoine et profil de risque.
-- `moteur.js` : Cœur des calculs déterministes, capacité d'épargne, prêts, PTZ et enveloppes.
-- `fiscal.js` : Fiscalité française 2026 (barème progressif IR, décote, plafonnement du quotient familial, PFU/Flat Tax, IFI, plus-values, arbitrages rémunération/dividendes).
+- `moteur.js` : Cœur des calculs déterministes, capacité d'épargne, prêts, PTZ et enveloppes, conséquences d'un départ de France par compte (`consequencesDepart`).
+- `fiscal.js` : Fiscalité française 2026 (barème progressif IR, décote, plafonnement du quotient familial, PFU/Flat Tax, IFI, plus-values, arbitrages rémunération/dividendes, exit tax art. 167 bis via `exitTax`).
 - `pension.js` : Estimation des droits à la retraite (régime de base + complémentaire Agirc-Arrco) et stratégie de décumulation.
 - `projection.js` : Simulations long terme, tirages Monte-Carlo, Coast FIRE / règle des 4 %, backtesting sur crises historiques (`CRISES` : 2000, 2008, 2022), backtest sur fenêtres glissantes (`backtesterHistorique`), corrélations dynamiques par régime (`hypotheses.correlations`) et scénario d'inflation persistante (`scenarioInflation`), net transmis après droits de succession (via `succession.js`).
 - `historique.js` : séries annuelles 1970–2025 (rendements par classe d'actifs et inflation) avec leurs sources, utilisées par `backtesterHistorique` et le bloc « Rejouer l'histoire réelle ». Données pures, aucun DOM.
 - `immobilier.js` & `locatif.js` : Recherche DVF (`prix-m2.json`), cash-flow locatif, échéancier d'emprunt, régimes micro-foncier / réel / LMNP et comparaison TRI vs PEA.
+- `devises.js` : devises, taux BCE de référence, conversion, comptes étrangers (401(k), 3a, CELI…) et exposition au change. Pur, aucun DOM ; le solde en euros des comptes étrangers est dérivé au calcul, jamais stocké dans `placements`.
 - `entreprises.js` : Barèmes d'abondement salarial (PEE / PERECO) des grandes entreprises.
 - `succession.js` : droits de succession et de donation 2026, dévolution selon le régime matrimonial, assurance-vie (articles 990 I et 757 B), valeur de l'usufruit (art. 669), rappel fiscal de 15 ans, comparaison des options du conjoint survivant sur deux décès, adaptateur `entreeDepuisProfil`. Constantes `DMTG`, `AV_DECES` et `BAREME_USUFRUIT` dans `fiscal.js`. Aucun DOM.
 - `calendrier.js` : Échéancier patrimonial et export `.csv`.
 - `recap.js` : Génération du bilan patrimonial imprimable/exportable.
 - `fiches.js` & `lexique.js` : Fiches pédagogiques et infobulles automatiques du lexique financier.
-- `serveur.py` / `worker.js` / `assistant.js` : Couche assistant IA, streaming SSE, OCR/Vision et mode vocal.
+- `serveur.py` / `worker.js` / `assistant.js` : Couche assistant IA, streaming SSE, OCR/Vision et mode vocal ; route `/api/taux` (proxy des taux de change BCE, cache 6 h, aucune donnée utilisateur).
 - `niveaux.js` : niveaux de lecture Débutant / Intermédiaire / Avancé (matrice « élément → niveau minimal », table unique des libellés d'onglets `LIBELLES_VUES`, règles pures, détection des réglages avancés actifs). Aucun DOM, aucun calcul métier : le niveau ne change que l'affichage, jamais `etat.profil` ni les résultats. Niveau mémorisé par appareil (clé `niveau`), jamais synchronisé.
 - `sync.js` : synchronisation multi-appareils chiffrée de bout en bout (WebCrypto AES-GCM + PBKDF2, fusion par fiche, client `/api/sync`) ; routes serveur dans `worker.js` (Cloudflare KV, liaison `SYNC_KV`) et `serveur.py` (stockage dev `.sync_local/`, ignoré par Git). Le serveur ne doit jamais voir de données en clair.
 - `wrangler.toml` / `_headers` / `.assetsignore` : déploiement Cloudflare (Worker + assets), CSP stricte et liste des fichiers jamais publiés (secrets, sources serveur, tests) : tout fichier absent de `.assetsignore` est public.

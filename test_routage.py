@@ -451,5 +451,35 @@ class RoutageDeBoutEnBout(unittest.TestCase):
         self.assertNotIn("sk-proj", err.getvalue())
 
 
+XML_BCE = """<?xml version="1.0" encoding="UTF-8"?>
+<gesmes:Envelope xmlns:gesmes="http://www.gesmes.org/xml/2002-08-01" xmlns="http://www.ecb.int/vocabulary/2002-08-01/eurofxref">
+<Cube><Cube time='2026-11-16'>
+<Cube currency='USD' rate='1.0821'/><Cube currency='JPY' rate='165.2'/><Cube currency='CAD' rate='1.4912'/>
+<Cube currency='CHF' rate='0.9402'/><Cube currency='GBP' rate='0.8431'/>
+</Cube></Cube></gesmes:Envelope>"""
+
+
+class TestTauxBCE(unittest.TestCase):
+    def test_xml_valide(self):
+        r = serveur.analyser_taux_bce(XML_BCE)
+        self.assertEqual(r["date"], "2026-11-16")
+        self.assertEqual((r["source"], r["base"]), ("BCE", "EUR"))
+        self.assertEqual(set(r["taux"]), {"USD", "CAD", "CHF", "GBP"})
+        self.assertAlmostEqual(r["taux"]["USD"], 1.0821)
+
+    def test_sans_date(self):
+        self.assertIsNone(serveur.analyser_taux_bce("<Cube currency='USD' rate='1.08'/>"))
+
+    def test_rate_non_numerique_ignore(self):
+        r = serveur.analyser_taux_bce("<Cube time='2026-11-16'><Cube currency='USD' rate='abc'/><Cube currency='CHF' rate='0.94'/></Cube>")
+        self.assertEqual(r["taux"], {"CHF": 0.94})
+
+    def test_aucune_devise_retenue(self):
+        self.assertIsNone(serveur.analyser_taux_bce("<Cube time='2026-11-16'><Cube currency='JPY' rate='165.2'/></Cube>"))
+
+    def test_chaine_vide(self):
+        self.assertIsNone(serveur.analyser_taux_bce(""))
+
+
 if __name__ == "__main__":
     unittest.main()
