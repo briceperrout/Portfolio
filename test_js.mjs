@@ -6,7 +6,7 @@ import worker, { MODEL_FAST, MODEL_REASONING, choisirModele, choixRepli, corpsOp
 import { CONSIGNE_VOCALE, CONSIGNES_NIVEAU, DELAI_SILENCE_MS, choisirVoixFr, decouperPhrases, extraireBalises, libelleModele, preparerRequeteCloud, texteParle } from "./assistant.js";
 
 import { PLAN } from "./plan.js";
-import { planifierRetraits, STRATEGIES_DECUMULATION } from "./pension.js";
+import { planifierRetraits, impotsAuDeces, STRATEGIES_DECUMULATION } from "./pension.js";
 import { impotBaremeIndexe, margeTranche } from "./fiscal.js";
 import { FICHES, PARCOURS_DEBUTANT } from "./fiches.js";
 import { FAMILLES_ALLOCATION, grouperAllocation, GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent } from "./moteur.js";
@@ -474,6 +474,27 @@ egal(libelleModele(undefined), "", "libellé absent");
   }
   const vide = planifierRetraits({ livrets: { valeur: 0 }, av: { apres70: { valeur: 0, primes: 0 }, avant70: { valeur: 0, primes: 0 }, ancien8: false }, pea: { valeur: 0, versements: 0, ancien5: false }, cto: { valeur: 0, base: 0 }, per: { valeur: 0, versementsDeduits: 0 }, autres: [] }, 5000, CTX);
   verifier(vide.insuffisant === true && vide.net === 0, "décumulation : registre vide = insuffisant");
+  // Ordre de l'étape 3 : PEA d'abord (défaut) ou compte-titres d'abord
+  const REG3 = () => ({ livrets: { valeur: 0 }, av: { apres70: { valeur: 0, primes: 0 }, avant70: { valeur: 0, primes: 0 }, ancien8: false }, pea: { valeur: 80000, versements: 50000, ancien5: true }, cto: { valeur: 40000, base: 30000 }, per: { valeur: 0, versementsDeduits: 0 }, autres: [] });
+  const CTX3 = { parts: 1, partsBase: 1, indexation: 1, couple: false, revenuImposableAutre: 0, garderOr: false };
+  for (const strat of ["transmettre", "consommer"]) {
+    const cto = planifierRetraits(REG3(), 10000, { ...CTX3, ordreEtape3: "ctoDabord" }, strat);
+    const pea = planifierRetraits(REG3(), 10000, { ...CTX3, ordreEtape3: "peaDabord" }, strat);
+    const defaut = planifierRetraits(REG3(), 10000, CTX3, strat);
+    verifier(cto.retraits.length === 1 && cto.retraits[0].id === "cto" && cto.registre.pea.valeur === 80000, `décumulation ${strat} : 'ctoDabord' vide le CTO avant le PEA`);
+    verifier(pea.retraits.length === 1 && pea.retraits[0].id === "pea" && pea.registre.cto.valeur === 40000, `décumulation ${strat} : 'peaDabord' vide le PEA avant le CTO`);
+    egal(JSON.stringify(defaut), JSON.stringify(pea), `décumulation ${strat} : 'peaDabord' est le défaut`);
+    const grand = planifierRetraits(REG3(), 60000, { ...CTX3, ordreEtape3: "ctoDabord" }, strat);
+    verifier(grand.registre.cto.valeur === 0 && grand.registre.pea.valeur < 80000, `décumulation ${strat} : 'ctoDabord' prend le PEA après le CTO`);
+  }
+  const prCto = planifierRetraits(REG3(), 10000, { ...CTX3, ordreEtape3: "ctoDabord" }, "prorata");
+  egal(JSON.stringify(prCto), JSON.stringify(planifierRetraits(REG3(), 10000, CTX3, "prorata")), "décumulation : 'prorata' ignore l'ordre de l'étape 3");
+  // Impôts dus au décès sur les gains latents (hors droits de succession)
+  const regD = { livrets: { valeur: 5000 }, av: { apres70: { valeur: 100000, primes: 60000 }, avant70: { valeur: 0, primes: 0 }, ancien8: true }, pea: { valeur: 100000, versements: 60000, ancien5: true }, cto: { valeur: 50000, base: 10000 }, per: { valeur: 30000, versementsDeduits: 30000 }, autres: [{ id: "scpi", valeur: 20000, base: 5000, taux: 30 }] };
+  const attendu = (40000 * 18.6) / 100 + (40000 * 17.2) / 100;
+  verifier(Math.abs(impotsAuDeces(regD) - attendu) < 1e-6, `impotsAuDeces : PEA 40 000 × 18,6 % + AV 40 000 × 17,2 % (${impotsAuDeces(regD)})`);
+  verifier(impotsAuDeces({ ...regD, pea: { valeur: 0, versements: 0 }, av: { apres70: { valeur: 0, primes: 0 }, avant70: { valeur: 0, primes: 0 } } }) === 0, "impotsAuDeces : CTO, autres, PER et livrets = 0");
+  verifier(impotsAuDeces({ pea: { valeur: 50000, versements: 80000 } }) === 0, "impotsAuDeces : pas de gain (moins-value) = 0");
 }
 
 // ---------------------------------------------------------------- projection.js : décumulation intégrée à la projection
@@ -506,6 +527,14 @@ egal(libelleModele(undefined), "", "libellé absent");
     verifier(plus.central[plus.dernier].financier <= c.central[c.dernier].financier + 1, `${nom} : +500 €/mois de revenu, patrimoine final plus bas ou égal`);
     verifier(["impotsOptimiseReel", "impotsProrataReel", "economieReel", "patrimoineFinalOptimiseReel", "patrimoineFinalProrataReel", "gainPatrimoineReel", "ageFinal"].every((k) => Number.isFinite(D[k])), `${nom} : champs en euros réels présents`);
     verifier(D.gainPatrimoineReel >= -1, `${nom} : gain de patrimoine réel ≥ 0 (${Math.round(D.gainPatrimoineReel)})`);
+    verifier(["peaDabord", "ctoDabord"].includes(D.ordreEtape3) && Number.isFinite(D.gainOrdreReel) && Number.isFinite(D.patrimoineFinalNetReel) && Number.isFinite(D.gainPatrimoineNetReel), `${nom} : ordre de l'étape 3 et patrimoine net des impôts au décès présents`);
+    verifier(D.gainOrdreReel >= -1, `${nom} : l'ordre retenu n'est pas moins bon que l'autre (${Math.round(D.gainOrdreReel)})`);
+    if (p.age === 45 || p.age === 55) for (const strat of ["transmettre", "consommer"]) {
+      const Ds = projeterCentral(PLAN, { ...p, retraite: { priorite: strat } }).decumulation;
+      verifier(["peaDabord", "ctoDabord"].includes(Ds?.ordreEtape3) && Ds.gainOrdreReel >= -1, `${nom} « ${strat} » : ordre ${Ds?.ordreEtape3}, gain ${Math.round(Ds?.gainOrdreReel)} ≥ −1`);
+      if (p.age === 45) egal(Ds.ordreEtape3, "peaDabord", `${nom} « ${strat} » : PEA d'abord (épargne jamais épuisée)`);
+      if (p.age === 55 && strat === "consommer") egal(Ds.ordreEtape3, "ctoDabord", `${nom} « consommer » : compte-titres d'abord (épargne épuisée)`);
+    }
     if (p.placements.assuranceVie && D.ageEpuisementOptimise == null) verifier(D.avAvant70Final > 0, `${nom} : AV avant 70 ans transmissible conservée (${Math.round(D.avAvant70Final)})`);
   }
 }

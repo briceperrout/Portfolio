@@ -1376,12 +1376,17 @@ function blocLiberte(r) {
 // ---- Retraite : ordre de retrait fiscalement optimal (décumulation, calculé par projection.js / pension.js)
 const POCHES_LIBELLES = { livrets: "Livrets", av_apres70: "Assurance-vie (versements après 70 ans)", av_avant70: "Assurance-vie (versements avant 70 ans)", pea: "PEA", cto: "Compte-titres", per: "PER", orPhysique: "Or physique", scpi: "SCPI", plateformeCrypto: "Bitcoin (plateforme)", coldWallet: "Bitcoin (cold wallet)" };
 const libellePoche = (id, plan) => POCHES_LIBELLES[id] ?? plan.enveloppes?.[id]?.libelle ?? plan.classes?.[id]?.libelle ?? id;
-function ordreRetraitsHtml(priorite) {
+function ordreRetraitsHtml(priorite, D) {
+  let ordreLiquides;
+  if (D?.ordreEtape3 === "ctoDabord") ordreLiquides = "Le compte-titres et les autres placements d'abord, puis le PEA : ton épargne sera consommée, autant laisser fructifier le PEA, moins taxé.";
+  else if (D?.ordreEtape3 === "peaDabord" && D.ageEpuisementOptimise == null) ordreLiquides = "Le PEA d'abord, puis le compte-titres : ton épargne ne sera pas épuisée, et les plus-values du compte-titres sont effacées au décès.";
+  else ordreLiquides = "Le PEA d'abord (moins taxé), puis le compte-titres et les autres placements.";
+  if (D?.gainOrdreReel >= 1) ordreLiquides += ` (environ ${eur(Math.round(D.gainOrdreReel / 10) * 10)} de plus, en euros d'aujourd'hui, que l'ordre inverse)`;
   const etapes = [
     "Le PER est vidé progressivement sur les années qui restent, sans dépasser ta tranche d'imposition.",
     "L'assurance-vie de plus de 8 ans est rachetée chaque année dans la limite de l'abattement (peu ou pas d'impôt sur le revenu).",
     "Les livrets, au-delà d'une réserve de précaution.",
-    "Le PEA, le compte-titres et les autres placements, du moins taxé au plus taxé (le PEA d'abord).",
+    ordreLiquides,
     "L'assurance-vie des versements après 70 ans, au-delà de l'abattement.",
   ];
   const perHors = "Le PER au-delà de la tranche d'imposition.", avAvant = "L'assurance-vie des versements avant 70 ans, gardée pour la transmission.";
@@ -1395,7 +1400,7 @@ function exemplesRetraitsHtml(D, plan) {
     <div class="table-wrap"><table><thead><tr><th>Âge</th><th>Compte</th><th class="m">Retiré</th><th class="m">Impôt</th></tr></thead><tbody>${lignes}</tbody></table></div>`;
 }
 function economieRetraitsHtml(D) {
-  if (!D || !(D.gainPatrimoineReel >= 1) || !(D.anneesComparees > 0)) return "";
+  if (!D || !(D.gainPatrimoineNetReel >= 1) || !(D.anneesComparees > 0)) return "";
   const ageOpt = D.ageEpuisementOptimise, agePro = D.ageEpuisementProrata;
   const epuise = ageOpt !== agePro && agePro != null ? ` Ton épargne tient aussi jusqu'à ${ageOpt == null ? "la fin de la projection" : `${ageOpt} ans`} au lieu de ${agePro} ans.` : "";
   const dix = (x) => eur(Math.round(x / 10) * 10);
@@ -1403,8 +1408,8 @@ function economieRetraitsHtml(D) {
     ? ` dont <b class="num">${dix(D.economieReel)}</b> d'impôts en moins sur ${D.anneesComparees} ans.`
     : " Les impôts payés sont un peu décalés dans le temps (moins au début, davantage plus tard), mais ton capital a plus longtemps travaillé.";
   return `<section class="panneau" id="ret-economie-retraits" data-min="intermediaire"><h2>Retirer dans le bon ordre</h2>
-      <p style="margin:6px 0 0">Retirer dans le bon ordre te laisse environ <b class="num">${dix(D.gainPatrimoineReel)}</b> de plus à ${D.ageFinal} ans (en euros d'aujourd'hui) qu'un retrait au prorata, pour le même revenu.${impots}${epuise}</p>
-      <p class="note" style="margin:6px 0 0">Scénario central, en euros d'aujourd'hui.</p>
+      <p style="margin:6px 0 0">Retirer dans le bon ordre te laisse environ <b class="num">${dix(D.gainPatrimoineNetReel)}</b> de plus à ${D.ageFinal} ans (en euros d'aujourd'hui) qu'un retrait au prorata, pour le même revenu.${impots}${epuise}</p>
+      <p class="note" style="margin:6px 0 0">Scénario central, en euros d'aujourd'hui, après les impôts dus au décès sur les plus-values (hors droits de succession).</p>
     </section>`;
 }
 function rendreRetraite() {
@@ -1520,7 +1525,7 @@ ${economieRetraitsHtml(D)}
       </ol>
       <h3 style="margin:16px 0 4px">Dans quel ordre retirer</h3>
       <div class="champ" style="max-width:420px" data-min="avance"><label for="r-priorite">Priorité</label><select id="r-priorite" data-min="avance"><option value="transmettre" ${priorite === "transmettre" ? "selected" : ""}>Transmettre (garder l'assurance-vie pour mes héritiers)</option><option value="consommer" ${priorite === "consommer" ? "selected" : ""}>Consommer (profiter de mon épargne)</option></select></div>
-      <ol class="points" style="margin-top:10px">${ordreRetraitsHtml(priorite)}</ol>
+      <ol class="points" style="margin-top:10px">${ordreRetraitsHtml(priorite, D)}</ol>
       <div id="ret-ordre-retraits" data-min="avance">${exemplesRetraitsHtml(D, plan)}</div>
       <h3 style="margin:16px 0 4px">D'où vient l'argent la première année</h3>
       <p class="note" style="margin:0 0 6px">La simulation retire l'argent dans un ordre qui limite l'impôt, puis ajuste tes familles de placements pour rester proche du plan${aDeLOr && !vendreOr ? " (sauf l'or physique, gardé)" : ""}. Répartition des placements à l'âge du départ, en euros d'aujourd'hui :</p>

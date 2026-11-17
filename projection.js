@@ -6,7 +6,7 @@
 // =====================================================================
 import { fluxLocatif, projetLocatifDe, echeancier } from "./locatif.js";
 import { PRELEVEMENTS, PFU, ABATTEMENT_AV_DECES, foyerFiscal, revenuImposablePension } from "./fiscal.js";
-import { planifierRetraits, STRATEGIES_DECUMULATION } from "./pension.js";
+import { planifierRetraits, impotsAuDeces, STRATEGIES_DECUMULATION } from "./pension.js";
 import { totalGroupe, allocationCible, actuelParClasse, repartirEnEnveloppes, capitalDe, achatResidence, analyser, chargesProprietaire, normaliserFoyer, resideEnFrance, paysDe, facteurSalaire, interessementPlace, locatifFinancable } from "./moteur.js";
 
 const somme = (o) => Object.values(o).reduce((s, x) => s + x, 0);
@@ -438,7 +438,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
       const ctx = {
         parts: ff.parts, partsBase: ff.partsBase, indexation, couple: !!profil.marie,
         revenuImposableAutre: revenuImposablePension(pensionAn, { pensionnes: profil.couple && profil.marie ? 2 : 1, indexation }),
-        anneesRestantesPER: Math.max(1, 85 - age), reserveLivrets: net / 2, garderOr, prelevements: prelevementsAn(y),
+        anneesRestantesPER: Math.max(1, 85 - age), reserveLivrets: net / 2, garderOr, prelevements: prelevementsAn(y), ordreEtape3: retraite.ordreEtape3 === "ctoDabord" ? "ctoDabord" : "peaDabord",
         reserveTransmissionAV: ABATTEMENT_AV_DECES * Math.max(1, Math.round(Number(profil.enfants) || 0)),
       };
       const res = planifierRetraits(registre, net, ctx, strategie);
@@ -461,6 +461,9 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
         point.ecartRegistre = Math.max(ecart, ecart2);
         point.retraits = res.retraits; point.impotRetraits = res.impots; point.brutRetraits = res.brut;
         point.avAvant70 = registre.av.avant70.valeur; point.insuffisant = res.insuffisant;
+        // Part du patrimoine emportée par les impôts dus au décès sur les gains latents (hors droits de succession)
+        const totalFin = totalRegistre(registre);
+        point.tauxDeces = totalFin > 0 ? impotsAuDeces(registre, prelevementsAn(y)) / totalFin : 0;
       }
     }
     // 3. Crédit et valeur du bien
@@ -574,8 +577,44 @@ function planDepart(plan, age, ageFin) {
   return { ...plan, hypotheses: { ...H, ageRetraite: age, ageFinProjection: Math.max(H.ageFinProjection ?? 70, ageFin) } };
 }
 
+// Choix de l'ordre de l'étape 3 (PEA d'abord ou compte-titres d'abord) par anticipation : on simule les deux ordres sur le
+// scénario central (rendements moyens) et on retient le meilleur. Le choix se fait UNE fois, sur ce scénario, et non à
+// chaque tirage Monte-Carlo : un look-ahead par tirage donnerait à chaque chemin la connaissance de son propre avenir
+// (biais d'anticipation) et surestimerait la robustesse du plan. Les tirages héritent de l'ordre retenu.
+// Critères : 1) âge d'épuisement le plus tardif (jamais = meilleur) ; 2) patrimoine final net des impôts dus au décès,
+// en euros réels ; 3) impôts de retraits cumulés (réels) les plus faibles ; égalité complète : 'peaDabord'.
+function choisirOrdre(plan, profil, { achat, per, retraite, fiscF = null, infl = 0, iR = 0 }) {
+  const evaluerOrdre = (ordre) => {
+    const points = simuler(plan, profil, { achat, detail: true, per, retraite: { ...retraite, ordreEtape3: ordre }, fiscF });
+    const defl = (pt) => Math.pow(1 + infl, pt?.annees ?? 0);
+    const ageEpuisement = points.find((pt) => pt.age >= retraite.age && pt.insuffisant)?.age ?? null;
+    const dernier = points[points.length - 1];
+    const dernierTaux = [...points].reverse().find((pt) => pt.tauxDeces != null)?.tauxDeces ?? 0;
+    const netFinalReel = (dernier.financier * (1 - dernierTaux)) / defl(dernier);
+    const impotsReels = points.reduce((t, pt) => (pt.age >= retraite.age && pt.impotRetraits != null ? t + pt.impotRetraits / defl(pt) : t), 0);
+    return { ordre, points, ageEpuisement, netFinalReel, impotsReels };
+  };
+  const a = evaluerOrdre("peaDabord"), b = evaluerOrdre("ctoDabord");
+  const meilleur = (x, y) => {
+    if (x.ageEpuisement !== y.ageEpuisement) {
+      if (x.ageEpuisement == null) return true;
+      if (y.ageEpuisement == null) return false;
+      return x.ageEpuisement > y.ageEpuisement;
+    }
+    if (Math.abs(x.netFinalReel - y.netFinalReel) > 1) return x.netFinalReel > y.netFinalReel;
+    if (Math.abs(x.impotsReels - y.impotsReels) > 1) return x.impotsReels < y.impotsReels;
+    return false;
+  };
+  const retenu = meilleur(b, a) ? b : a, autre = retenu === a ? b : a;
+  return {
+    ordre: retenu.ordre, points: retenu.points,
+    autre: { ordre: autre.ordre, ageEpuisement: autre.ageEpuisement, netFinalReel: autre.netFinalReel },
+    netFinalReel: retenu.netFinalReel, ageEpuisement: retenu.ageEpuisement, gainOrdreReel: retenu.netFinalReel - autre.netFinalReel,
+  };
+}
+
 // Comparaison ordre optimal / retrait au prorata, sur les années de retraite où aucun des deux n'est à court d'argent
-function comparerDecumulation(central, prorata, iR, strategie, infl = 0) {
+function comparerDecumulation(central, prorata, iR, strategie, infl = 0, choix = null) {
   const defl = (pt) => Math.pow(1 + infl, pt?.annees ?? 0);
   let impotsOptimise = 0, impotsProrata = 0, impotsOptimiseReel = 0, impotsProrataReel = 0, anneesComparees = 0;
   for (let i = iR; i < central.length; i++) {
@@ -590,7 +629,14 @@ function comparerDecumulation(central, prorata, iR, strategie, infl = 0) {
     .map((p) => ({ age: p.age, annees: p.annees, brut: p.brutRetraits, impots: p.impotRetraits, retraits: p.retraits.map((r) => ({ ...r })) }));
   const fa = central[central.length - 1], fb = prorata[prorata.length - 1];
   const patrimoineFinalOptimiseReel = fa.financier / defl(fa), patrimoineFinalProrataReel = fb.financier / defl(fb);
+  const netReel = (pts, f) => {
+    const taux = [...pts].reverse().find((pt) => pt.tauxDeces != null)?.tauxDeces ?? 0;
+    return (f.financier * (1 - taux)) / defl(f);
+  };
+  const patrimoineFinalNetReel = netReel(central, fa), patrimoineFinalNetProrataReel = netReel(prorata, fb);
   return {
+    ordreEtape3: choix?.ordre ?? "peaDabord", gainOrdreReel: choix?.gainOrdreReel ?? 0, ageEpuisementAutreOrdre: choix?.autre?.ageEpuisement ?? null,
+    patrimoineFinalNetReel, patrimoineFinalNetProrataReel, gainPatrimoineNetReel: patrimoineFinalNetReel - patrimoineFinalNetProrataReel,
     strategie, impotsOptimise, impotsProrata, economie: impotsProrata - impotsOptimise, anneesComparees,
     impotsOptimiseReel, impotsProrataReel, economieReel: impotsProrataReel - impotsOptimiseReel,
     patrimoineFinalOptimiseReel, patrimoineFinalProrataReel, gainPatrimoineReel: patrimoineFinalOptimiseReel - patrimoineFinalProrataReel, ageFinal: fa.age,
@@ -612,10 +658,13 @@ function centralEtRetraite(planSaisi, profilSaisi, { inclureAchat = true, prolon
   const iR = PR.age - profil.age;
   // Retraits : ordre fiscalement optimal choisi par `profil.retraite.priorite` (transmettre / consommer)
   const strategie = STRATEGIES_DECUMULATION.includes(profil.retraite?.priorite) ? profil.retraite.priorite : "transmettre";
-  const retraite = { age: PR.age, revenu: PR.revenu, pension: PR.pension, agePension: PR.agePension, strategie };
-  const central = simuler(plan, profil, { achat, detail: true, per, retraite, fiscF });
+  const infl = (plan.hypotheses.inflation ?? 0) / 100;
+  const base = { age: PR.age, revenu: PR.revenu, pension: PR.pension, agePension: PR.agePension, strategie };
+  const choix = choisirOrdre(plan, profil, { achat, per, retraite: base, fiscF, infl, iR });
+  const retraite = { ...base, ordreEtape3: choix.ordre };
+  const central = choix.points;
   const decumulation = iR >= 0 && iR < central.length - 1
-    ? comparerDecumulation(central, simuler(plan, profil, { achat, detail: true, per, retraite: { ...retraite, strategie: "prorata" }, fiscF }), iR, strategie, (plan.hypotheses.inflation ?? 0) / 100)
+    ? comparerDecumulation(central, simuler(plan, profil, { achat, detail: true, per, retraite: { ...retraite, strategie: "prorata" }, fiscF }), iR, strategie, infl, choix)
     : null;
   return { profil, PR, plan, achat, per, iR, retraite, central, decumulation };
 }
@@ -744,7 +793,7 @@ export function contexteRetraite(planSaisi, profilSaisi) {
   const profil = normaliserFoyer(planSaisi, profilSaisi);
   const PR = parametresRetraite(planSaisi, profil);
   const plan64 = planDepart(planSaisi, PR.ageLegal, PR.ageFin);
-  return { planSaisi, profil, PR, achat: achatPourProjection(plan64, profil), per: analyser(plan64, profil).per, infl: (planSaisi.hypotheses.inflation ?? 0) / 100 };
+  return { planSaisi, profil, PR, achat: achatPourProjection(plan64, profil), per: analyser(plan64, profil).per, infl: (planSaisi.hypotheses.inflation ?? 0) / 100, ordres: new Map() };
 }
 export function evaluerRetraite(ctx, { age, revenu = ctx.PR.revenu, scenarios = 0, seuil = 0.9 }) {
   const { profil, PR, achat, per, infl } = ctx;
@@ -754,10 +803,16 @@ export function evaluerRetraite(ctx, { age, revenu = ctx.PR.revenu, scenarios = 
   const reel = (v, i) => v / Math.pow(1 + infl, i);
   // Retraite publique estimée automatiquement : elle dépend de l'âge d'arrêt (trimestres, décote)
   const pensionA = profil.retraite?.pensionParAge?.[age] ?? { pension: PR.pension, agePension: PR.agePension };
-  const retraite = { age, revenu, pension: pensionA.pension, agePension: Math.max(age, pensionA.agePension) };
+  const base = { age, revenu, pension: pensionA.pension, agePension: Math.max(age, pensionA.agePension) };
+  // Ordre de l'étape 3 choisi sur le scénario central, mis en cache par (âge, revenu)
+  const cle = `${age}|${revenu}`;
+  if (!ctx.ordres) ctx.ordres = new Map();
+  if (!ctx.ordres.has(cle)) ctx.ordres.set(cle, choisirOrdre(plan, profil, { achat, per, retraite: base, infl, iR: iA }));
+  const choix = ctx.ordres.get(cle);
+  const retraite = { ...base, ordreEtape3: choix.ordre };
   const juge = (pts) => ({ cap: reel(pts[iA].financier, iA), fin: reel(pts[iF].financier, iF) });
   if (!scenarios) {
-    const j = juge(simuler(plan, profil, { achat, per, retraite }));
+    const j = juge(choix.points);
     return { ...j, preserve: j.cap > 0 && j.fin >= j.cap, dure: j.fin > 0.5 };
   }
   const gauss = generateur(20261112);
@@ -810,7 +865,9 @@ export function simulerCrise(planSaisi, profilSaisi, { crise, ageDebut, inclureA
   const plan = planDepart(planSaisi, PR.age, PR.ageFin);
   const achat = inclureAchat ? achatPourProjection(plan, profil) : null;
   const per = analyser(plan, profil).per;
-  const retraite = { age: PR.age, revenu: PR.revenu, pension: PR.pension, agePension: PR.agePension };
+  const base = { age: PR.age, revenu: PR.revenu, pension: PR.pension, agePension: PR.agePension };
+  // Ordre choisi sans la crise (on ne connaît pas la crise à l'avance), puis appliqué aux trois trajectoires
+  const retraite = { ...base, ordreEtape3: choisirOrdre(plan, profil, { achat, per, retraite: base, infl: (plan.hypotheses.inflation ?? 0) / 100, iR: PR.age - profil.age }).ordre };
   const C = CRISES[crise];
   const debut = Math.max(0, Math.round(ageDebut - profil.age));
   const choc = { debut, annees: C.annees };

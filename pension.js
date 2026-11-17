@@ -316,8 +316,13 @@ export function planifierRetraits(registre, besoinNet, ctx = {}, strategie = "tr
     // Étape 3 : poches imposables liquides, coût marginal croissant
     const taux = (cle) => (cle === "pea" ? (m.s.pea.ancien5 ? m.P.PS_CAPITAL + (m.P.PEA_IR ? m.P.IR_PFU : 0) : m.pfu) : cle === "cto" ? m.pfu : m.s.autres[Number(cle.slice(6))].taux);
     const gardeOr = (cle) => ctx.garderOr && cle.startsWith("autre:") && m.s.autres[Number(cle.slice(6))].id === "orPhysique";
-    const liquides = ["pea", "cto", ...m.clesAutres()].filter((c) => !gardeOr(c));
-    liquides.sort((a, b) => taux(a) * m.gain(a) - taux(b) * m.gain(b));
+    // ctx.ordreEtape3 : 'peaDabord' (défaut, tri par coût marginal, PEA prioritaire à égalité) ou 'ctoDabord'
+    // (CTO et autres triés entre eux, PEA en dernier : utile quand l'épargne sera consommée en entier)
+    const ctoDabord = ctx.ordreEtape3 === "ctoDabord";
+    const parCout = (a, b) => taux(a) * m.gain(a) - taux(b) * m.gain(b);
+    const liquides = ctoDabord
+      ? [...["cto", ...m.clesAutres()].filter((c) => !gardeOr(c)).sort(parCout), "pea"]
+      : ["pea", "cto", ...m.clesAutres()].filter((c) => !gardeOr(c)).sort(parCout);
     for (const cle of liquides) etape(cle, 3);
     // Étapes 4 à 6 : AV après 70 ans, PER hors tranche, AV avant 70 ans (ordre selon la stratégie)
     etape("av_apres70", 4);
@@ -334,4 +339,17 @@ export function planifierRetraits(registre, besoinNet, ctx = {}, strategie = "tr
   const surplus = t.nets - net;
   if (surplus > 1e-9) { m.s.cto.valeur += surplus; m.s.cto.base += surplus; }
   return { net, brut: t.brut, impots: t.impots, surplus, insuffisant, retraits: m.retraits, abattementUtilise: t.abattementUtilise, registre: m.s };
+}
+
+// Impôt dû au décès sur les gains latents, hors droits de succession.
+// - PEA : les gains restent soumis aux prélèvements sociaux (PS_CAPITAL) au décès, car le plan est clôturé.
+// - AV (les deux compartiments) : les gains acquis supportent les prélèvements sociaux (PS_PATRIMOINE) au dénouement.
+// - CTO et autres placements : les plus-values latentes sont purgées au décès (valeur d'actif réévaluée), donc 0.
+// - PER : suit le régime successoral propre (hors périmètre ici), donc 0.
+// - Livrets : aucun gain imposable, donc 0.
+export function impotsAuDeces(registre, prelevements = PRELEVEMENTS) {
+  const s = normaliserRegistre(registre);
+  const gainPEA = Math.max(0, s.pea.valeur - s.pea.versements);
+  const gainAV = Math.max(0, s.av.apres70.valeur - s.av.apres70.primes) + Math.max(0, s.av.avant70.valeur - s.av.avant70.primes);
+  return (gainPEA * prelevements.PS_CAPITAL + gainAV * prelevements.PS_PATRIMOINE) / 100; // taux exprimés en %
 }
