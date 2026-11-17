@@ -48,6 +48,21 @@ L'application est pensée selon trois principes :
 | **Base pédagogique** | Fiches thématiques sourcées et datées + infobulles automatiques du lexique financier | `fiches.js`, `lexique.js` |
 | **Confort** | Thème clair / sombre, mode discrétion (`Alt+H`, `⌥+H` sur Mac), export / import de vos données (`.json`) | `app.js`, `index.html` |
 
+## Niveaux de lecture
+
+Trois niveaux règlent la quantité de détails affichés. Ils ne changent que l'affichage.
+
+| Niveau | Ce que tu vois |
+|---|---|
+| **Débutant** | L'essentiel : 4 placements regroupés (livrets, assurance-vie, bourse, autres) avec répartition prudente automatique, un plan du mois en 3 actions, « Mon avenir en 3 chiffres », une retraite à 2 réglages avec verdict, et un parcours de 6 fiches « Par où commencer ». Onglets renommés : Ma situation, Mon plan du mois, Mon avenir, Ma retraite. |
+| **Intermédiaire** | Le détail des comptes, des impôts, de l'employeur et du foyer, plus l'onglet Suivi. Onglets : Mon profil, Rééquilibrage, Trajectoire, Retraite. |
+| **Avancé** | Tous les outils : indépendants, locatif, PTZ, crises historiques, scénarios fiscaux, onglet Mon plan. |
+
+- **Changer de niveau :** sélecteur « Débutant / Intermédiaire / Avancé » en haut de la page, à tout moment. Un écran de choix s'affiche au premier lancement (Avancé présélectionné si des données existent déjà, Débutant sinon) ; la Découverte en 60 s applique Débutant si aucun niveau n'a encore été choisi. Le niveau est mémorisé par appareil, jamais synchronisé.
+- **Ce qui ne change jamais :** les calculs, le profil enregistré, les résultats et le bilan imprimable (complet, avec le niveau d'affichage en en-tête). Un champ masqué garde sa valeur ; un badge « réglages avancés actifs » signale ceux qui influencent le plan sans être visibles. Toutes les fiches restent accessibles à tous les niveaux.
+- **Assistant IA :** il adapte son ton au niveau (vocabulaire simple et 120 mots maximum en débutant, réponses plus techniques en avancé) ; seul le style change, jamais les règles ni les données envoyées.
+- **Ajouter un bloc d'interface :** il doit déclarer `data-min="intermediaire"` ou `data-min="avance"` (ou `data-seul="debutant"`) et figurer dans `MATRICE` de `niveaux.js` ; `node test_niveaux.mjs` vérifie la cohérence avec `index.html` et l'invariance des calculs.
+
 ## Architecture technique
 
 ```text

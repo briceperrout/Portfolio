@@ -40,7 +40,7 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 - `recap.js` : Génération du bilan patrimonial imprimable/exportable.
 - `fiches.js` & `lexique.js` : Fiches pédagogiques et infobulles automatiques du lexique financier.
 - `serveur.py` / `worker.js` / `assistant.js` : Couche assistant IA, streaming SSE, OCR/Vision et mode vocal.
-- `niveaux.js` : niveaux de lecture Débutant / Intermédiaire / Avancé (matrice « élément → niveau minimal », règles pures, détection des réglages avancés actifs). Aucun DOM, aucun calcul métier : le niveau ne change que l'affichage, jamais `etat.profil` ni les résultats. Niveau mémorisé par appareil (clé `niveau`), jamais synchronisé.
+- `niveaux.js` : niveaux de lecture Débutant / Intermédiaire / Avancé (matrice « élément → niveau minimal », table unique des libellés d'onglets `LIBELLES_VUES`, règles pures, détection des réglages avancés actifs). Aucun DOM, aucun calcul métier : le niveau ne change que l'affichage, jamais `etat.profil` ni les résultats. Niveau mémorisé par appareil (clé `niveau`), jamais synchronisé.
 - `sync.js` : synchronisation multi-appareils chiffrée de bout en bout (WebCrypto AES-GCM + PBKDF2, fusion par fiche, client `/api/sync`) ; routes serveur dans `worker.js` (Cloudflare KV, liaison `SYNC_KV`) et `serveur.py` (stockage dev `.sync_local/`, ignoré par Git). Le serveur ne doit jamais voir de données en clair.
 - `wrangler.toml` / `_headers` / `.assetsignore` : déploiement Cloudflare (Worker + assets), CSP stricte et liste des fichiers jamais publiés (secrets, sources serveur, tests) : tout fichier absent de `.assetsignore` est public.
 
@@ -78,6 +78,7 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 1. **Planification :** Pour toute tâche touchant plus de 2 fichiers ou introduisant une logique fiscale/financière complexe, expose d'abord ton plan d'action concis et attends validation avant d'écrire du code.
 2. **Contrôles obligatoires avant de rendre la main :**
    - Vérifie la syntaxe JavaScript (`node --check` sur les fichiers modifiés) et Python (`python3 -m py_compile serveur.py` le cas échéant).
+   - Lance les tests : `node test_niveaux.mjs` (cohérence `data-min` ↔ `MATRICE`, invariance des calculs, shell du service worker), `node test_js.mjs`, `test_fiscal.mjs`, `test_immobilier.mjs`, `test_releves.mjs`, `test_sync.mjs` et `python3 test_routage.py` : tout doit passer.
    - Vérifie qu'aucun import ES6 n'est cassé et qu'aucun lien mort (ex. `favicon.svg`, `manifest.json`) ne génère d'erreur 404.
    - Vérifie avec `git diff` qu'aucune clé secrète, donnée personnelle ou régression n'a été introduite.
 3. **Granularité Git :** Termine chaque étape validée en proposant un message de commit clair et atomique (ex. `feat(fiscal): ajoute simulateur de réforme fiscale dynamique`).

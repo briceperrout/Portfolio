@@ -1960,6 +1960,7 @@ function masquerDans(racine) {
   const noeuds = []; while (w.nextNode()) noeuds.push(w.currentNode);
   for (const n of noeuds) masquerDans(n);
   for (const el of racine.querySelectorAll?.("[title]") ?? []) if (/\d\s?k?€/.test(el.title)) el.title = el.title.replace(RE_MONTANT, "•••• €");
+  for (const el of [racine, ...(racine.querySelectorAll?.("[aria-label]") ?? [])]) { if (!el.hasAttribute("aria-label")) continue; const a = el.getAttribute("aria-label"); if (/\d\s?k?€/.test(a)) el.setAttribute("aria-label", a.replace(RE_MONTANT, "•••• €")); } // lecteurs d'écran : barres de répartition, graphiques
 }
 const observateurDiscret = new MutationObserver((ms) => { for (const m of ms) { if (m.type === "characterData") masquerDans(m.target); else m.addedNodes.forEach(masquerDans); } });
 function appliquerDiscret(on) {
