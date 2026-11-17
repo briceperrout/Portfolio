@@ -32,6 +32,13 @@ for (const [cle, min] of Object.entries(MATRICE.reequilibrage)) {
   const ligne = appJs.find((l) => l.includes(`id="${cle}"`));
   egal(ligne?.match(/data-min="([a-z]+)"/)?.[1], min, `data-min de « ${cle} » dans app.js`);
 }
+// Trajectoire : chaque clé de MATRICE.trajectoire porte son data-min dans index.html ou dans le gabarit de app.js
+for (const [cle, min] of Object.entries(MATRICE.trajectoire)) {
+  const ligne = lignes.find((l) => l.includes(`id="${cle}"`)) ?? appJs.find((l) => l.includes(`id="${cle}"`));
+  egal(ligne?.match(/data-min="([a-z]+)"/)?.[1], min, `data-min de « ${cle} » (trajectoire)`);
+}
+verifier(appJs.some((l) => l.includes('id="tr-avenir"') && l.includes('data-seul="debutant"')), "panneau « Mon avenir en 3 chiffres » (data-seul)");
+verifier(/siNiveau\("avance", \(\) => `<section class="panneau" id="bloc-crise"/.test(appJs.join("\n")) && /siNiveau\("intermediaire", \(\) => `<section class="panneau" id="tr-eventail"/.test(appJs.join("\n")), "crise et éventail produits via siNiveau");
 verifier(/siNiveau\("avance", \(\) => blocRythme\(res\)\)/.test(appJs.join("\n")) && /siNiveau\("intermediaire", \(\) => blocPocheBourse\(res\)\)/.test(appJs.join("\n")), "panneaux coûteux produits via siNiveau");
 verifier(appJs.some((l) => l.includes('id="res-bourse-debutant"') && l.includes('data-seul="debutant"')), "ligne bourse débutant (data-seul)");
 egal(dm(lignes.find((l) => l.includes('id="lien-suivi"'))), MATRICE.onglets.suivi, "data-min de l'onglet Suivi");

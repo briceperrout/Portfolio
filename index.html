@@ -121,6 +121,7 @@ legend { font-family: var(--font-display); font-weight: 700; padding: 0; margin-
 .tuiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
 .tuiles.quatre { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 900px) { .tuiles.quatre { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .tuiles.trois { grid-template-columns: minmax(0, 1fr); } } /* « Mon avenir en 3 chiffres » : une tuile par ligne sur téléphone */
 @media (max-width: 560px) { .tuiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .tuile { background: var(--bg); border-radius: 8px; padding: 10px 12px; display: grid; gap: 2px; }
 .tuile span { font-size: 0.78rem; color: var(--muted); }
@@ -838,10 +839,10 @@ html.discret .num { letter-spacing: 0.05em; }
   <!-- ===================== 3. TRAJECTOIRE ===================== -->
   <section id="vue-trajectoire" hidden>
     <div class="etape"><p><b>Étape 3 sur 4.</b> Quand acheter ta résidence principale, et comment ton patrimoine peut évoluer d'ici 70 ans, en suivant le plan.</p><a class="bouton" href="#reequilibrage">← Rééquilibrage</a></div>
-    <div class="pile" id="achat-trajectoire" style="margin-bottom:16px"></div>
+    <div class="pile" id="achat-trajectoire" data-min="intermediaire" style="margin-bottom:16px"></div>
     <div class="barre-actions">
-      <label class="coche"><input type="checkbox" id="t-reel"> En euros d'aujourd'hui (inflation déduite)</label>
-      <label class="coche"><input type="checkbox" id="t-achat" checked> Inclure l'achat de la résidence</label>
+      <label class="coche" data-min="intermediaire"><input type="checkbox" id="t-reel"> En euros d'aujourd'hui (inflation déduite)</label>
+      <label class="coche" data-min="intermediaire"><input type="checkbox" id="t-achat" checked> Inclure l'achat de la résidence</label>
     </div>
     <div class="pile" id="trajectoire"></div>
     <div class="etape" style="margin-top:16px"><a class="bouton" href="#reequilibrage">← Rééquilibrage</a><a class="bouton principal" href="#retraite">Étape 4 : ta retraite →</a></div>

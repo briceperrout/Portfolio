@@ -7,7 +7,7 @@ import { CONSIGNE_VOCALE, DELAI_SILENCE_MS, choisirVoixFr, decouperPhrases, extr
 
 import { PLAN } from "./plan.js";
 import { FAMILLES_ALLOCATION, grouperAllocation, GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent } from "./moteur.js";
-import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS } from "./projection.js";
+import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS, projeter, projeterCentral, libertePatrimoine, moisPrecaution } from "./projection.js";
 
 export const resultats = { ok: 0, echecs: [] };
 function verifier(condition, message) {
@@ -246,6 +246,31 @@ egal(libelleModele(undefined), "", "libellé absent");
   const borne = comparerFrais({ capital: -500, mensuel: -10, annees: 999 });
   egal([borne.annees, borne.verse], [60, 0], "frais : entrées négatives ramenées à 0, horizon plafonné à 60 ans");
   egal(comparerFrais({ capital: 1000, mensuel: 0, annees: 0 }).annees, 1, "frais : horizon minimal d'un an");
+}
+
+// ---------------------------------------------------------------- projection.js : scénario central seul (niveau Débutant)
+{
+  const profils = [
+    { age: 35, salaireNet: 3000, epargneMensuelle: 500, depensesMensuelles: 2000, placements: { livretA: 10000, pea: 20000 } },
+    { age: 30, salaireNet: 2500, epargneMensuelle: 300, depensesMensuelles: 1800, placements: { livretA: 5000 }, projetRP: { actif: true, prix: 250000 } },
+    { age: 55, salaireNet: 4000, epargneMensuelle: 800, depensesMensuelles: 2500, placements: { livretA: 20000, pea: 100000, assuranceVie: 80000 } },
+  ];
+  for (const p of profils) for (const inclureAchat of [true, false]) {
+    const complet = projeter(PLAN, p, { inclureAchat }), central = projeterCentral(PLAN, p, { inclureAchat });
+    const nom = `central ${p.age} ans, achat ${inclureAchat}`;
+    egal(central.central, complet.central, `${nom} : même scénario central avec ou sans tirages`);
+    egal(central.achat, complet.achat, `${nom} : même achat`);
+    egal([central.retraite?.age, central.retraite?.revenu, central.retraite?.pension, central.retraite?.agePension], [complet.retraite?.age, complet.retraite?.revenu, complet.retraite?.pension, complet.retraite?.agePension], `${nom} : mêmes hypothèses de retraite`);
+    verifier(central.eventail === null && central.simulations === 0 && central.retraite?.probaDure === null, `${nom} : aucun tirage au hasard`);
+    const L1 = libertePatrimoine(complet, PLAN.hypotheses), L2 = libertePatrimoine(central, PLAN.hypotheses);
+    egal(L2, L1, `${nom} : liberté financière identique`);
+  }
+  // Liberté financière : capital de 25 fois les besoins annuels
+  const r = projeterCentral(PLAN, profils[0]), L = libertePatrimoine(r, PLAN.hypotheses);
+  egal(L.objectif, Math.max(0, r.retraite.revenu - Math.max(0, r.retraite.pension)) * 12 * 25, "liberté : objectif = 25 × besoins annuels");
+  verifier(L.fire === null || L.fire.v >= L.objectif - 1e-6, "liberté : le capital trouvé atteint l'objectif");
+  egal(libertePatrimoine({ central: [], retraite: null }, PLAN.hypotheses), null, "liberté : sans retraite, pas de calcul");
+  egal([moisPrecaution({ livretA: 6000, ldds: 3000, pea: 50000 }, 1500), moisPrecaution({ livretA: 6000 }, 0), moisPrecaution({}, 2000)], [6, null, 0], "précaution : livrets ÷ dépenses (PEA exclu)");
 }
 
 // ---------------------------------------------------------------- moteur.js : groupes de placements (niveau Débutant)

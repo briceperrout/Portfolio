@@ -1,7 +1,7 @@
 import { PLAN } from "./plan.js";
 import { analyser, capitalDe, GROUPES_PLACEMENTS, grouperAllocation, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer } from "./moteur.js";
 import { projetLocatifDe, analyseLocatif, mensualitePret } from "./locatif.js";
-import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, CRISES, simulerCrise, fluxLocatif } from "./projection.js";
+import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, libertePatrimoine, moisPrecaution, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, CRISES, simulerCrise, fluxLocatif } from "./projection.js";
 import { SCENARIOS_FISCAUX, NEUTRE, optionFiscale, comparerTaux } from "./evolution-fiscale.js";
 import { echeancesProfil, echeancesGenerales, versCSV } from "./calendrier.js";
 import { genererRecapHTML, encoderProfilPartage, decoderProfilPartage } from "./recap.js";
@@ -747,7 +747,7 @@ function cadre(ages, ymax) {
     const v = (ymax * k) / 4;
     s += `<line class="grille-l" x1="${g}" x2="${W - d}" y1="${y(v)}" y2="${y(v)}"/><text x="${g - 8}" y="${y(v) + 4}" text-anchor="end">${keur(v)}</text>`;
   }
-  ages.forEach((a, i) => { if (a % 5 === 0 || i === 0) s += `<text x="${x(i)}" y="${H - 9}" text-anchor="middle">${a} ans</text>`; });
+  ages.forEach((a, i) => { if (a % 5 === 0 || (i === 0 && 5 - (a % 5) >= 4)) s += `<text x="${x(i)}" y="${H - 9}" text-anchor="middle">${a} ans</text>`; }); // pas de chevauchement avec le prochain multiple de 5
   s += `<line class="axe" x1="${g}" x2="${W - d}" y1="${H - b}" y2="${H - b}"/>`;
   return { x, y, s };
 }
@@ -816,43 +816,130 @@ function planifierTrajectoire() {
   if (!$("#vue-trajectoire").hidden) minuteurTrajectoire = setTimeout(rendreTrajectoire, 200);
   else if (!$("#vue-retraite").hidden) minuteurTrajectoire = setTimeout(rendreRetraite, 250);
 }
-// Projection mise en cache : la même sert à « Trajectoire » et à « Retraite »
+// Projection mise en cache : la même sert à « Trajectoire » et à « Retraite ».
+// Deux entrées : la projection complète (avec l'éventail Monte-Carlo) et le scénario central seul (niveau Débutant).
+// Le central est identique dans les deux ; une projection complète déjà en cache sert aussi au besoin central.
 let cacheProjection = { cle: null, r: null };
-function projectionCourante(inclureAchat = true) {
+let cacheCentral = { cle: null, r: null };
+function projectionCourante(inclureAchat = true, { central = false } = {}) {
   const r = { ...(etat.profil.retraite ?? {}) };
   const cle = JSON.stringify([etat.brouillon, { ...etat.profil, retraite: r }, inclureAchat]);
-  if (cacheProjection.cle !== cle) cacheProjection = { cle, r: projeter(etat.brouillon, profilPourMoteur(), { inclureAchat }) };
+  if (cacheProjection.cle === cle) return cacheProjection.r;
+  if (central) {
+    if (cacheCentral.cle !== cle) cacheCentral = { cle, r: projeterCentral(etat.brouillon, profilPourMoteur(), { inclureAchat }) };
+    return cacheCentral.r;
+  }
+  cacheProjection = { cle, r: projeter(etat.brouillon, profilPourMoteur(), { inclureAchat }) };
   return cacheProjection.r;
+}
+// En Débutant : l'achat de la résidence est inclus s'il est actif, et les montants sont toujours en euros d'aujourd'hui
+const achatInclus = () => niveauCourant() === "debutant" || $("#t-achat").checked;
+const montantsReels = () => niveauCourant() === "debutant" || $("#t-reel").checked;
+
+// Courbe centrale du patrimoine net (placements + immobilier − crédits), scénario central : tous niveaux.
+// Les valeurs de l'infobulle sont celles de « Mon avenir en 3 chiffres » (C[i].net × defl(i)).
+function graphiqueTrajectoire(central, defl, r, iR) {
+  const ages = central.map((p) => p.age);
+  const ymax = echelle(Math.max(...central.map((p, i) => Math.max(p.net, p.financier) * defl(i))));
+  const { x, y, s } = cadre(ages, ymax);
+  const ligne = (k, coul, larg, tiret) => `<path d="${central.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p[k] * defl(i)).toFixed(1)}`).join("")}" fill="none" stroke="${coul}" stroke-width="${larg}"${tiret ? ' stroke-dasharray="5 4"' : ""} stroke-linejoin="round"/>`;
+  const repere = (i, texte, decalage) => i > 0 && i < central.length
+    ? `<line x1="${x(i)}" x2="${x(i)}" y1="${GEOM.h}" y2="${GEOM.H - GEOM.b}" stroke="var(--fg)" stroke-width="1.5" stroke-dasharray="4 4"/><text x="${Math.min(x(i) + 6, GEOM.W - 110)}" y="${GEOM.h + 10 + decalage}" style="fill:var(--fg);font-weight:600">${texte}</text>` : "";
+  let svg = `<svg class="graphe" viewBox="0 0 ${GEOM.W} ${GEOM.H}" role="img" aria-label="Patrimoine net selon l'âge (scénario central)">${s}`;
+  svg += ligne("financier", "var(--muted)", 1.5, true) + ligne("net", "var(--s1)", 2.5);
+  svg += repere(central.findIndex((p) => p.evenement === "achat"), "Achat de la résidence", 14) + repere(iR, "Retraite", 0);
+  svg += colonnesSurvol(ages, x, (i) => {
+    const p = central[i], f = defl(i);
+    return `${p.age} ans\nPatrimoine net : ${eur(p.net * f)}\nDont placements : ${eur(p.financier * f)}` + (p.bien - p.dette > 0.5 || p.bien > 0.5 ? `\nImmobilier net du crédit : ${eur((p.bien - p.dette) * f)}` : "");
+  }, "curseur-traj");
+  svg += `</svg>`;
+  return svg + `<div class="legende-g"><span><span class="trait" style="background:var(--s1)"></span>Patrimoine net (placements + immobilier − crédits)</span><span><span class="trait" style="background:var(--muted)"></span>Placements seuls (pointillés)</span></div>`;
+}
+
+// Résumé de l'achat de la résidence, à partir du même diagnostic que le panneau « Résidence principale » (blocAchat)
+function resumeAchat(res) {
+  const a = res?.achat; if (!a) return null;
+  const plan = etat.brouillon;
+  if (a.imperatif && a.horizon) return a.horizon.manque > 0.5 ? { ok: false, age: a.horizon.age, manque: a.horizon.manque } : { ok: true, age: a.horizon.age, manque: 0 };
+  const ch = a.choisi, i = a.ideal;
+  if (ch && (ch.horsLimite || ch.tropTard)) return { ok: false, age: ch.age, impossible: true, manque: 0 };
+  if (ch) return ch.ok || ch.okAvecPlacements ? { ok: true, age: ch.age, manque: 0, aVendre: ch.ok ? 0 : ch.aVendre } : { ok: false, age: ch.age, manque: ch.manqueTotal };
+  if (i) return { ok: true, age: i.age, manque: 0 }; // l'âge idéal est, par construction, finançable
+  // Aucun âge finançable : on montre l'apport qui manque à l'âge où l'écart est le plus faible (colonne « Verdict » du tableau)
+  const pires = a.serie.map((p) => diagnosticAchat(plan, p)).filter((d) => !d.tropTard);
+  const meilleur = pires.reduce((m, d) => (!m || d.manqueTotal < m.manqueTotal ? d : m), null);
+  return meilleur ? { ok: false, age: meilleur.age, manque: meilleur.manqueTotal } : { ok: false, age: null, impossible: true, manque: 0 };
+}
+
+// « Mon avenir en 3 chiffres » (niveau Débutant) : tout vient du scénario central, sans tirages au hasard
+function avenirEnTroisChiffres(r, defl, iR) {
+  const C = r.central, H = etat.brouillon.hypotheses, R = r.retraite;
+  const ageR = R?.age ?? C[iR].age;
+  const net = C[iR].net * defl(iR);
+  const L = libertePatrimoine(r, H, etat.resultat?.alloc ?? {});
+  let libre = "pas de calcul possible", libreSous = "", phraseLibre = "";
+  if (L && !(L.objectif > 0)) { libre = "déjà couverte"; libreSous = "ta retraite publique suffit"; phraseLibre = "Ta retraite publique couvre déjà tes besoins."; }
+  else if (L) {
+    libre = L.fire ? (L.fire.age <= C[0].age ? "déjà atteinte" : `à ${L.fire.age} ans`) : `pas avant ${ageR} ans`;
+    libreSous = `capital de ${keur(L.objectif)} (25 × tes besoins annuels)`;
+    phraseLibre = L.fire ? `Ton capital pourrait financer tes besoins ${L.fire.age <= C[0].age ? "dès aujourd'hui" : `dès ${L.fire.age} ans`}.` : `Ton capital ne suffirait pas à vivre de tes placements avant ${ageR} ans : il faut continuer d'épargner.`;
+  }
+  let tuile3, phrase3;
+  if (etat.profil.projetRP?.actif) {
+    const A = resumeAchat(etat.resultat);
+    if (!A) { tuile3 = ["Achat de ta résidence", "prix à renseigner", "dans Mon profil"]; phrase3 = "Renseigne le prix visé dans Mon profil pour savoir à quel âge acheter ta résidence principale."; }
+    else if (A.impossible) { tuile3 = ["Achat de ta résidence", A.age ? `impossible à ${A.age} ans` : "hors de portée", "revois l'âge ou le prix dans Mon profil"]; phrase3 = "Ton projet de résidence principale n'est pas finançable en l'état."; }
+    else if (A.ok) { tuile3 = ["Achat de ta résidence", `finançable à ${A.age} ans`, A.aVendre > 0.5 ? `en vendant ${eur(A.aVendre)} de placements` : "apport couvert"]; phrase3 = `Ta résidence principale serait finançable à ${A.age} ans.`; }
+    else { tuile3 = ["Achat de ta résidence", `apport manquant : ${eur(A.manque)}`, `pour acheter à ${A.age} ans`]; phrase3 = `Il te manque encore ${eur(A.manque)} d'apport pour acheter ta résidence principale à ${A.age} ans.`; }
+  } else {
+    const p0 = profilPourMoteur(), mois = moisPrecaution(p0.placements, p0.depensesMensuelles);
+    tuile3 = ["Épargne de précaution", mois == null ? "dépenses à renseigner" : `${(Math.round(mois * 10) / 10).toLocaleString("fr-FR")} mois de dépenses`, "en livrets, avant d'investir"];
+    phrase3 = mois == null ? "" : mois < 3 ? "Ton épargne de précaution couvre moins de 3 mois de dépenses : c'est la première priorité." : mois < 6 ? "Ton épargne de précaution couvre déjà plusieurs mois de dépenses : c'est solide." : "Ton épargne de précaution couvre 6 mois de dépenses ou plus : tu es à l'abri des imprévus.";
+  }
+  const tuiles = [[`Ton patrimoine à la retraite`, eur(net), `net, à ${ageR} ans, en euros d'aujourd'hui`], ["Liberté financière", libre, libreSous], tuile3];
+  const phrase = `En suivant ton plan, tu aurais environ ${eur(net)} à ${ageR} ans, en euros d'aujourd'hui. ${phraseLibre} ${phrase3}`.replace(/\s+/g, " ").trim();
+  return `<section class="panneau" id="tr-avenir" data-seul="debutant"><h2>Mon avenir en 3 chiffres</h2>
+    <div class="tuiles trois">${tuiles.map(([k, v, sous]) => `<div class="tuile"><span>${k}</span><b class="num">${v}</b>${sous ? `<span class="small muted">${sous}</span>` : ""}</div>`).join("")}</div>
+    <p class="note" style="margin:0">${echapper(phrase)}</p>
+  </section>`;
 }
 
 function rendreTrajectoire() {
+  const t0 = performance.now();
   const plan = etat.brouillon, H = plan.hypotheses;
-  const achatHTML = etat.resultat ? blocAchat(etat.resultat) : "";
-  $("#achat-trajectoire").innerHTML = achatHTML || `<section class="panneau"><h2>Résidence principale</h2><p class="small muted" style="margin:6px 0 0">Pas de projet d'achat pour ce profil. Pour savoir à quel âge acheter et quel apport viser, coche « Projet d'achat » dans <a class="lien-fiche" href="#mon-profil">Mon profil</a>.</p></section>`;
+  const deb = niveauCourant() === "debutant";
+  // Panneaux produits seulement au niveau où ils sont visibles : en Débutant, ni éventail, ni crise, ni fiscalité
+  $("#achat-trajectoire").innerHTML = siNiveau("intermediaire", () => (etat.resultat ? blocAchat(etat.resultat) : "")
+    || `<section class="panneau"><h2>Résidence principale</h2><p class="small muted" style="margin:6px 0 0">Pas de projet d'achat pour ce profil. Pour savoir à quel âge acheter et quel apport viser, coche « Projet d'achat » dans <a class="lien-fiche" href="#mon-profil">Mon profil</a>.</p></section>`);
   let r;
-  try { r = projectionCourante($("#t-achat").checked); }
+  try { r = projectionCourante(achatInclus(), { central: deb }); }
   catch (e) { console.error(e); $("#trajectoire").innerHTML = `<div class="erreur">La projection ne peut pas être calculée : ${echapper(e.message)}.</div>`; return; }
-  const reel = $("#t-reel").checked;
+  const reel = montantsReels();
   const defl = (i) => (reel ? Math.pow(1 + (H.inflation ?? 0) / 100, -i) : 1);
   const C = r.central, E = r.eventail;
   const iR = Math.max(0, Math.min(C.length - 1, (H.ageRetraite ?? 64) - C[0].age));
   const iF = C.length - 1;
+  const iRet = Math.max(0, Math.min(C.length - 1, (r.retraite?.age ?? H.ageRetraite ?? 64) - C[0].age));
   const unite = reel ? "en euros d'aujourd'hui" : "en euros de l'époque";
 
-  const tuiles = [
+  const tuiles = siNiveau("intermediaire", () => `<div class="tuiles quatre" id="tr-tuiles" data-min="intermediaire">${[
     [`À ${C[iR].age} ans (médiane)`, eur(E[iR].p50 * defl(iR))],
     [`Fourchette à ${C[iR].age} ans`, `${keur(E[iR].p10 * defl(iR))} – ${keur(E[iR].p90 * defl(iR))}`],
     [`Patrimoine net à ${C[iF].age} ans`, eur(C[iF].net * defl(iF))],
     [`Après impôts à ${C[iF].age} ans`, eur(C[iF].apresImpots * defl(iF))],
-  ];
-  let infoAchat = "";
-  if (r.achat) {
-    const a = r.achat, i = C.findIndex((p) => p.evenement === "achat");
-    infoAchat = i >= 0
-      ? `Achat de la résidence à ${a.age} ans (${a.imperatif ? "date impérative" : "âge idéal"}) : ${eur(a.prix)}, apport ${eur(a.apportRequis)} prélevé sur les placements, prêt de ${eur(a.pret)} sur ${a.duree} ans (${eur(a.mensualite)}/mois). Le loyer s'arrête, la mensualité est déduite de l'épargne.`
-      : `L'achat prévu à ${a.age} ans n'a pas pu être financé dans le scénario central.`;
-    if (r.achatsRates > 0) infoAchat += ` Dans ${Math.round((100 * r.achatsRates) / r.simulations)} % des scénarios, l'apport manque à cette date.`;
-  } else if (etat.profil.projetRP?.actif && $("#t-achat").checked) infoAchat = "Aucun âge d'achat finançable avant la limite du plan : l'achat n'est pas inclus.";
+  ].map(([k, v]) => `<div class="tuile"><span>${k}</span><b class="num">${v}</b></div>`).join("")}</div>`);
+  const infoAchat = siNiveau("intermediaire", () => {
+    let t = "";
+    if (r.achat) {
+      const a = r.achat, i = C.findIndex((p) => p.evenement === "achat");
+      t = i >= 0
+        ? `Achat de la résidence à ${a.age} ans (${a.imperatif ? "date impérative" : "âge idéal"}) : ${eur(a.prix)}, apport ${eur(a.apportRequis)} prélevé sur les placements, prêt de ${eur(a.pret)} sur ${a.duree} ans (${eur(a.mensualite)}/mois). Le loyer s'arrête, la mensualité est déduite de l'épargne.`
+        : `L'achat prévu à ${a.age} ans n'a pas pu être financé dans le scénario central.`;
+      if (r.achatsRates > 0) t += ` Dans ${Math.round((100 * r.achatsRates) / r.simulations)} % des scénarios, l'apport manque à cette date.`;
+    } else if (etat.profil.projetRP?.actif && achatInclus()) t = "Aucun âge d'achat finançable avant la limite du plan : l'achat n'est pas inclus.";
+    return t ? `<p class="small" style="margin:0" data-min="intermediaire">${echapper(t)}</p>` : "";
+  });
+  const infoPER = siNiveau("intermediaire", () => r.per?.actif ? `<p class="small" data-min="intermediaire" style="margin:6px 0 0">PER : ${eur(r.per.annuel)} versés par an jusqu'à ${Math.min(H.ageRetraite ?? 64, 70)} ans, ${plan.per?.reinvestirEconomie ? `et ${eur(r.per.economie)} d'économie d'impôt réépargnés chaque année` : "économie d'impôt non réépargnée"}. Dans « après impôts », les versements déduits sont imposés à ${plan.per?.tmiRetraite ?? 0} % à la sortie (hypothèse).</p>` : "");
 
   // Repères : tous les 5 ans, plus la retraite, l'achat et la fin de la projection
   const idx = [...new Set(C.map((p, i) => i).filter((i) => i % 5 === 0 || i === iR || i === iF || C[i].evenement === "achat"))].sort((x, y) => x - y);
@@ -861,65 +948,72 @@ function rendreTrajectoire() {
     const g = i === 0 ? null : gain(x, mis);
     return `<td class="m">${eur(x * f)}${g == null ? "" : `<div class="small ${g >= 0 ? "ecart-plus" : "ecart-moins"}">${g >= 0 ? "+" : "−"}${pct(Math.abs(100 * g))}</div>`}</td>`;
   };
-  const lignesGains = idx.map((i) => {
-    const f = defl(i), mis = C[i].verse;
-    return `<tr><td>${C[i].age} ans${C[i].evenement === "achat" ? " · achat" : ""}</td><td class="m">${mis > 0.5 ? eur(mis * f) : '<span class="small muted">déjà tout récupéré</span>'}</td>
+  const panneauRapporte = () => {
+    const lignesGains = idx.map((i) => {
+      const f = defl(i), mis = C[i].verse;
+      return `<tr><td>${C[i].age} ans${C[i].evenement === "achat" ? " · achat" : ""}</td><td class="m">${mis > 0.5 ? eur(mis * f) : '<span class="small muted">déjà tout récupéré</span>'}</td>
       ${celluleGain(E[i].p10, mis, f, i)}${celluleGain(E[i].p50, mis, f, i)}${celluleGain(E[i].p90, mis, f, i)}${celluleGain(C[i].financier, mis, f, i)}
       <td class="m"><b>${i === 0 ? "—" : E[i].probaGain >= 1 ? "100 %" : E[i].probaGain >= 0.995 ? "plus de 99 %" : `${Math.round(100 * E[i].probaGain)} %`}</b></td></tr>`;
-  }).join("");
+    }).join("");
+    return `<section class="panneau" id="tr-rapporte" data-min="intermediaire"><h2>Ce que rapporte ton épargne</h2>
+      ${(() => { const RR = r.retraite; return RR ? `<p class="verdict ok" style="margin:4px 0 8px"><b>Hypothèses retraite utilisées :</b> arrêt de travail à ${RR.age} ans, puis ${eur(RR.revenu)} par mois (après impôt, en euros d'aujourd'hui) pris sur tes placements${RR.pension > 0 ? `, moins ${eur(RR.pension)} de retraite publique à partir de ${RR.agePension} ans` : ", sans retraite publique comptée"}. <a class="lien-fiche" href="#mon-profil">Modifier dans « Mon profil », bloc « Ta retraite »</a></p>` : ""; })()}
+      <p class="note" style="margin:4px 0 8px">« Argent mis » : ton capital de départ, plus toute l'épargne versée jusqu'à cet âge${r.achat ? ", moins l'apport sorti pour l'achat" : ""}. Sous chaque montant, le gain ou la perte par rapport à cet argent mis. Pessimiste : 1 scénario sur 10 fait moins bien ; optimiste : 1 sur 10 fait mieux ; médiane : la moitié fait mieux, la moitié moins bien ; central : rendements moyens chaque année. Placements seulement, avant impôts.</p>
+      <div class="table-wrap"><table><thead><tr><th>Âge</th><th class="m">Argent mis</th><th class="m">Pessimiste</th><th class="m">Médiane</th><th class="m">Optimiste</th><th class="m">Central</th><th class="m">Chances d'avoir gagné</th></tr></thead><tbody>${lignesGains}</tbody></table></div>
+      <p class="note" style="margin:8px 0 0">« Chances d'avoir gagné » : part des ${r.simulations} scénarios où les placements valent plus que l'argent mis à cet âge. Ces chances ne montent pas toujours avec l'âge : l'épargne des dernières années n'a pas encore eu le temps de rapporter, et un krach juste avant la date regardée suffit à faire repasser quelques scénarios sous l'argent mis. Après ${H.ageRetraite ?? 64} ans, l'argent mis diminue des revenus que tu te verses.</p>
+    </section>`;
+  };
   // Après impôts : impôt du scénario central, et même taux d'impôt sur les gains pour les autres scénarios
-  const lignesImpots = idx.map((i) => {
-    const p = C[i], f = defl(i);
-    const gainsCentral = Math.max(1, p.financier - p.baseTotal);
-    const taux = Math.min(0.6, Math.max(0, p.impotPlacements / gainsCentral));
-    const immo = p.bien - p.dette;
-    // Chaque scénario a son propre impôt (sa composition, ses gains) ; à défaut, le taux du scénario central
-    const parScenario = E[i].a10 != null;
-    const cellule = (pX, aX, tX) => parScenario
-      ? `<td class="m">${eur((aX + immo) * f)}<div class="small muted">impôts ${eur(tX * f)}</div></td>`
-      : `<td class="m">${eur((pX - taux * Math.max(0, pX - p.baseTotal) - p.impotPER + immo) * f)}<div class="small muted">impôts ${eur((taux * Math.max(0, pX - p.baseTotal) + p.impotPER) * f)}</div></td>`;
-    return `<tr><td>${p.age} ans</td><td class="m">${eur(immo * f)}</td>
+  const panneauApresImpots = () => {
+    const lignesImpots = idx.map((i) => {
+      const p = C[i], f = defl(i);
+      const gainsCentral = Math.max(1, p.financier - p.baseTotal);
+      const taux = Math.min(0.6, Math.max(0, p.impotPlacements / gainsCentral));
+      const immo = p.bien - p.dette;
+      // Chaque scénario a son propre impôt (sa composition, ses gains) ; à défaut, le taux du scénario central
+      const parScenario = E[i].a10 != null;
+      const cellule = (pX, aX, tX) => parScenario
+        ? `<td class="m">${eur((aX + immo) * f)}<div class="small muted">impôts ${eur(tX * f)}</div></td>`
+        : `<td class="m">${eur((pX - taux * Math.max(0, pX - p.baseTotal) - p.impotPER + immo) * f)}<div class="small muted">impôts ${eur((taux * Math.max(0, pX - p.baseTotal) + p.impotPER) * f)}</div></td>`;
+      return `<tr><td>${p.age} ans</td><td class="m">${eur(immo * f)}</td>
       ${cellule(E[i].p10, E[i].a10, E[i].t10)}${cellule(E[i].p50, E[i].a50, E[i].t50)}${cellule(E[i].p90, E[i].a90, E[i].t90)}
       <td class="m"><b>${eur(p.apresImpots * f)}</b><div class="small muted">impôts ${eur((p.impotPlacements + p.impotPER) * f)}</div></td></tr>`;
-  }).join("");
+    }).join("");
+    return `<section class="panneau" id="tr-apres-impots" data-min="avance"><h2>Après impôts, si tout était vendu</h2>
+      <p class="note" style="margin:4px 0 8px">Patrimoine net : placements moins les impôts dus si tout était vendu à cet âge, plus ${etat.profil.proprietaire || r.achat ? "l'immobilier net du crédit restant (colonne « Immobilier net »)" : "l'immobilier s'il y en a"}. Chaque scénario a sa ligne ; sous chaque montant, le total des impôts qui seraient payés.</p>
+      <div class="table-wrap"><table><thead><tr><th>Âge</th><th class="m">Immobilier net</th><th class="m">Pessimiste</th><th class="m">Médiane</th><th class="m">Optimiste</th><th class="m">Central</th></tr></thead><tbody>${lignesImpots}</tbody></table></div>
+      <p class="note" style="margin:8px 0 0">Impôts calculés pour le scénario central selon la fiscalité ${plan.fiscalite?.verifieeLe ? `vérifiée le ${new Date(plan.fiscalite.verifieeLe + "T12:00").toLocaleDateString("fr-FR")}` : "du plan"} (gains de chaque compte, or au régime le plus favorable, résidence principale exonérée${r.per?.actif ? ", PER imposé à la sortie" : ""}) . Pessimiste, médiane et optimiste : chacun des scénarios tirés au hasard est taxé avec sa propre répartition et ses propres gains (moins de gains et plus de livrets quand les marchés ont stagné, donc moins d'impôt), puis on prend le 1er dixième, la médiane et le 9e dixième du résultat après impôts. Immobilier net : valeur du logement moins le crédit restant ; il est valorisé de ${pct(H.valorisationImmobiliere ?? 0)} par an (hypothèse modifiable dans « Mon plan »), donc en euros d'aujourd'hui il ne monte que si ce taux dépasse l'inflation (${pct(H.inflation ?? 0)}). Ne sont pas comptés : les impôts payés lors des rééquilibrages, les abattements annuels de l'assurance-vie et la plus-value d'un logement autre que la résidence principale.</p>
+    </section>`;
+  };
 
-  const tranches = blocTranches(r, defl, unite);
   $("#trajectoire").innerHTML = `
-    <section class="panneau"><h2>Trajectoire du patrimoine</h2>
+    ${deb ? avenirEnTroisChiffres(r, defl, iRet) : ""}
+    <section class="panneau" id="tr-trajectoire"><h2>Trajectoire du patrimoine</h2>
       <p class="note" style="margin:4px 0 0">${etat.profil.foyer?.actif ? "Foyer : les âges affichés sont l'âge de référence du couple. " : ""}Chaque année, le plan est réappliqué : paliers, âge, protection de l'apport. L'épargne suit le salaire (${normaliserProfil(etat.profil).salaireDans10Ans > 0 ? "selon ton salaire espéré dans 10 ans, puis ta carrière" : `carrière « ${echapper((carriereDe(plan, etat.profil).libelle ?? "").split(" :")[0])} »`}) et s'arrête à ${r.retraite?.age ?? H.ageRetraite} ans. Montants ${unite}.</p>
-      <div class="tuiles quatre">${tuiles.map(([k, v]) => `<div class="tuile"><span>${k}</span><b class="num">${v}</b></div>`).join("")}</div>
-      ${infoAchat ? `<p class="small" style="margin:0">${echapper(infoAchat)}</p>` : ""}
-      ${r.per?.actif ? `<p class="small" style="margin:6px 0 0">PER : ${eur(r.per.annuel)} versés par an jusqu'à ${Math.min(H.ageRetraite ?? 64, 70)} ans, ${plan.per?.reinvestirEconomie ? `et ${eur(r.per.economie)} d'économie d'impôt réépargnés chaque année` : "économie d'impôt non réépargnée"}. Dans « après impôts », les versements déduits sont imposés à ${plan.per?.tmiRetraite ?? 0} % à la sortie (hypothèse).</p>` : ""}
+      ${tuiles}${infoAchat}${infoPER}
+      <div style="margin-top:10px">${graphiqueTrajectoire(C, defl, r, iRet)}</div>
+      <p class="small" style="margin:6px 0 0" id="tr-ligne-retraite">À ${C[iRet].age} ans (retraite) : patrimoine net <b class="num">${eur(C[iRet].net * defl(iRet))}</b>, dont ${eur(C[iRet].financier * defl(iRet))} de placements. Survole le graphique pour lire chaque âge.</p>
     </section>
-    ${blocObjectifs(r)}
-    ${tranches}
-    <section class="panneau"><h2>Composition des placements · scénario central</h2>
-      <p class="note" style="margin:4px 0 8px">Rendements moyens du plan chaque année. Survole le graphique pour le détail.</p>${graphiqueComposition(C, defl, r.achat)}</section>
-    <section class="panneau"><h2>Éventail des possibles · ${r.simulations} scénarios</h2>
-      <p class="note" style="margin:4px 0 8px">Les rendements sont tirés au hasard chaque année selon la volatilité de chaque classe (bitcoin très variable). La médiane est sous le scénario central : les années de baisse pèsent plus que les années de hausse.</p>${graphiqueEventail(C, E, defl)}</section>
-    <section class="panneau" id="bloc-crise"><h2>Et si une crise arrivait ?</h2>
+    ${siNiveau("intermediaire", () => `<div id="tr-objectifs" data-min="intermediaire">${blocObjectifs(r)}</div>`)}
+    ${siNiveau("intermediaire", () => blocTranches(r, defl, unite))}
+    ${siNiveau("avance", () => `<section class="panneau" id="tr-composition" data-min="avance"><h2>Composition des placements · scénario central</h2>
+      <p class="note" style="margin:4px 0 8px">Rendements moyens du plan chaque année. Survole le graphique pour le détail.</p>${graphiqueComposition(C, defl, r.achat)}</section>`)}
+    ${siNiveau("intermediaire", () => `<section class="panneau" id="tr-eventail" data-min="intermediaire"><h2>Éventail des possibles · ${r.simulations} scénarios</h2>
+      <p class="note" style="margin:4px 0 8px">Les rendements sont tirés au hasard chaque année selon la volatilité de chaque classe (bitcoin très variable). La médiane est sous le scénario central : les années de baisse pèsent plus que les années de hausse.</p>${graphiqueEventail(C, E, defl)}</section>`)}
+    ${siNiveau("avance", () => `<section class="panneau" id="bloc-crise" data-min="avance"><h2>Et si une crise arrivait ?</h2>
       <p class="note" style="margin:4px 0 10px">On rejoue une crise passée sur ton portefeuille, puis les rendements moyens du plan. Pour voir ce que tu risques, et pourquoi il ne faut pas paniquer.</p>
       <div class="ligne-actions">
         <label for="crise-choix" class="small">Crise</label><select id="crise-choix" style="width:auto">${Object.entries(CRISES).map(([k, c]) => `<option value="${k}" ${k === uiCrise.id ? "selected" : ""}>${echapper(c.libelle)}</option>`).join("")}</select>
         <label for="crise-moment" class="small">Quand</label><select id="crise-moment" style="width:auto">${[["bientot", "L'année prochaine"], ["avant", "5 ans avant ta retraite"], ["retraite", "L'année où tu arrêtes de travailler"]].map(([k, l]) => `<option value="${k}" ${k === uiCrise.moment ? "selected" : ""}>${l}</option>`).join("")}</select>
       </div>
       <div id="crise-resultat" style="margin-top:10px"></div>
-    </section>
-    <section class="panneau"><h2>Ce que rapporte ton épargne</h2>
-      ${(() => { const RR = r.retraite; return RR ? `<p class="verdict ok" style="margin:4px 0 8px"><b>Hypothèses retraite utilisées :</b> arrêt de travail à ${RR.age} ans, puis ${eur(RR.revenu)} par mois (après impôt, en euros d'aujourd'hui) pris sur tes placements${RR.pension > 0 ? `, moins ${eur(RR.pension)} de retraite publique à partir de ${RR.agePension} ans` : ", sans retraite publique comptée"}. <a class="lien-fiche" href="#mon-profil">Modifier dans « Mon profil », bloc « Ta retraite »</a></p>` : ""; })()}
-      <p class="note" style="margin:4px 0 8px">« Argent mis » : ton capital de départ, plus toute l'épargne versée jusqu'à cet âge${r.achat ? ", moins l'apport sorti pour l'achat" : ""}. Sous chaque montant, le gain ou la perte par rapport à cet argent mis. Pessimiste : 1 scénario sur 10 fait moins bien ; optimiste : 1 sur 10 fait mieux ; médiane : la moitié fait mieux, la moitié moins bien ; central : rendements moyens chaque année. Placements seulement, avant impôts.</p>
-      <div class="table-wrap"><table><thead><tr><th>Âge</th><th class="m">Argent mis</th><th class="m">Pessimiste</th><th class="m">Médiane</th><th class="m">Optimiste</th><th class="m">Central</th><th class="m">Chances d'avoir gagné</th></tr></thead><tbody>${lignesGains}</tbody></table></div>
-      <p class="note" style="margin:8px 0 0">« Chances d'avoir gagné » : part des ${r.simulations} scénarios où les placements valent plus que l'argent mis à cet âge. Ces chances ne montent pas toujours avec l'âge : l'épargne des dernières années n'a pas encore eu le temps de rapporter, et un krach juste avant la date regardée suffit à faire repasser quelques scénarios sous l'argent mis. Après ${H.ageRetraite ?? 64} ans, l'argent mis diminue des revenus que tu te verses.</p>
-    </section>
-    <section class="panneau"><h2>Après impôts, si tout était vendu</h2>
-      <p class="note" style="margin:4px 0 8px">Patrimoine net : placements moins les impôts dus si tout était vendu à cet âge, plus ${etat.profil.proprietaire || r.achat ? "l'immobilier net du crédit restant (colonne « Immobilier net »)" : "l'immobilier s'il y en a"}. Chaque scénario a sa ligne ; sous chaque montant, le total des impôts qui seraient payés.</p>
-      <div class="table-wrap"><table><thead><tr><th>Âge</th><th class="m">Immobilier net</th><th class="m">Pessimiste</th><th class="m">Médiane</th><th class="m">Optimiste</th><th class="m">Central</th></tr></thead><tbody>${lignesImpots}</tbody></table></div>
-      <p class="note" style="margin:8px 0 0">Impôts calculés pour le scénario central selon la fiscalité ${plan.fiscalite?.verifieeLe ? `vérifiée le ${new Date(plan.fiscalite.verifieeLe + "T12:00").toLocaleDateString("fr-FR")}` : "du plan"} (gains de chaque compte, or au régime le plus favorable, résidence principale exonérée${r.per?.actif ? ", PER imposé à la sortie" : ""}) . Pessimiste, médiane et optimiste : chacun des scénarios tirés au hasard est taxé avec sa propre répartition et ses propres gains (moins de gains et plus de livrets quand les marchés ont stagné, donc moins d'impôt), puis on prend le 1er dixième, la médiane et le 9e dixième du résultat après impôts. Immobilier net : valeur du logement moins le crédit restant ; il est valorisé de ${pct(H.valorisationImmobiliere ?? 0)} par an (hypothèse modifiable dans « Mon plan »), donc en euros d'aujourd'hui il ne monte que si ce taux dépasse l'inflation (${pct(H.inflation ?? 0)}). Ne sont pas comptés : les impôts payés lors des rééquilibrages, les abattements annuels de l'assurance-vie et la plus-value d'un logement autre que la résidence principale.</p>
-    </section>
-    <section class="panneau" id="bloc-ab">${blocScenarios(r, reel)}</section>
-    <section class="panneau" id="bloc-fiscal"></section>`;
+    </section>`)}
+    ${siNiveau("intermediaire", panneauRapporte)}
+    ${siNiveau("avance", panneauApresImpots)}
+    ${siNiveau("avance", () => `<section class="panneau" id="bloc-ab" data-min="avance">${blocScenarios(r, reel)}</section>`)}
+    ${siNiveau("avance", () => `<section class="panneau" id="bloc-fiscal" data-min="avance"></section>`)}`;
   rendreCrise();
   rendreFiscal();
+  try { performance.measure(`rendreTrajectoire:${niveauCourant()}`, { start: t0 }); } catch {} // mesure lisible via performance.getEntriesByType("measure")
 }
 
 // ---------------------------------------------------------------- évolution de la fiscalité
@@ -1090,12 +1184,12 @@ function blocScenarios(r, reel) {
 $("#trajectoire").addEventListener("click", (e) => {
   const t = e.target;
   if (t.id !== "ab-figer" && !t.dataset?.supprSc) return;
-  let r; try { r = projectionCourante($("#t-achat").checked); } catch { return; }
+  let r; try { r = projectionCourante(achatInclus()); } catch { return; }
   const S = scenariosGardes();
   if (t.id === "ab-figer" && S.length < MAX_SCENARIOS) S.push({ nom: $("#ab-nom")?.value?.trim() || "", date: new Date().toISOString(), points: r.central.map((p, i) => ({ age: p.age, net: p.net, i })) });
   else if (t.dataset.supprSc) S.splice(Number(t.dataset.supprSc), 1);
   garderScenarios(S);
-  $("#bloc-ab").innerHTML = blocScenarios(r, $("#t-reel").checked);
+  $("#bloc-ab").innerHTML = blocScenarios(r, montantsReels());
 });
 $("#t-reel").addEventListener("change", rendreTrajectoire);
 
@@ -1105,12 +1199,12 @@ function rendreCrise() {
   const out = $("#crise-resultat"); if (!out) return;
   const plan = etat.brouillon, H = plan.hypotheses;
   const p = profilPourMoteur(), age0 = Math.round(normaliserProfil(p).age ?? 30);
-  const PRage = projectionCourante($("#t-achat").checked).retraite?.age ?? H.ageRetraite ?? 64;
+  const PRage = projectionCourante(achatInclus()).retraite?.age ?? H.ageRetraite ?? 64;
   const ageDebut = uiCrise.moment === "bientot" ? age0 + 1 : uiCrise.moment === "avant" ? Math.max(age0 + 1, PRage - 5) : Math.max(age0 + 1, PRage);
   let r;
-  try { r = simulerCrise(plan, p, { crise: uiCrise.id, ageDebut, inclureAchat: $("#t-achat").checked }); }
+  try { r = simulerCrise(plan, p, { crise: uiCrise.id, ageDebut, inclureAchat: achatInclus() }); }
   catch (e) { console.error(e); out.innerHTML = `<p class="erreur">Simulation impossible : ${echapper(e.message)}</p>`; return; }
-  const reel = $("#t-reel").checked, infl = (H.inflation ?? 0) / 100;
+  const reel = montantsReels(), infl = (H.inflation ?? 0) / 100;
   const defl = (i) => (reel ? Math.pow(1 + infl, -i) : 1);
   const S = r.sans, G = r.garde, P = r.panique, d = r.debut, n = r.crise.annees.length;
   const ages = S.map((pt) => pt.age);
@@ -1244,7 +1338,7 @@ function blocTranches(r, defl, unite) {
   const legende = ORDRE.filter((c) => pas.some((k) => (C[k].classes?.[c] ?? 0) > 0.5)).map((c) => `<span><span class="pastille" style="background:var(${COULEUR[c]})"></span>${plan.classes[c].libelle}</span>`).join("");
   const p0 = normaliserProfil(etat.profil);
   const hausse = p0.salaireDans10Ans > 0 ? `selon ton salaire espéré dans 10 ans (${eur(p0.salaireDans10Ans)}), puis ta carrière` : `selon ta carrière : ${echapper((carriereDe(plan, p0).libelle ?? "").toLowerCase())}, en plus de l'inflation (${pct(plan.hypotheses.inflation ?? 0)})`;
-  return `<section class="panneau"><h2>Tous les 5 ans</h2>
+  return `<section class="panneau" id="tr-tranches" data-min="intermediaire"><h2>Tous les 5 ans</h2>
     <p class="note" style="margin:4px 0 8px">Scénario central, en suivant le plan. Salaire ${hausse} ; l'épargne suit le salaire. Montants ${unite}. Survole une barre pour le détail.</p>
     <div class="table-wrap"><table><thead><tr><th></th><th class="m">Âge</th><th class="m">Salaire net</th><th class="m">Épargne / mois</th><th class="m">Placements</th><th>Répartition</th><th>Ce qui change</th></tr></thead><tbody>${lignes}</tbody></table></div>
     <div class="legende-g">${legende}</div>
@@ -1256,26 +1350,12 @@ function blocTranches(r, defl, unite) {
 // Liberté financière : capital qui suffit (règle des 4 %), et âge « Coast FIRE » à partir duquel
 // on pourrait ne plus rien épargner et atteindre quand même l'objectif à l'âge de la retraite
 function blocLiberte(r) {
-  const plan = etat.brouillon, H = plan.hypotheses, R = r.retraite, C = r.central;
-  if (!R || !C?.length) return "";
-  const infl = (H.inflation ?? 0) / 100;
-  const besoinAn = Math.max(0, R.revenu - (R.pension > 0 ? R.pension : 0)) * 12;
-  const objectif = besoinAn * 25; // règle des 4 % : on retire 4 % du capital par an
-  const a = etat.resultat?.alloc ?? {}, tot = Object.values(a).reduce((t, x) => t + x, 0);
-  const rNom = tot > 0 ? Object.entries(a).reduce((t, [c, m]) => t + (m * (H.rendements?.[c] ?? 0)) / 100, 0) / tot : 0.05;
-  const rr = Math.max(0.005, (1 + rNom) / (1 + infl) - 1); // rendement réel moyen du portefeuille
-  const reel = (p, i) => p.financier / Math.pow(1 + infl, i);
-  const ageR = R.age;
-  let coast = null, fire = null;
-  for (let i = 0; i < C.length; i++) {
-    const p = C[i]; if (p.age > ageR) break;
-    const v = reel(p, i);
-    if (!coast && v * Math.pow(1 + rr, ageR - p.age) >= objectif) coast = { age: p.age, v };
-    if (!fire && v >= objectif) fire = { age: p.age, v };
-  }
-  if (!(objectif > 0)) return `<section class="panneau"><h2>Liberté financière</h2><p class="small muted" style="margin:0">Ta retraite publique couvre l'objectif : pas besoin de capital pour le revenu visé.</p></section>`;
-  const v0 = reel(C[0], 0);
-  return `<section class="panneau"><h2>Liberté financière</h2>
+  const L = libertePatrimoine(r, etat.brouillon.hypotheses, etat.resultat?.alloc ?? {});
+  if (!L) return "";
+  const R = r.retraite, C = r.central;
+  const { besoinAn, objectif, rr, coast, fire, ageR, v0 } = L;
+  if (!(objectif > 0)) return `<section class="panneau" id="bloc-liberte" data-min="intermediaire"><h2>Liberté financière</h2><p class="small muted" style="margin:0">Ta retraite publique couvre l'objectif : pas besoin de capital pour le revenu visé.</p></section>`;
+  return `<section class="panneau" id="bloc-liberte" data-min="intermediaire"><h2>Liberté financière</h2>
     <p class="note" style="margin:4px 0 8px">Règle des 4 % : un capital de 25 fois tes besoins annuels permet en général de retirer 4 % par an pendant 30 ans sans être à court. Tes besoins : ${eur(besoinAn / 12)} par mois${R.pension > 0 ? " (après la retraite publique comptée)" : ""}, soit un objectif de <b>${eur(objectif)}</b> en euros d'aujourd'hui.</p>
     <div class="tuiles">
       <div class="tuile"><span>Ton capital placé aujourd'hui</span><b class="num">${eur(v0)}</b><span class="small muted">${pct((100 * v0) / objectif)} de l'objectif</span></div>

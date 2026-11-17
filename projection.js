@@ -6,7 +6,7 @@
 // =====================================================================
 import { fluxLocatif, projetLocatifDe, echeancier } from "./locatif.js";
 import { PRELEVEMENTS, PFU } from "./fiscal.js";
-import { allocationCible, actuelParClasse, repartirEnEnveloppes, capitalDe, achatResidence, analyser, chargesProprietaire, normaliserFoyer, resideEnFrance, paysDe, facteurSalaire, interessementPlace, locatifFinancable } from "./moteur.js";
+import { totalGroupe, allocationCible, actuelParClasse, repartirEnEnveloppes, capitalDe, achatResidence, analyser, chargesProprietaire, normaliserFoyer, resideEnFrance, paysDe, facteurSalaire, interessementPlace, locatifFinancable } from "./moteur.js";
 
 const somme = (o) => Object.values(o).reduce((s, x) => s + x, 0);
 
@@ -421,7 +421,9 @@ function planDepart(plan, age, ageFin) {
   return { ...plan, hypotheses: { ...H, ageRetraite: age, ageFinProjection: Math.max(H.ageFinProjection ?? 70, ageFin) } };
 }
 
-export function projeter(planSaisi, profilSaisi, { inclureAchat = true, prolonger = true, analyseRetraite = true, fiscF = null } = {}) {
+// Scénario central et hypothèses de retraite : base commune à projeter() et projeterCentral(),
+// pour que le central soit strictement le même avec ou sans tirages au hasard.
+function centralEtRetraite(planSaisi, profilSaisi, { inclureAchat = true, prolonger = true, fiscF = null } = {}) {
   const profil = normaliserFoyer(planSaisi, profilSaisi);
   const PR = parametresRetraite(planSaisi, profil);
   // La projection va jusqu'à la fin de la retraite (94 ans) ; l'activité s'arrête à l'âge de départ choisi
@@ -430,15 +432,21 @@ export function projeter(planSaisi, profilSaisi, { inclureAchat = true, prolonge
   const per = analyser(plan, profil).per;
   const iR = PR.age - profil.age;
   // Taux d'impôt sur les ventes à la retraite : impôt si tout était vendu / valeur, au départ en retraite
-  let retraite = { age: PR.age, revenu: PR.revenu, pension: PR.pension, agePension: PR.agePension, taux: 0 };
+  const retraite = { age: PR.age, revenu: PR.revenu, pension: PR.pension, agePension: PR.agePension, taux: 0 };
   let central = simuler(plan, profil, { achat, detail: true, per, retraite, fiscF });
   if (iR >= 0 && iR < central.length && central[iR].financier > 0) {
     const pR = central[iR];
     retraite.taux = Math.min(0.3, Math.max(0, pR.impotPlacements / pR.financier));
     retraite.tauxGains = pR.gains > 0 ? Math.min(0.5, pR.impotAvant / pR.gains) : 0;
     if (fiscF) retraite.tauxGainsF = pR.gains > 0 ? Math.min(0.6, pR.impotApres / pR.gains) : 0;
-    if (retraite.taux > 0 && PR.revenu > 0) central = simuler(plan, profil, { achat, detail: true, per, retraite, fiscF });
+    // Hypothèse fiscale testée : on resimule toujours, pour comparer des scénarios sur la même base
+    if (fiscF || (retraite.taux > 0 && PR.revenu > 0)) central = simuler(plan, profil, { achat, detail: true, per, retraite, fiscF });
   }
+  return { profil, PR, plan, achat, per, iR, retraite, central };
+}
+
+export function projeter(planSaisi, profilSaisi, { inclureAchat = true, prolonger = true, analyseRetraite = true, fiscF = null } = {}) {
+  const { profil, PR, plan, achat, per, iR, retraite, central } = centralEtRetraite(planSaisi, profilSaisi, { inclureAchat, prolonger, fiscF });
   const n = Math.max(50, Math.min(2000, plan.hypotheses.simulations ?? 500));
   const gauss = generateur(20261111);
   const chemins = [];
@@ -480,23 +488,47 @@ export function projeter(planSaisi, profilSaisi, { inclureAchat = true, prolonge
 }
 
 // Scénario central seulement (sans tirages au hasard) : rapide, pour classer plusieurs hypothèses fiscales
+// et pour le niveau Débutant. Même `central`, `achat`, `per` et hypothèses de retraite que projeter() ;
+// seules les mesures issues des tirages (probaDure, probaTransmet, revenus possibles) restent à null.
 export function projeterCentral(planSaisi, profilSaisi, { inclureAchat = true, fiscF = null } = {}) {
-  const profil = normaliserFoyer(planSaisi, profilSaisi);
-  const PR = parametresRetraite(planSaisi, profil);
-  const plan = planDepart(planSaisi, PR.age, PR.ageFin);
-  const achat = inclureAchat ? achatPourProjection(plan, profil) : null;
-  const per = analyser(plan, profil).per;
-  const iR = PR.age - profil.age;
-  const retraite = { age: PR.age, revenu: PR.revenu, pension: PR.pension, agePension: PR.agePension, taux: 0 };
-  let central = simuler(plan, profil, { achat, detail: true, per, retraite, fiscF });
-  if (iR >= 0 && iR < central.length && central[iR].financier > 0) {
-    const pR = central[iR];
-    retraite.taux = Math.min(0.3, Math.max(0, pR.impotPlacements / pR.financier));
-    retraite.tauxGains = pR.gains > 0 ? Math.min(0.5, pR.impotAvant / pR.gains) : 0;
-    if (fiscF) retraite.tauxGainsF = pR.gains > 0 ? Math.min(0.6, pR.impotApres / pR.gains) : 0;
-    central = simuler(plan, profil, { achat, detail: true, per, retraite, fiscF });
+  const { PR, achat, per, iR, retraite, central } = centralEtRetraite(planSaisi, profilSaisi, { inclureAchat, fiscF });
+  const dernier = central.length - 1;
+  const ret = iR >= 0 && iR < dernier
+    ? { ...PR, taux: retraite.taux, tauxGains: retraite.tauxGains, iR, dernier, probaDure: null, probaTransmet: null, revenuPreserve: null, revenuConsomme: null,
+        epuiseA: central.find((p, i) => i > iR && p.financier <= 0.5)?.age ?? null }
+    : null;
+  return { central, iR, dernier, achat, per, eventail: null, simulations: 0, achatsRates: 0, retraite: ret };
+}
+
+// Liberté financière (règle des 4 %) : capital de 25 fois les besoins annuels, âge où le capital placé l'atteint (« fire »)
+// et âge « Coast FIRE » à partir duquel on pourrait ne plus rien épargner. Fonction pure : sert à l'onglet Retraite,
+// au panneau « Liberté financière » de la Trajectoire et à la tuile du niveau Débutant (mêmes valeurs partout).
+// `alloc` : allocation en euros par classe (pour le rendement moyen du portefeuille) ; sans elle, 5 % par défaut.
+export function libertePatrimoine(r, H, alloc = {}) {
+  const R = r?.retraite, C = r?.central;
+  if (!R || !C?.length) return null;
+  const infl = (H.inflation ?? 0) / 100;
+  const besoinAn = Math.max(0, R.revenu - (R.pension > 0 ? R.pension : 0)) * 12;
+  const objectif = besoinAn * 25;
+  const tot = Object.values(alloc).reduce((t, x) => t + x, 0);
+  const rNom = tot > 0 ? Object.entries(alloc).reduce((t, [c, m]) => t + (m * (H.rendements?.[c] ?? 0)) / 100, 0) / tot : 0.05;
+  const rr = Math.max(0.005, (1 + rNom) / (1 + infl) - 1); // rendement réel moyen du portefeuille
+  const reel = (p, i) => p.financier / Math.pow(1 + infl, i);
+  const ageR = R.age;
+  let coast = null, fire = null;
+  for (let i = 0; i < C.length; i++) {
+    const p = C[i]; if (p.age > ageR) break;
+    const v = reel(p, i);
+    if (!coast && v * Math.pow(1 + rr, ageR - p.age) >= objectif) coast = { age: p.age, v };
+    if (!fire && v >= objectif) fire = { age: p.age, v };
   }
-  return { central, iR, dernier: central.length - 1 };
+  return { besoinAn, objectif, rr, coast, fire, ageR, v0: reel(C[0], 0) };
+}
+
+// Mois de dépenses couverts par l'épargne de précaution (livrets), ou null si les dépenses sont inconnues
+export function moisPrecaution(placements, depensesMensuelles) {
+  const dep = Number(depensesMensuelles) || 0;
+  return dep > 0 ? totalGroupe(placements, "livrets") / dep : null;
 }
 
 // Prévision de référence pour le suivi : valeurs annuelles des placements

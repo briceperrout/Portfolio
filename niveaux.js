@@ -57,7 +57,12 @@ export const MATRICE = {
   // Complétés aux étapes 3 à 5
   // Rééquilibrage : les clés sont les id générés dans rendreResultats() (app.js), qui portent aussi data-min
   reequilibrage: { "res-futur": A, "res-profil-risque": I, "res-infos": I, "res-montants": I, "res-rythme": A, "poche-bourse": I },
-  trajectoire: {},
+  // Trajectoire : ids de index.html et du gabarit de rendreTrajectoire() (app.js). Absent = tous niveaux (dont « Trajectoire du patrimoine »).
+  // « tr-avenir » (data-seul="debutant") est la version simplifiée ; « bloc-liberte » est affiché dans l'onglet Retraite ; « tr-tranches » inclut les bascules du plan.
+  trajectoire: {
+    "achat-trajectoire": I, "t-achat": I, "t-reel": I, "tr-tuiles": I, "tr-objectifs": I, "tr-tranches": I, "tr-eventail": I, "tr-rapporte": I, "bloc-liberte": I,
+    "tr-composition": A, "bloc-crise": A, "tr-apres-impots": A, "bloc-ab": A, "bloc-fiscal": A,
+  },
   retraite: {},
 };
 
