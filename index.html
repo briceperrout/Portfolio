@@ -413,6 +413,11 @@ html.discret .num { letter-spacing: 0.05em; }
 .assistant-action:hover:not(:disabled) { background: var(--accent); color: var(--accent-ink); }
 .assistant-action-annuler { border-color: var(--line); background: var(--surface); font-weight: 500; }
 .bandeau-scenario { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin: 0 0 12px; padding: 9px 12px; border: 1px solid var(--warn); border-radius: var(--r); background: var(--warn-soft); color: var(--fg); font-size: 0.86rem; }
+.assistant-outils { display: flex; padding: 0 12px 6px; }
+.assistant-approfondi { border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 0.74rem; cursor: pointer; }
+.assistant-approfondi:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.assistant-approfondi[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--fg); font-weight: 600; }
+.assistant-approfondi:disabled { opacity: 0.5; cursor: default; }
 .assistant-form { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--line); }
 .assistant-saisie { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); padding: 7px 9px; font: inherit; font-size: 0.86rem; min-width: 0; }
 .assistant-pied { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px 10px; font-size: 0.68rem; color: var(--faint); }
@@ -746,6 +751,9 @@ html.discret .num { letter-spacing: 0.05em; }
     </div>
     <div class="assistant-fil" id="assistant-fil" role="log" aria-live="polite"></div>
     <div class="assistant-suggestions" id="assistant-suggestions"></div>
+    <div class="assistant-outils">
+      <button type="button" class="assistant-approfondi" id="assistant-approfondi" aria-pressed="false" title="Analyse approfondie : utilise un modèle de raisonnement pour les arbitrages complexes (plus lent). Sans effet en mode local ou hors ligne.">🧠 Analyse approfondie</button>
+    </div>
     <form class="assistant-form" id="assistant-form" autocomplete="off">
       <textarea class="assistant-saisie" id="assistant-saisie" rows="2" maxlength="500" placeholder="Pose ta question…" aria-label="Ta question"></textarea>
       <button type="submit" class="assistant-btn primaire" id="assistant-envoyer">Envoyer</button>

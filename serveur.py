@@ -10,6 +10,15 @@ Assistant IA
   POST /api/chat    → relais vers https://api.openai.com/v1/chat/completions
                       flux SSE normalisé (voir _chat) si le client envoie stream=true,
                       sinon réponse JSON classique {"reponse", "modele", "masques"}
+                      Routage : gpt-5.4-mini par défaut, o3 si le client envoie
+                      modeApprofondi=true ou si la question contient un mot-clé complexe.
+                      Deux quotas gratuits Data Sharing, comptés séparément : modèles mini
+                      (plafond 2 350 000 tokens/jour, au-delà : 429 quota_journalier → repli local)
+                      et o3 (plafond 225 000/jour, au-delà : gpt-5.4-mini en effort « high »).
+                      Même repli si OpenAI refuse o3 (404 modèle introuvable/déprécié, 403, 400, 429).
+                      Le modèle retenu est annoncé par l'en-tête X-Model-Used et le premier
+                      événement SSE {"modele": "..."}. Toute erreur OpenAI (HTTP ≥ 400) est
+                      journalisée avec son corps JSON exact sur la console du serveur.
 
 La clé OPENAI_API_KEY est lue dans l'environnement ou dans le fichier `.env`
 (ignoré par Git). Elle ne quitte jamais ce processus : le navigateur n'en
@@ -29,6 +38,7 @@ import re
 import sys
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from collections import deque
@@ -39,6 +49,29 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parent
 HOTE = "127.0.0.1"
 URL_OPENAI = "https://api.openai.com/v1/chat/completions"
+
+# Routage multi-modèles (miroir exact de worker.js).
+MODEL_FAST = "gpt-5.4-mini"      # chat général, synthèse, RAG
+MODEL_REASONING = "o3"           # arbitrages patrimoniaux complexes (modèle phare : pool gratuit de 250 k tokens/jour)
+# Mots-clés (normalisés : minuscules, sans accents ni tirets) qui déclenchent MODEL_REASONING.
+MOTS_COMPLEXES = (
+    "sasu", "eurl", "holding", "demembrement", "usufruit", "nue-propriete",
+    "succession", "donation", "ifi", "decumulation", "audit complet",
+)
+# Deux pools gratuits Data Sharing, comptés séparément (prompt + completion, raisonnement inclus) :
+#   « rapide »      : modèles mini, 2,5 M tokens/jour → plafond de sécurité 2 350 000 (au-delà : refus 429, repli local côté client)
+#   « raisonnement » : modèles phares (o3), 250 k tokens/jour → plafond 225 000 (au-delà : repli sur MODEL_FAST en effort « high »)
+PLAFOND_RAPIDE = 2_350_000
+PLAFOND_RAISONNEMENT = 225_000
+ALERTE_RAISONNEMENT = 200_000        # alerte de log du pool raisonnement (l'alerte du pool rapide : OPENAI_DAILY_TOKEN_ALERT, 2,2 M)
+MAX_COMPLETION_RAISONNEMENT = 2500   # o3 (et repli « high ») : reasoning_tokens + réponse + balises [[ACTION]] / [[SUGGESTION]]
+MAX_COMPLETION_RAPIDE = 1500         # famille gpt-5 rapide (effort « low ») : même contrainte, plafond plus bas
+LIBELLE_REPLI_ELEVE = "{} (raisonnement élevé · quota {} préservé)"
+LIBELLE_REPLI_INDISPONIBLE = "{} (raisonnement élevé · {} indisponible)"
+# Codes HTTP d'OpenAI pour lesquels un modèle de raisonnement refusé est remplacé par MODEL_FAST en effort « high » :
+# 400 (paramètre ou streaming refusé), 403 (organisation non vérifiée), 404 (model_not_found, déprécié), 429 (limite du modèle).
+# Pas 401 (clé invalide : MODEL_FAST échouerait aussi).
+STATUTS_REPLI = (400, 403, 404, 429)
 
 
 # ---------------------------------------------------------------- configuration
@@ -72,14 +105,15 @@ def cle_openai() -> str | None:
 
 
 def modele_chat() -> str:
-    return os.environ.get("OPENAI_MODEL_CHAT", "").strip() or "gpt-4.1-mini"
+    return os.environ.get("OPENAI_MODEL_CHAT", "").strip() or MODEL_FAST
 
 
 def modele_raisonnement() -> str | None:
-    """Modèle de raisonnement (arbitrages complexes), actif seulement si OPENAI_ENABLE_REASONING=1."""
-    if os.environ.get("OPENAI_ENABLE_REASONING", "0").strip() != "1":
+    """Modèle de raisonnement (arbitrages complexes). Actif par défaut ;
+    OPENAI_ENABLE_REASONING=0 sert de coupe-circuit (tout reste sur le modèle rapide)."""
+    if os.environ.get("OPENAI_ENABLE_REASONING", "1").strip() == "0":
         return None
-    return os.environ.get("OPENAI_MODEL_REASONING", "").strip() or "o4-mini"
+    return os.environ.get("OPENAI_MODEL_REASONING", "").strip() or MODEL_REASONING
 
 
 def est_raisonnement(modele: str) -> bool:
@@ -87,11 +121,81 @@ def est_raisonnement(modele: str) -> bool:
     return re.match(r"^(o\d|gpt-5)", modele) is not None
 
 
-def seuil_alerte() -> int:
+def _entier_env(nom: str, defaut: int) -> int:
     try:
-        return int(os.environ.get("OPENAI_DAILY_TOKEN_ALERT", "2200000"))
+        return int(os.environ.get(nom, "").strip() or defaut)
     except ValueError:
-        return 2_200_000
+        return defaut
+
+
+def seuil_alerte() -> int:
+    return _entier_env("OPENAI_DAILY_TOKEN_ALERT", 2_200_000)
+
+
+def plafond_quota(pool: str) -> int:
+    """Plafond de sécurité journalier (tokens) du pool « rapide » (2,5 M gratuits) ou « raisonnement » (250 k gratuits)."""
+    if pool == "raisonnement":
+        return _entier_env("OPENAI_QUOTA_RAISONNEMENT_MAX", PLAFOND_RAISONNEMENT)
+    return _entier_env("OPENAI_QUOTA_RAPIDE_MAX", PLAFOND_RAPIDE)
+
+
+def seuil_alerte_pool(pool: str) -> int:
+    return _entier_env("OPENAI_DAILY_TOKEN_ALERT_REASONING", ALERTE_RAISONNEMENT) if pool == "raisonnement" else seuil_alerte()
+
+
+def normaliser(texte: str) -> str:
+    """Minuscules, sans accents, ponctuation et tirets remplacés par des espaces (« Nue-propriété » → « nue propriete »)."""
+    sans_accents = "".join(c for c in unicodedata.normalize("NFD", texte.lower()) if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^a-z0-9]+", " ", sans_accents).strip()
+
+
+RE_COMPLEXE = re.compile(
+    r"(?<![a-z0-9])(?:" + "|".join(re.escape(normaliser(m)) for m in MOTS_COMPLEXES) + r")s?(?![a-z0-9])"
+)
+
+
+def question_complexe(texte: str) -> bool:
+    """Le dernier message utilisateur contient-il un mot-clé d'arbitrage complexe (mot entier, pluriel toléré) ?"""
+    return RE_COMPLEXE.search(normaliser(texte)) is not None
+
+
+def choisir_modele(d: dict, tokens: dict | None = None) -> dict:
+    """Routage selon la demande et les deux compteurs journaliers `tokens` = {"rapide": n, "raisonnement": m}.
+
+      - question simple (ou coupe-circuit)                → MODEL_FAST, effort « low »          (pool rapide)
+      - approfondi / mot-clé, pool raisonnement < 225 k   → MODEL_REASONING, effort « medium »  (pool raisonnement)
+      - approfondi / mot-clé, pool raisonnement ≥ 225 k   → MODEL_FAST, effort « high » (libellé « quota … préservé »)
+      - dès que le pool rapide atteint son plafond (2,35 M), tout appel au modèle rapide est refusé (429 quota_journalier) :
+        au-delà des 2,5 M gratuits, OpenAI facturerait ; le client retombe sur le repli local.
+    Retourne {"modele", "libelle", "pool", "effort", "max_completion"} ; `libelle` est affiché au client,
+    `modele` part chez OpenAI."""
+    tokens = tokens or {}
+    rapide = modele_chat()
+    demande = d.get("approfondi") is True or question_complexe(d.get("question", ""))
+    lourd = modele_raisonnement()
+    if demande and lourd and tokens.get("raisonnement", 0) < plafond_quota("raisonnement"):
+        return {"modele": lourd, "libelle": lourd, "pool": "raisonnement", "effort": "medium",
+                "max_completion": _entier_env("OPENAI_MAX_COMPLETION_TOKENS", MAX_COMPLETION_RAISONNEMENT)}
+    if tokens.get("rapide", 0) >= plafond_quota("rapide"):
+        raise ErreurAPI(429, "quota_journalier")
+    if demande and lourd:  # quota du modèle phare épuisé : le modèle rapide prend le relais en effort élevé
+        return {"modele": rapide, "libelle": LIBELLE_REPLI_ELEVE.format(rapide, lourd), "pool": "rapide", "effort": "high",
+                "max_completion": _entier_env("OPENAI_MAX_COMPLETION_TOKENS", MAX_COMPLETION_RAISONNEMENT)}
+    return {"modele": rapide, "libelle": rapide, "pool": "rapide", "effort": "low",
+            "max_completion": _entier_env("OPENAI_MAX_COMPLETION_TOKENS_FAST", MAX_COMPLETION_RAPIDE)}
+
+
+def choix_repli(choix: dict, statut: int, tokens: dict | None = None) -> dict | None:
+    """Le modèle de raisonnement vient d'être refusé par OpenAI (`statut`) : MODEL_FAST en effort « high » prend le relais
+    plutôt que d'abandonner en réponse locale. Aucun repli pour un modèle rapide, pour une clé refusée (401) ou si le
+    plafond du pool rapide est atteint (le refus d'origine est alors renvoyé tel quel)."""
+    if choix["pool"] != "raisonnement" or statut not in STATUTS_REPLI:
+        return None
+    if (tokens or {}).get("rapide", 0) >= plafond_quota("rapide"):
+        return None
+    rapide = modele_chat()
+    return {"modele": rapide, "libelle": LIBELLE_REPLI_INDISPONIBLE.format(rapide, choix["modele"]), "pool": "rapide", "effort": "high",
+            "max_completion": _entier_env("OPENAI_MAX_COMPLETION_TOKENS", MAX_COMPLETION_RAISONNEMENT)}
 
 
 # Limites de taille (le navigateur n'envoie jamais rien de proche)
@@ -146,6 +250,17 @@ def sanitiser_texte(texte: str, strict: bool = True) -> tuple[str, int]:
     return texte, n
 
 
+def corps_erreur_openai(e: urllib.error.HTTPError, limite: int = 2000) -> str:
+    """Corps JSON exact de l'erreur OpenAI (diagnostic 400/401/404/429…), sur une ligne, tronqué, clés masquées.
+    N'est écrit que dans la console du serveur local, jamais renvoyé au navigateur."""
+    try:
+        brut = e.read(4 * limite).decode("utf-8", "replace")
+    except (OSError, http.client.HTTPException):
+        return "(corps illisible)"
+    brut = re.sub(r"sk-[A-Za-z0-9*_\-.]{4,}", "sk-…", re.sub(r"\s+", " ", brut).strip())  # OpenAI masque déjà la clé ; ceinture et bretelles
+    return (brut[:limite] + "…") if len(brut) > limite else (brut or "(corps vide)")
+
+
 class ErreurAPI(Exception):
     def __init__(self, statut: int, code: str):
         super().__init__(code)
@@ -189,16 +304,24 @@ def valider_requete(payload) -> dict:
         "systeme": systeme,
         "profil": profil,
         "messages": propres,
-        "raisonnement": payload.get("raisonnement") is True,
+        # « Analyse approfondie » (toggle du chat) ; l'ancien champ `raisonnement` reste accepté comme alias.
+        "approfondi": payload.get("modeApprofondi") is True or payload.get("raisonnement") is True,
+        "question": propres[-1]["content"],
         # Flux SSE seulement si le client le demande (stream: true) ; sinon réponse JSON classique.
         "stream": payload.get("stream") is True,
         "masques": masques,
     }
 
 
-def corps_openai(d: dict) -> tuple[dict, str]:
-    """Construit la requête OpenAI. Règles par famille de modèle (CLAUDE.md)."""
-    modele = (modele_raisonnement() if d["raisonnement"] else None) or modele_chat()
+def corps_openai(d: dict, choix: dict | None = None) -> tuple[dict, str]:
+    """Construit la requête OpenAI. Règles par famille de modèle (CLAUDE.md) :
+      - o3/o4… (MODEL_REASONING) : rôle « developer », pas de temperature, reasoning_effort « medium »,
+        max_completion_tokens 2500 (reasoning_tokens + réponse finale + balises) ;
+      - gpt-5… rapide : mêmes règles de paramètres (temperature et max_tokens y sont refusés), effort « low »
+        et 1500 tokens — ou « high » et 2500 quand il remplace o3 (quota phare épuisé) ;
+      - modèles classiques (gpt-4…) : rôle « system », temperature 0.2, max_tokens 800."""
+    choix = choix or choisir_modele(d)
+    modele = choix["modele"]
     raisonne = est_raisonnement(modele)
     consigne = d["systeme"]
     if d["profil"]:
@@ -210,10 +333,8 @@ def corps_openai(d: dict) -> tuple[dict, str]:
     }
     if raisonne:
         # Les jetons de raisonnement comptent dans ce plafond : marge nécessaire. Jamais de temperature.
-        try:
-            corps["max_completion_tokens"] = int(os.environ.get("OPENAI_MAX_COMPLETION_TOKENS", "2500"))
-        except ValueError:
-            corps["max_completion_tokens"] = 2500
+        corps["reasoning_effort"] = choix["effort"]
+        corps["max_completion_tokens"] = choix["max_completion"]
     else:
         corps["temperature"] = 0.2
         corps["max_tokens"] = 800  # marge pour les balises [[ACTION:…]] et [[SUGGESTION:…]]
@@ -223,40 +344,64 @@ def corps_openai(d: dict) -> tuple[dict, str]:
 
 
 # ---------------------------------------------------------------- quota journalier
+POOLS = ("rapide", "raisonnement")
+
+
 class Quota:
-    """Tokens consommés par jour UTC (prompt + completion, raisonnement inclus). Alerte au seuil."""
+    """Tokens consommés par jour UTC (prompt + completion, raisonnement inclus), un compteur par pool gratuit
+    (« rapide » : modèles mini ; « raisonnement » : modèles phares). Alerte de log au seuil de chaque pool."""
 
     def __init__(self, fichier: Path):
         self.fichier = fichier
         self.verrou = threading.Lock()
-        self.jour, self.tokens, self.alerte = self._lire()
+        self.jour, self.tokens, self.alertes = self._lire()
 
     @staticmethod
     def _aujourdhui() -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+    def _vide(self):
+        return self._aujourdhui(), {p: 0 for p in POOLS}, {p: False for p in POOLS}
+
     def _lire(self):
+        jour, tokens, alertes = self._vide()
         try:
             d = json.loads(self.fichier.read_text(encoding="utf-8"))
-            if d.get("jour") == self._aujourdhui():
-                return d["jour"], int(d.get("tokens", 0)), bool(d.get("alerte", False))
-        except (OSError, ValueError, KeyError):
+            if d.get("jour") == jour:
+                brut = d.get("tokens", 0)
+                if isinstance(brut, dict):
+                    for p in POOLS:
+                        tokens[p] = int(brut.get(p, 0) or 0)
+                        alertes[p] = bool((d.get("alertes") or {}).get(p, False))
+                else:  # ancien format : un seul compteur, attribué au pool rapide
+                    tokens["rapide"], alertes["rapide"] = int(brut or 0), bool(d.get("alerte", False))
+        except (OSError, ValueError, TypeError):
             pass
-        return self._aujourdhui(), 0, False
+        return jour, tokens, alertes
 
-    def ajouter(self, usage: dict | None) -> None:
+    def _roulement(self) -> None:
+        if self.jour != self._aujourdhui():  # minuit UTC passé : les compteurs repartent de zéro
+            self.jour, self.tokens, self.alertes = self._vide()
+
+    def tokens_du_jour(self, pool: str | None = None):
+        """Tokens du pool demandé aujourd'hui (UTC) ; sans argument : {"rapide": n, "raisonnement": m}."""
+        with self.verrou:
+            self._roulement()
+            return dict(self.tokens) if pool is None else self.tokens.get(pool, 0)
+
+    def ajouter(self, usage: dict | None, pool: str = "rapide") -> None:
         if not usage:
             return
         n = int(usage.get("prompt_tokens", 0) or 0) + int(usage.get("completion_tokens", 0) or 0)
         with self.verrou:
-            if self.jour != self._aujourdhui():
-                self.jour, self.tokens, self.alerte = self._aujourdhui(), 0, False
-            self.tokens += n
-            if self.tokens >= seuil_alerte() and not self.alerte:
-                self.alerte = True
-                sys.stderr.write(f"[plan-patrimoine] ALERTE QUOTA : {self.tokens} tokens aujourd'hui (seuil {seuil_alerte()}).\n")
+            self._roulement()
+            self.tokens[pool] = self.tokens.get(pool, 0) + n
+            seuil = seuil_alerte_pool(pool)
+            if self.tokens[pool] >= seuil and not self.alertes.get(pool):
+                self.alertes[pool] = True
+                sys.stderr.write(f"[plan-patrimoine] ALERTE QUOTA ({pool}) : {self.tokens[pool]} tokens aujourd'hui (seuil {seuil}).\n")
             try:
-                self.fichier.write_text(json.dumps({"jour": self.jour, "tokens": self.tokens, "alerte": self.alerte}), encoding="utf-8")
+                self.fichier.write_text(json.dumps({"jour": self.jour, "tokens": self.tokens, "alertes": self.alertes}), encoding="utf-8")
             except OSError:
                 pass
 
@@ -302,11 +447,13 @@ class Handler(SimpleHTTPRequestHandler):
                 return True
         return False
 
-    def _json(self, statut: int, objet: dict) -> None:
+    def _json(self, statut: int, objet: dict, modele: str | None = None) -> None:
         corps = json.dumps(objet, ensure_ascii=False).encode("utf-8")
         self.send_response(statut)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(corps)))
+        if modele:
+            self.send_header("X-Model-Used", modele)
         self.end_headers()
         self.wfile.write(corps)
 
@@ -395,36 +542,43 @@ class Handler(SimpleHTTPRequestHandler):
         if limite_atteinte():
             raise ErreurAPI(429, "trop_de_requetes")
 
-        corps, modele = corps_openai(donnees)
-        requete = urllib.request.Request(
-            URL_OPENAI,
-            data=json.dumps(corps).encode("utf-8"),
-            headers={"Authorization": f"Bearer {cle}", "Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            reponse = urllib.request.urlopen(requete, timeout=60)
-        except urllib.error.HTTPError as e:
-            sys.stderr.write(f"[plan-patrimoine] OpenAI a répondu {e.code}\n")
-            raise ErreurAPI(502 if e.code in (400, 401, 403, 404) else (429 if e.code == 429 else 502), f"openai_{e.code}")
-        except (urllib.error.URLError, TimeoutError, OSError):
-            raise ErreurAPI(504, "reseau")
+        choix = choisir_modele(donnees, QUOTA.tokens_du_jour())  # peut refuser (429 quota_journalier) : plafond du pool rapide
+        entetes = {"Authorization": f"Bearer {cle}", "Content-Type": "application/json"}
+        for tentative in (1, 2):  # 2e tentative seulement si le modèle de raisonnement est refusé (voir choix_repli)
+            corps, modele = corps_openai(donnees, choix)
+            libelle = choix["libelle"]  # affiché au client (peut préciser « quota o3 préservé » ou « o3 indisponible »)
+            pool = choix["pool"]        # compteur de quota à créditer
+            requete = urllib.request.Request(URL_OPENAI, data=json.dumps(corps).encode("utf-8"), headers=entetes, method="POST")
+            try:
+                reponse = urllib.request.urlopen(requete, timeout=60)
+                break
+            except urllib.error.HTTPError as e:
+                sys.stderr.write(f"[plan-patrimoine] OpenAI a répondu {e.code} (modèle {modele}) : {corps_erreur_openai(e)}\n")
+                repli = choix_repli(choix, e.code, QUOTA.tokens_du_jour()) if tentative == 1 else None
+                if repli is None:
+                    raise ErreurAPI(502 if e.code in (400, 401, 403, 404) else (429 if e.code == 429 else 502), f"openai_{e.code}")
+                sys.stderr.write(f"[plan-patrimoine] Repli : {repli['modele']} en effort « {repli['effort']} » à la place de {modele}.\n")
+                choix = repli
+            except (urllib.error.URLError, TimeoutError, OSError):
+                raise ErreurAPI(504, "reseau")
 
         with reponse:
             if not donnees["stream"]:
                 data = json.loads(reponse.read().decode("utf-8"))
-                QUOTA.ajouter(data.get("usage"))
+                QUOTA.ajouter(data.get("usage"), pool)
                 texte = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-                self._json(200, {"reponse": texte, "modele": modele, "masques": donnees["masques"]})
+                self._json(200, {"reponse": texte, "modele": libelle, "masques": donnees["masques"]}, modele)
                 return
 
-            # Flux normalisé : {"delta": "..."} … puis {"fin": true, "modele": "...", "masques": n}
+            # Flux normalisé : {"modele": "..."} puis {"delta": "..."} … puis {"fin": true, "modele": "...", "masques": n}
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("X-Accel-Buffering", "no")
+            self.send_header("X-Model-Used", modele)  # identifiant technique, ASCII
             self.end_headers()
             self._flux_ouvert = True
+            self._evenement({"modele": libelle})
             usage = None
             termine = False  # OpenAI clôt toujours son flux par « [DONE] » ; sinon la réponse est tronquée
             try:
@@ -441,17 +595,17 @@ class Handler(SimpleHTTPRequestHandler):
                     except ValueError:
                         continue
                     usage = morceau.get("usage") or usage
-                    choix = morceau.get("choices") or []
-                    delta = (choix[0].get("delta") or {}).get("content") if choix else None
+                    options = morceau.get("choices") or []
+                    delta = (options[0].get("delta") or {}).get("content") if options else None
                     if delta and not self._evenement({"delta": delta}):
                         break
             except (OSError, http.client.HTTPException):
                 # Coupure côté OpenAI en plein flux : on prévient le navigateur proprement.
-                QUOTA.ajouter(usage)
+                QUOTA.ajouter(usage, pool)
                 self._evenement({"erreur": "flux"})
                 return
-            QUOTA.ajouter(usage)
-            fin = {"fin": True, "modele": modele, "masques": donnees["masques"]}
+            QUOTA.ajouter(usage, pool)
+            fin = {"fin": True, "modele": libelle, "masques": donnees["masques"]}
             if not termine:
                 fin["interrompu"] = True
             self._evenement(fin)

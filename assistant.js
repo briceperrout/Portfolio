@@ -484,9 +484,12 @@ export function construirePromptSysteme(plan, sections) {
   return `${INSTRUCTIONS}\n\nMÉMO FISCAL 2026 (prioritaire sur tes connaissances) :\n${memoFiscal(plan)}\n\nINDEX DES FICHES (seules citations autorisées) :\n${index}\n\nEXTRAITS DE FICHES :\n${extraits}\n\n(Fiches vérifiées le ${VERIFIE_LE}.)`;
 }
 
-const RE_COMPLEXE = /compar|arbitr|vaut.il mieux|plutot que|ou vendre|ou casser|simul/;
-/** Corps de la requête POST /api/chat. Les réponses locales (qui citent de vrais montants) n'en font jamais partie. */
-export function preparerRequeteCloud(question, historique, ctx) {
+/**
+ * Corps de la requête POST /api/chat. Les réponses locales (qui citent de vrais montants) n'en font jamais partie.
+ * `approfondi` (toggle « 🧠 Analyse approfondie ») est transmis tel quel : le routage vers le modèle de raisonnement
+ * (toggle ou mot-clé complexe, quota journalier) est décidé côté serveur.
+ */
+export function preparerRequeteCloud(question, historique, ctx, { approfondi = false } = {}) {
   const sections = rechercherSections(question, historique);
   const avant = historique.filter((m) => m.texte && m.source !== "accueil" && m.source !== "local" && m.source !== "action" && m !== historique[historique.length - 1]).slice(-6);
   const montants = {}; // jeton → valeur : reste dans le navigateur, jamais envoyé
@@ -495,12 +498,19 @@ export function preparerRequeteCloud(question, historique, ctx) {
     systeme: construirePromptSysteme(ctx?.plan, sections),
     profil: resumerProfilPourLLM(ctx) || "(profil non disponible)",
     messages: [...avant.map((m) => ({ role: m.role === "ia" ? "assistant" : "user", content: jeton(m.texte) })), { role: "user", content: jeton(question) }],
-    raisonnement: RE_COMPLEXE.test(norm(question)),
+    modeApprofondi: approfondi === true,
     stream: true,
   };
   return { requete, montants };
 }
-export const construireRequeteCloud = (question, historique, ctx) => preparerRequeteCloud(question, historique, ctx).requete;
+export const construireRequeteCloud = (question, historique, ctx, options) => preparerRequeteCloud(question, historique, ctx, options).requete;
+
+/** Libellé affiché du modèle actif : « o3 · raisonnement » pour la famille o (o3, o4-mini…), sinon l'identifiant tel que renvoyé
+ *  (y compris « gpt-5.4-mini (raisonnement élevé · quota o3 préservé) »). */
+export function libelleModele(modele) {
+  const m = String(modele ?? "").trim().slice(0, 80);
+  return /^o\d/.test(m) && !m.includes("·") ? `${m} · raisonnement` : m;
+}
 
 /** Remplace les liens vers des fiches inconnues par du texte et rétablit le titre exact des fiches connues. */
 export function nettoyerCitations(texte) {
@@ -624,7 +634,7 @@ class ErreurAssistant extends Error { constructor(code) { super(code); this.code
  * POST /api/chat. Lit le flux SSE { delta } … { fin } et rappelle `surTexte(texteCumulé)` à chaque morceau.
  * Repli : réponse JSON { reponse } (serveur sans flux) ou navigateur sans lecture en continu.
  */
-async function appelerCloud(requete, surTexte, signal) {
+async function appelerCloud(requete, surTexte, signal, surModele = () => {}) {
   let rep;
   try {
     rep = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requete), signal });
@@ -635,6 +645,8 @@ async function appelerCloud(requete, surTexte, signal) {
     try { code = (await rep.json()).erreur || code; } catch { /* corps non JSON */ }
     throw new ErreurAssistant(code);
   }
+  const entete = rep.headers.get("X-Model-Used"); // identifiant technique ; l'événement { modele } / { fin } porte le libellé complet
+  if (entete) surModele(entete);
   if (json) { // mode JSON classique : tout le texte d'un coup
     let j;
     try { j = await rep.json(); } catch (e) { throw e?.name === "AbortError" ? e : new ErreurAssistant("flux"); }
@@ -644,13 +656,13 @@ async function appelerCloud(requete, surTexte, signal) {
     surTexte(texte);
     return { texte, modele: j.modele, masques: j.masques ?? 0, interrompu: false };
   }
-  const flux = { texte: "", fin: null };
+  const flux = { texte: "", fin: null, modele: entete || undefined };
   const traiter = (bloc) => {
     const l = bloc.trim();
     if (!l.startsWith("data:")) return;
     let ev; try { ev = JSON.parse(l.slice(5)); } catch { return; }
     if (ev.erreur) throw new ErreurAssistant(ev.erreur);
-    if (ev.delta) { flux.texte += ev.delta; surTexte(flux.texte); } else if (ev.fin) flux.fin = ev;
+    if (ev.delta) { flux.texte += ev.delta; surTexte(flux.texte); } else if (ev.fin) flux.fin = ev; else if (typeof ev.modele === "string") { flux.modele = ev.modele; surModele(ev.modele); }
   };
   try {
     if (rep.body?.getReader) {
@@ -668,7 +680,7 @@ async function appelerCloud(requete, surTexte, signal) {
     } else (await rep.text()).split("\n\n").forEach(traiter); // pas de lecture en continu : réponse affichée d'un coup
   } catch (e) { throw e instanceof ErreurAssistant || e?.name === "AbortError" ? e : new ErreurAssistant("flux"); }
   if (!flux.texte.trim()) throw new ErreurAssistant("vide");
-  return { texte: flux.texte, modele: flux.fin?.modele, masques: flux.fin?.masques ?? 0, interrompu: !flux.fin || flux.fin.interrompu === true };
+  return { texte: flux.texte, modele: flux.fin?.modele ?? flux.modele, masques: flux.fin?.masques ?? 0, interrompu: !flux.fin || flux.fin.interrompu === true };
 }
 
 // ---------------------------------------------------------------- Markdown minimal et sûr
@@ -702,7 +714,7 @@ const ecrireReglages = (r) => { try { localStorage.setItem(CLE_REGLAGES, JSON.st
 
 const MESSAGES_ERREUR = {
   no_key: "clé OpenAI absente côté serveur", reseau: "serveur injoignable", origine_refusee: "origine refusée", trop_de_requetes: "trop de requêtes, patiente une minute",
-  openai_401: "clé OpenAI refusée", openai_429: "quota OpenAI atteint", vide: "réponse vide", flux: "flux interrompu", delai: "délai dépassé",
+  openai_401: "clé OpenAI refusée", openai_429: "quota OpenAI atteint", quota_journalier: "quota gratuit du jour préservé", vide: "réponse vide", flux: "flux interrompu", delai: "délai dépassé",
 };
 const TEXTE_WHATIF = "**Simulation What-If**\n- Voici le scénario que je peux appliquer à ton profil : un clic recalcule tes résultats et ta trajectoire.\n- Rien n'est enregistré, tu peux annuler à tout moment.";
 
@@ -722,10 +734,10 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
   if (!racine) return;
   const el = { bouton: $("assistant-bouton"), panneau: $("assistant-panneau"), badge: $("assistant-badge"), fil: $("assistant-fil"), suggestions: $("assistant-suggestions"),
     form: $("assistant-form"), saisie: $("assistant-saisie"), reglagesBtn: $("assistant-reglages-btn"), reglages: $("assistant-reglages"), consentement: $("assistant-consentement"),
-    fermer: $("assistant-fermer"), copier: $("assistant-copier"), effacer: $("assistant-effacer"), envoyer: $("assistant-envoyer"), horsLigne: $("assistant-horsligne") };
+    fermer: $("assistant-fermer"), copier: $("assistant-copier"), effacer: $("assistant-effacer"), envoyer: $("assistant-envoyer"), horsLigne: $("assistant-horsligne"), approfondi: $("assistant-approfondi") };
 
   // `epoque` change quand le fil est effacé ou qu'un autre profil est chargé : une réponse en retard est alors abandonnée.
-  const etat = { reglages: lireReglages(), serveur: { connu: false, joignable: false, actif: false, modele: "" }, fil: [], occupe: false, controleur: null, epoque: 0 };
+  const etat = { reglages: lireReglages(), serveur: { connu: false, joignable: false, actif: false, modele: "" }, fil: [], occupe: false, controleur: null, epoque: 0, approfondi: false, modeleActif: "" };
   const accueil = { role: "ia", source: "accueil", texte: `Bonjour ! Pose-moi une question sur tes placements, ton plan ou la fiscalité. Je cite les fiches du site (par exemple ${lien("mode-emploi")}).` };
 
   const ctx = () => { try { return getContexte(); } catch { return {}; } };
@@ -749,7 +761,7 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
   function majBadge(detail = "") {
     let texte = "Mode local", titre = "Réponses calculées dans ton navigateur, sans réseau.";
     if (horsLigne()) { titre = "Hors ligne : l'IA en ligne est suspendue, les réponses sont calculées dans ton navigateur."; detail = "hors ligne"; }
-    else if (cloudAutorise() && etat.serveur.joignable && etat.serveur.actif) { texte = `OpenAI ${etat.serveur.modele}`; titre = "Profil anonymisé + question envoyés à OpenAI via ton serveur."; }
+    else if (cloudAutorise() && etat.serveur.joignable && etat.serveur.actif) { texte = `OpenAI ${etat.modeleActif || etat.serveur.modele}`; titre = "Profil anonymisé + question envoyés à OpenAI via ton serveur."; }
     else if (cloudAutorise() && etat.serveur.connu && !etat.serveur.joignable) titre = "Serveur injoignable : repli local.";
     else if (cloudAutorise() && etat.serveur.joignable && !etat.serveur.actif) titre = "Clé OpenAI absente côté serveur (fichier .env) : repli local.";
     el.badge.textContent = detail ? `${texte} · ${detail}` : texte;
@@ -799,7 +811,7 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
     if (m.role === "ia" && m.source && m.source !== "accueil" && !m.enCours) {
       const p = document.createElement("div");
       p.className = "assistant-source";
-      const base = m.source === "local" ? "Réponse locale" : m.source === "action" ? "Simulation (non enregistrée)" : `OpenAI ${m.modele ?? ""}`.trim();
+      const base = m.source === "local" ? "Réponse locale" : m.source === "action" ? "Simulation (non enregistrée)" : `OpenAI ${libelleModele(m.modele)}`.trim();
       p.textContent = base + (m.note ? ` · ${m.note}` : "");
       d.appendChild(p);
     }
@@ -867,7 +879,12 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
     el.saisie.disabled = on;
     racine.dataset.occupe = String(on);
     el.fil.setAttribute("aria-busy", String(on));
+    if (el.approfondi) el.approfondi.disabled = on;
     for (const b of racine.querySelectorAll(".assistant-puce")) b.disabled = on;
+  }
+  /** Toggle « 🧠 Analyse approfondie » : état purement local (jamais persisté), transmis à chaque requête cloud. */
+  function majApprofondi() {
+    if (el.approfondi) el.approfondi.setAttribute("aria-pressed", String(etat.approfondi));
   }
 
   // -- simulations What-If
@@ -920,9 +937,10 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
         etat.controleur = controleur;
         const delai = setTimeout(() => controleur.abort(), 45000);
         try {
-          const { requete, montants } = preparerRequeteCloud(question, [...historique, utilisateur], contexte);
+          const { requete, montants } = preparerRequeteCloud(question, [...historique, utilisateur], contexte, { approfondi: etat.approfondi });
           reponse.montants = montants;
-          const r = await appelerCloud(requete, (t) => { if (perime()) return; reponse.texte = t; reponse.source = "openai"; majFlux(reponse); }, controleur.signal);
+          const r = await appelerCloud(requete, (t) => { if (perime()) return; reponse.texte = t; reponse.source = "openai"; majFlux(reponse); }, controleur.signal,
+            (m) => { if (!perime()) { etat.modeleActif = libelleModele(m); majBadge(); } }); // modèle réellement retenu par le serveur, affiché dès l'ouverture du flux
           if (perime()) return;
           const b = extraireBalises(r.texte, montants);
           const secours = b.actions.length ? [] : detecterWhatIf(question); // filet de sécurité si le modèle oublie la balise
@@ -946,6 +964,7 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
         } finally { clearTimeout(delai); if (etat.controleur === controleur) etat.controleur = null; }
       }
       if (perime()) return;
+      if (etat.approfondi) note = [note, "analyse approfondie indisponible en local"].filter(Boolean).join(" · ");
       const wi = detecterWhatIf(question);
       Object.assign(reponse, {
         texte: wi.length ? TEXTE_WHATIF : repondreLocal(question, [...historique, utilisateur], contexte),
@@ -955,6 +974,7 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
       sauverHistorique();
     } finally {
       etat.occupe = false;
+      if (etat.modeleActif) { etat.modeleActif = ""; majBadge(); } // fin de requête : le badge retrouve le modèle par défaut du serveur
       verrouiller(false);
       rendreSuggestions();
       if (!el.panneau.hidden) el.saisie.focus();
@@ -986,6 +1006,8 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
     el.bouton.setAttribute("aria-expanded", String(oui));
     racine.dataset.ouvert = String(oui);
     if (oui) {
+      etat.approfondi = false; // désactivé par défaut à chaque ouverture : le raisonnement consomme beaucoup de quota
+      majApprofondi();
       if (!etat.serveur.connu) verifierServeur(); else { majBadge(); majConsentement(); }
       rendreSuggestions();
       rendreFil();
@@ -1004,6 +1026,7 @@ export function monterAssistant({ getContexte, getCleProfil = () => "exemple:exe
   el.form.addEventListener("submit", (e) => { e.preventDefault(); poser(el.saisie.value); });
   el.saisie.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); poser(el.saisie.value); } });
   el.copier.addEventListener("click", copierContexte);
+  el.approfondi?.addEventListener("click", () => { if (etat.occupe) return; etat.approfondi = !etat.approfondi; majApprofondi(); });
   el.reglagesBtn.addEventListener("click", () => {
     const ouvert = el.reglages.hidden;
     el.reglages.hidden = !ouvert;
