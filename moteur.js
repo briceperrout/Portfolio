@@ -1342,6 +1342,42 @@ export function analyser(plan, profilSaisi) {
   return { profil, capital: C, alloc, etapes, lignes, actuel, reeq, mouvements, achat, per, abondement, consignes: cons };
 }
 
+// Équilibre des contributions aux charges du foyer : ce que chacun paie, comparé à une contribution proportionnelle aux revenus
+// (art. 214 C. civ. : « à proportion de leurs facultés »). Concubins : dépenses de chacun (profil, conjoint) ; marié ou pacsé : dépenses du couple
+// et part payée par le conjoint (`conjoint.partCharges`, en %, facultative). `manqueAGagner` : épargne que celui qui paie trop n'a pas
+// accumulée sur l'horizon (rendement prudent du plan), pertinent seulement si l'épargne reste personnelle (`separatif`).
+export function equilibreContributions(profil, plan, { horizonAns = 10 } = {}) {
+  // Profil brut ou ramené au foyer par normaliserFoyer (salaires, et dépenses des concubins, additionnés ; vrai foyer dans foyerSuccession en « vue moi »)
+  const foyer = profil?.foyerSuccession ?? profil?.foyer;
+  if (!foyer?.actif) return null;
+  const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : 0);
+  const fusionne = profil.couple === true;
+  const rB = Math.max(0, num(profil.conjoint?.salaireNetMensuel)), rA = Math.max(0, num(profil.salaireNetMensuel) - (fusionne ? rB : 0));
+  if (rA + rB <= 0) return null;
+  const concubin = foyer.statut === "concubin";
+  let payeA, payeB, D;
+  if (concubin) {
+    payeB = Math.max(0, num(profil.conjoint?.depensesMensuelles)); payeA = Math.max(0, num(profil.depensesMensuelles) - (fusionne ? payeB : 0)); D = payeA + payeB;
+  } else {
+    const brut = profil.conjoint?.partCharges;
+    if (brut === undefined || brut === null || brut === "" || !Number.isFinite(Number(brut))) return { disponible: false, raison: "partCharges" };
+    D = Math.max(0, num(profil.depensesMensuelles));
+    payeB = (D * Math.min(100, Math.max(0, Number(brut)))) / 100; payeA = D - payeB;
+  }
+  const theoriqueB = (D * rB) / (rA + rB), theoriqueA = D - theoriqueB;
+  const ecart = payeB - theoriqueB;
+  const separatif = concubin || profil.succession?.union === "pacs" || (profil.succession?.regime === "separation");
+  const r = Number(plan?.hypotheses?.rendements?.prudent) || 0;
+  const rm = Math.pow(1 + r / 100, 1 / 12) - 1, n = Math.max(0, Math.round(Number(horizonAns) || 0)) * 12;
+  const manque = Math.abs(ecart) * (rm === 0 ? n : (Math.pow(1 + rm, n) - 1) / rm);
+  const R = (x) => Math.round(x);
+  return {
+    disponible: true, separatif, D: R(D), payeA: R(payeA), payeB: R(payeB), theoriqueA: R(theoriqueA), theoriqueB: R(theoriqueB),
+    ecart: R(ecart), surcontributeur: ecart > 0 ? "B" : ecart < 0 ? "A" : null, virementMensuel: R(Math.abs(ecart)),
+    horizonAns: n / 12, rendement: r, manqueAGagner: R(manque),
+  };
+}
+
 export { eur, pct };
 
 // ================================================================ Import de relevés (CSV / Excel) et prix de revient

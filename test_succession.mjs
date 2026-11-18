@@ -1,5 +1,5 @@
 // Tests du simulateur successoral — node test_succession.mjs
-import { droitsBareme, valeurUsufruit, rappelFiscal, droitsEnfant, droitsConcubin, droitsAV990I, reserveHereditaire, masseSuccessorale, optionsPossibles, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, calendrierAbattements, entreeDepuisProfil, droitsSurRegistre, reserveAVTransmissible } from "./succession.js";
+import { droitsBareme, valeurUsufruit, rappelFiscal, droitsEnfant, droitsConcubin, droitsAV990I, reserveHereditaire, masseSuccessorale, optionsPossibles, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, calendrierAbattements, entreeDepuisProfil, droitsSurRegistre, reserveAVTransmissible, partageSeparation, partageDepuisProfil, comparerStatutsConjugaux } from "./succession.js";
 import { PLAN } from "./plan.js";
 import { normaliserFoyer } from "./moteur.js";
 import { ABATTEMENT_AV_DECES, AV_DECES } from "./fiscal.js";
@@ -178,6 +178,37 @@ verifier("réserve AV : marié, clause enfants", resA({ actif: true, statut: "ma
 verifier("réserve AV : concubin, clause conjoint", resA({ actif: true, statut: "concubin" }, "conjoint_puis_enfants"), 152500);
 verifier("réserve AV : seul, 2 enfants", resA({ actif: false }, "conjoint_puis_enfants"), 305000);
 verifier("réserve AV : seul sans enfant", resA({ actif: false }, "enfants", 0), 152500);
+
+// Partage en cas de séparation
+{
+  const base = { actifs: [{ libelle: "Maison", valeur: 400000, nature: "commun" }, { libelle: "Bien propre", valeur: 100000, nature: "propre" }], dettes: [{ libelle: "Crédit", montant: 100000, nature: "commun" }], patrimoineConjointPropre: 50000 };
+  let r = partageSeparation({ ...base, situation: "mariage", regime: "communaute_legale" });
+  verifier("partage communauté légale A", r.A.net, 250000, 0); verifier("partage communauté légale B", r.B.net, 200000, 0);
+  r = partageSeparation({ ...base, situation: "mariage", regime: "separation" });
+  verifier("partage séparation A", r.A.net, 250000, 0); verifier("partage séparation B", r.B.net, 200000, 0);
+  r = partageSeparation({ ...base, situation: "mariage", regime: "communaute_universelle" });
+  verifier("partage universelle A", r.A.net, 225000, 0); verifier("partage universelle B", r.B.net, 225000, 0);
+  r = partageSeparation({ ...base, situation: "pacs" }, { quotePartA: 70 });
+  verifier("partage pacs 70 % A", r.A.net, 310000, 0); verifier("partage pacs 70 % B", r.B.net, 140000, 0);
+  verifier("partage : prestation compensatoire hors périmètre en mariage", partageSeparation({ ...base, situation: "mariage" }).horsPerimetre.some((t) => t.includes("Prestation compensatoire")), true);
+  verifier("partage : pas de prestation compensatoire en PACS", !r.horsPerimetre.some((t) => t.includes("Prestation compensatoire")), true);
+  verifier("partage seul : null", partageSeparation({ ...base, situation: "seul" }), null);
+}
+// Comparateur des statuts conjugaux
+{
+  const seul = { age: 50, enfants: 1, salaireNetMensuel: 3000, foyer: { actif: false }, placements: { pea: 200000 } };
+  verifier("comparateur : null si seul", comparerStatutsConjugaux(seul), null);
+  const couple = { age: 50, enfants: 0, salaireNetMensuel: 3500, foyer: { actif: true, statut: "marie" }, conjoint: { age: 48, salaireNetMensuel: 2000 }, placements: { pea: 200000, assuranceVie: 100000 }, proprietaire: true, logement: { valeur: 300000, part: 100, usage: "rp" }, succession: { regime: "communaute_legale" } };
+  const c = comparerStatutsConjugaux(couple);
+  verifier("comparateur : 5 lignes", c.lignes.length, 5, 0);
+  verifier("comparateur : ordre des statuts", c.lignes.map((l) => l.statut).join(","), "concubin,concubin,pacs,pacs,mariage");
+  verifier("comparateur : concubin >= pacs avec testament", c.lignes[0].droitsSurvivant >= c.lignes[3].droitsSurvivant && c.lignes[1].droitsSurvivant >= c.lignes[3].droitsSurvivant, true);
+  // Sans testament, le concubin ne reçoit que l'assurance-vie (sous l'abattement de 152 500 € : aucun droit) ; avec testament, il est taxé à 60 %
+  verifier("comparateur : droits concubin avec testament > 0", c.lignes[1].droitsSurvivant > 0, true);
+  verifier("comparateur : droits pacs = 0", c.lignes[2].droitsSurvivant + c.lignes[3].droitsSurvivant, 0);
+  verifier("comparateur : droits mariage = 0", c.lignes[4].droitsSurvivant, 0);
+  verifier("comparateur : héritier légal seulement mariage", c.lignes.map((l) => l.heritierLegal).join(","), "false,false,false,false,true");
+}
 
 console.log(`${ok} vérifications réussies, ${ko} échec(s)`);
 process.exit(ko ? 1 : 0);

@@ -1,6 +1,6 @@
 import { PLAN } from "./plan.js";
 import { analyserTaux, DEVISES, NOM_DEVISE, devisesParDefaut, DEVISES_COMPTES, TYPES_COMPTES_ETRANGERS, TAUX_REFERENCE, tauxEffectifs, consoliderEtrangers, avecComptesEtrangers, expositionChange } from "./devises.js";
-import { analyser, capitalDe, GROUPES_PLACEMENTS, grouperAllocation, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer, consequencesDepart, NOTE_CONSEQUENCES_DEPART } from "./moteur.js";
+import { analyser, capitalDe, GROUPES_PLACEMENTS, grouperAllocation, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer, consequencesDepart, NOTE_CONSEQUENCES_DEPART, equilibreContributions } from "./moteur.js";
 import { projetLocatifDe, analyseLocatif, mensualitePret } from "./locatif.js";
 import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, libertePatrimoine, moisPrecaution, referenceSuivi, prevuA, moisEntre, situationFuture, contexteRetraite, evaluerRetraite, capitalNecessaire, CRISES, simulerCrise, fluxLocatif, backtesterHistorique, scenarioInflation, SCENARIO_INFLATION } from "./projection.js";
 import { HISTORIQUE } from "./historique.js";
@@ -11,7 +11,7 @@ import { FICHES as CONTENU_FICHES, VERIFIE_LE, PARCOURS_DEBUTANT } from "./fiche
 import { LEXIQUE, lierTermes } from "./lexique.js";
 import { DEPARTEMENTS, chargerPrix, prixCharges, estimer, estimerLoyer, libelleCommune, chercherCommunes, codeCommune } from "./immobilier.js";
 import { estimerPension, ageEnTexte } from "./pension.js";
-import { entreeDepuisProfil, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, optionsPossibles, reserveAVTransmissible } from "./succession.js";
+import { entreeDepuisProfil, comparerStatutsConjugaux, partageDepuisProfil, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, optionsPossibles, reserveAVTransmissible } from "./succession.js";
 import { decomposerSalaire, foyerFiscal, impotBareme, tauxMarginalEffectif, BAREME, exitTax, PRELEVEMENTS, PFU, PLAFONDS, ABATTEMENT_AV, SEUIL_PRIMES_AV, alerteMillesime } from "./fiscal.js";
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
 import { plafondPEREstime, revenuImposableDe, economieInteressement, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER, etatReleve, comparerReleve } from "./moteur.js";
@@ -602,6 +602,7 @@ function rendreResultats() {
   const niveau = niveauCourant(), deb = niveau === "debutant";
   etat.resultat = res;
   majAlertes(sim.futur ? undefined : res, !!sim.futur); // point central de recalcul : au démarrage et après chaque changement du profil ou du plan
+  rendreEquilibre();
   if (!$("#vue-ideale").hidden) rendreEpargneIdeale();
   const etranger = sim.futur ? 0 : consoliderEtrangers(etat.profil, tauxEffectifs(etat.profil, etat.tauxDuJour).taux).totalEUR;
   $("#total-capital").textContent = eur(res.capital);
@@ -2979,6 +2980,7 @@ function majSituation() {
   const nom = p.conjoint?.prenom?.trim() || "ton conjoint";
   $("#bloc-budget-conjoint").hidden = s === "seul";
   document.querySelectorAll(".ligne-concubin").forEach((e) => { e.hidden = !concubin; });
+  document.querySelectorAll(".ligne-marie").forEach((e) => { e.hidden = !marie; });
   $("#titre-budget-conjoint").textContent = concubin ? `Budget de ${nom}` : `Salaire de ${nom}`;
   $("#c-salaire").closest(".champ").querySelector("label").textContent = "Son salaire net après impôt";
   const lab = (id, t) => { const l = $(id)?.closest(".champ")?.querySelector("label"); if (l) l.firstChild.textContent = t; };
@@ -3147,6 +3149,29 @@ function majAideRetraite0() {
   }
   let est = null; try { est = estimerPensionProfil(); } catch { /* profil incomplet */ }
   el.innerHTML = `${pension > 0 ? `Le plan compte ${eur(pension)} par mois de retraite publique à partir de ${rr.agePension ?? plan.retraitePublique?.ageLegal ?? 64} ans.` : "Par prudence, 0 € de retraite publique est compté : tout viendrait de tes placements."}${est ? ` Estimation pour ton profil : environ <b>${eur(est.montant)}</b> par mois après impôt, à partir de ${est.age} ans (${est.est.trimestres} trimestres).` : ""} Âge légal pour toi : ${est ? ageEnTexte(est.est.regles.ageLegal) : "64 ans"} ; on peut arrêter de travailler avant, mais la retraite publique n'est versée qu'à partir de cet âge. <a class="lien-fiche" href="#retraite">Le détail dans l'onglet 4</a>`;
+}
+// Équilibre des contributions aux charges du foyer (Profil) : texte issu de equilibreContributions ; le MutationObserver de la discrétion masque les montants à l'insertion.
+function rendreEquilibre() {
+  const sortie = $("#eq-resultat"); if (!sortie) return;
+  let r = null;
+  try { r = equilibreContributions(profilPourMoteur(), etat.brouillon); } catch (e) { console.error(e); }
+  if (!r) { sortie.innerHTML = ""; sortie.hidden = true; return; }
+  sortie.hidden = false;
+  if (!r.disponible) { sortie.innerHTML = `<p class="note" style="margin:0">Renseigne la part des dépenses du foyer payée par ton conjoint pour vérifier que chacun contribue à proportion de ses revenus.</p>`; return; }
+  const prenom = etat.profil.conjoint?.prenom?.trim() || "Ton conjoint";
+  const nom = r.surcontributeur === "B" ? prenom : "Toi";
+  let texte;
+  if (Math.abs(r.ecart) < 1) texte = "Contributions équilibrées : chacun paie la part qui correspond à ses revenus.";
+  else {
+    texte = `${nom === "Toi" ? "Tu paies" : `${echapper(prenom)} paie`} <b>${eur(Math.abs(r.ecart))}</b> par mois de plus que la répartition proportionnelle aux revenus. ${r.surcontributeur === "B" ? `Un virement de <b>${eur(r.virementMensuel)}</b> par mois de ta part vers ${etat.profil.conjoint?.prenom?.trim() ? echapper(prenom) : "ton conjoint"} rééquilibrerait les contributions.` : `Un virement de <b>${eur(r.virementMensuel)}</b> par mois de la part de ${etat.profil.conjoint?.prenom?.trim() ? echapper(prenom) : "ton conjoint"} vers toi rééquilibrerait les contributions.`}`;
+    texte += r.separatif
+      ? ` Sur ${r.horizonAns} ans, ${nom === "Toi" ? "tu n'accumules pas" : `${echapper(prenom)} n'accumule pas`} environ <b>${eur(r.manqueAGagner)}</b> (rendement prudent du plan, ${pct(r.rendement)} par an) : en séparation de biens, en PACS ou en concubinage, l'épargne reste à celui qui la constitue.`
+      : " En communauté, l'épargne issue des revenus appartient au couple : cet écart ne crée pas de différence de patrimoine.";
+  }
+  sortie.innerHTML = `<div class="table-wrap"><table><thead><tr><th></th><th class="m">Contribution à proportion des revenus</th><th class="m">Payé aujourd'hui</th></tr></thead><tbody>
+    <tr><td>Toi</td><td class="m">${eur(r.theoriqueA)}</td><td class="m">${eur(r.payeA)}</td></tr>
+    <tr><td>${echapper(prenom)}</td><td class="m">${eur(r.theoriqueB)}</td><td class="m">${eur(r.payeB)}</td></tr></tbody></table></div>
+    <p class="small" style="margin:8px 0 0">${texte}</p>`;
 }
 $("#profil").addEventListener("input", (e) => {
   const el = e.target;
@@ -4967,6 +4992,45 @@ function rendreTransmission() {
     </section>`;
   }
   sortie.innerHTML = synthese + options;
+
+  // Concubinage, PACS ou mariage ? (même profil et même année que la simulation ci-dessus)
+  const stat = $("#tm-statuts"), part = $("#tm-partage");
+  let cmp = null, sep = null;
+  try { cmp = comparerStatutsConjugaux(profilDeCalcul(p), annee); } catch (e) { console.error(e); }
+  try { sep = partageDepuisProfil(profilDeCalcul(p), annee); } catch (e) { console.error(e); }
+  const STATUT_TEXTE = { concubin: "Concubinage", pacs: "PACS", mariage: "Mariage" };
+  if (stat) {
+    if (!cmp) stat.innerHTML = "";
+    else {
+      const g = cmp.impot.gainCommun;
+      const phrase = Math.abs(g) < 1 ? "Imposition commune : aucune différence d'impôt par rapport à deux déclarations séparées." : g > 0 ? `Imposition commune : <b>${eur(g)}</b> d'impôt en moins par an.` : `Imposition commune : <b>${eur(-g)}</b> d'impôt en plus par an.`;
+      const corps = cmp.lignes.map((l) => `<tr><td>${STATUT_TEXTE[l.statut] ?? l.statut}${l.testament ? " + testament" : ""}</td><td class="m">${eur(l.impotAnnuel)}</td><td class="m">${eur(l.droitsSurvivant)}</td><td class="m">${eur(l.netSurvivant)}</td><td>${l.heritierLegal ? "Oui" : "Non"}</td></tr>`).join("");
+      stat.innerHTML = `<section class="panneau">
+        <h2>Concubinage, PACS ou mariage ?</h2>
+        <p class="small" style="margin:0 0 8px">${phrase}</p>
+        <div class="table-wrap"><table><thead><tr><th>Statut</th><th class="m">Impôt sur le revenu / an</th><th class="m">Droits au décès</th><th class="m">Net reçu par le survivant</th><th>Héritier sans testament</th></tr></thead><tbody>${corps}</tbody></table></div>
+        <details style="margin-top:8px"><summary class="small">Hypothèses</summary><ul class="points">${cmp.hypotheses.map((h) => `<li>${echapper(h)}</li>`).join("")}</ul></details>
+      </section>`;
+    }
+  }
+  if (part) {
+    if (!sep) part.innerHTML = "";
+    else {
+      const prenom = echapper(p.conjoint?.prenom?.trim() || "Ton conjoint");
+      const REGIME_TEXTE = { communaute_legale: "communauté réduite aux acquêts", separation: "séparation de biens", communaute_universelle: "communauté universelle" };
+      const regime = sep.situation === "mariage" ? `, régime : ${REGIME_TEXTE[sep.regime] ?? echapper(sep.regime ?? "")}` : "";
+      const ligne = (nom, x) => `<tr><td>${nom}</td><td class="m">${eur(x.propres)}</td><td class="m">${eur(x.communs)}</td><td class="m">${eur(x.dettes)}</td><td class="m"><b>${eur(x.net)}</b></td></tr>`;
+      const phraseEcart = Math.abs(sep.ecart) < 1 ? "Le partage laisse à chacun le même patrimoine net." : `Le partage laisse à ${sep.ecart > 0 ? "toi" : prenom} <b>${eur(Math.abs(sep.ecart))}</b> de patrimoine net de plus.`;
+      part.innerHTML = `<section class="panneau">
+        <h2>En cas de séparation</h2>
+        <p class="small muted" style="margin:0 0 8px">Situation actuelle : ${SITUATION_TEXTE[sep.situation] ?? sep.situation}${regime}.</p>
+        <div class="table-wrap"><table><thead><tr><th></th><th class="m">Biens propres</th><th class="m">Part des biens communs ou indivis</th><th class="m">Dettes</th><th class="m">Patrimoine net</th></tr></thead><tbody>${ligne("Toi", sep.A)}${ligne(prenom, sep.B)}</tbody></table></div>
+        <p style="margin:8px 0 0">${phraseEcart}</p>
+        <details style="margin-top:8px"><summary class="small">Hypothèses et points non pris en compte</summary><ul class="points">${sep.hypotheses.map((h) => `<li>${echapper(h)}</li>`).join("")}</ul><p class="small" style="margin:6px 0 0">Non pris en compte :</p><ul class="points">${sep.horsPerimetre.map((h) => `<li>${echapper(h)}</li>`).join("")}</ul></details>
+        <p class="note" style="margin:8px 0 0">Estimation indicative : seul un notaire ou un avocat chiffre un partage réel.</p>
+      </section>`;
+    }
+  }
 
   // Donation de nue-propriété
   const D = p.succession?.projetDonation ?? {};

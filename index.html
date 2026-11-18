@@ -629,8 +629,10 @@ html.discret .num { letter-spacing: 0.05em; }
               <div class="champ ligne-concubin"><label for="c-epargne">Son épargne</label><div class="saisie" data-budget-c="epargneMensuelle"><input id="c-epargne" type="number" min="0" step="50" data-p="conjoint.epargneMensuelle"><span>€/mois</span></div></div>
               <div class="champ ligne-concubin"><label for="c-depenses">Ses dépenses (sa part du loyer et des crédits comprise)</label><div class="saisie" data-budget-c="depensesMensuelles"><input id="c-depenses" type="number" min="0" step="50" data-p="conjoint.depensesMensuelles"><span>€/mois</span></div></div>
               <div class="champ ligne-concubin" data-min="avance"><label for="p-vue">Calculer ton patrimoine</label><select id="p-vue" data-p="foyer.vue"><option value="moi">Pour toi seul(e) : ton épargne et tes placements</option><option value="foyer">Pour le couple : épargnes et placements des deux</option></select></div>
+              <div class="champ ligne-marie" data-min="intermediaire"><label for="c-part-charges">Part des dépenses du foyer payée par ton conjoint (%)</label><div class="saisie"><input id="c-part-charges" type="number" min="0" max="100" step="5" data-p="conjoint.partCharges" placeholder="non renseigné"><span>%</span></div><p class="note" style="margin:2px 0 0">Pour vérifier que chacun contribue à proportion de ses revenus.</p></div>
               <p class="note" id="aide-budget-conjoint" style="margin:0"></p>
             </div>
+            <div id="eq-resultat" data-min="intermediaire" hidden></div>
             <div class="champ" data-min="intermediaire"><label for="p-carriere">Évolution de ta carrière</label><select id="p-carriere" data-p="carriere"></select></div>
             <p class="note" id="aide-carriere" data-min="intermediaire" style="margin:-4px 0 0"></p>
             <div class="champ" data-min="avance"><label for="p-salaire10">Ton salaire net après impôt espéré dans 10 ans (facultatif)</label><div class="saisie"><input id="p-salaire10" type="number" min="0" step="100" data-p="salaireDans10Ans" placeholder="estimé"><span>€/mois</span></div></div>
@@ -917,6 +919,8 @@ html.discret .num { letter-spacing: 0.05em; }
         </div>
       </fieldset></div>
       <div class="pile" id="tm-resultat"></div>
+      <div class="pile" id="tm-statuts" data-min="intermediaire"></div>
+      <div class="pile" id="tm-partage" data-min="avance"></div>
       <div class="panneau" id="tm-donation" data-min="intermediaire"><fieldset>
         <legend>Donation de nue-propriété</legend>
         <p class="note" id="tm-don-note" style="margin:0">Donner la nue-propriété d'un bien en gardant l'usufruit : les droits sont calculés sur la seule valeur de la nue-propriété (art. 669 du CGI), et l'abattement de 100 000 € par enfant se recharge tous les 15 ans.</p>

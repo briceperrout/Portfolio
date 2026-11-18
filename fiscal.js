@@ -198,6 +198,45 @@ export function revenuImposableSalaires(profil) {
   return decomposerSalaire(base, { parts: ff.parts, partsBase: ff.partsBase }).netAvant * 12 * 0.9;
 }
 
+// Revenus imposables ANNUELS (après l'abattement de 10 %, comme revenuImposableSalaires) de chaque conjoint, ou null hors couple.
+// Imposition commune (marié, PACS) : le net avant impôt du total est remonté avec les parts du foyer, puis réparti au prorata des nets après impôt.
+// Concubins : A porte les enfants (parts du foyer, base 1), B déclare seul.
+// Accepte le profil brut comme le profil ramené au foyer par normaliserFoyer (salaires additionnés ; en concubinage « vue moi », le vrai foyer est dans foyerSuccession).
+export function revenusImposablesConjoints(profil) {
+  const foyer = profil?.foyerSuccession ?? profil?.foyer;
+  if (!foyer?.actif) return null;
+  const fini = (x) => (Number.isFinite(x) && x > 0 ? x : 0);
+  const sB = fini(Number(profil.conjoint?.salaireNetMensuel));
+  const sA = fini(Number(profil.salaireNetMensuel) - (profil.couple === true ? sB : 0));
+  const ff = foyerFiscal({ ...profil, foyer });
+  if (ff.commun) {
+    const total = sA + sB;
+    const avant = fini(decomposerSalaire(total, { parts: ff.parts, partsBase: ff.partsBase, autresMensuels: ff.autresMensuels }).netAvant);
+    const partA = total > 0 ? sA / total : 0.5;
+    return { a: avant * 12 * 0.9 * partA, b: avant * 12 * 0.9 * (total > 0 ? 1 - partA : 0.5) };
+  }
+  return {
+    a: fini(decomposerSalaire(sA, { parts: ff.parts, partsBase: 1 }).netAvant) * 12 * 0.9,
+    b: fini(decomposerSalaire(sB, { parts: 1, partsBase: 1 }).netAvant) * 12 * 0.9,
+  };
+}
+
+// Impôt annuel du couple selon le statut : déclaration commune (mariage, PACS) ou deux déclarations (concubinage, sans case T).
+// Concubins : les enfants se répartissent entre les deux déclarations pour minimiser le total. gainCommun > 0 : l'imposition commune fait économiser.
+export function impotSelonStatut({ revenuA = 0, revenuB = 0, enfants = 0 } = {}) {
+  const num = (x) => (Number.isFinite(Number(x)) && Number(x) > 0 ? Number(x) : 0);
+  const rA = num(revenuA), rB = num(revenuB), n = Math.max(0, Math.round(Number(enfants) || 0));
+  const parts = 2 + partsEnfants(n);
+  const commun = { impot: impotBareme(rA + rB, parts, 2).impot, parts };
+  let meilleur = null;
+  for (let k = 0; k <= n; k++) {
+    const impotA = impotBareme(rA, 1 + partsEnfants(k), 1).impot;
+    const impotB = impotBareme(rB, 1 + partsEnfants(n - k), 1).impot;
+    if (!meilleur || impotA + impotB < meilleur.impot) meilleur = { impot: impotA + impotB, impotA, impotB, enfantsA: k, enfantsB: n - k };
+  }
+  return { commun, separe: meilleur, gainCommun: meilleur.impot - commun.impot };
+}
+
 // Taux marginal EFFECTIF : ce que coûte réellement le dernier euro de revenu (impôt(R) − impôt(R − pas)) / pas, en %.
 // Il diffère de la tranche légale (`tmi`) : la décote le majore (≈ 1,4525 × le taux de tranche dans sa zone, soit ≈ 16 % en tranche à 11 %),
 // il peut être nul quand la tranche est à 11 % (impôt annulé par la décote), et le plafonnement du quotient familial le fait varier.

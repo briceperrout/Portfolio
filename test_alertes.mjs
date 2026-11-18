@@ -2,8 +2,9 @@
 import { readFileSync } from "node:fs";
 import { PLAN } from "./plan.js";
 import { PLAFONDS } from "./fiscal.js";
-import { detecterAlertes, livretsPleins, derive, av70, fenetreCTO, bilanMensuel, dernierJourCession, SEUIL_DERIVE } from "./alertes.js";
+import { detecterAlertes, livretsPleins, derive, av70, fenetreCTO, bilanMensuel, dernierJourCession, SEUIL_DERIVE, desequilibre as desequilibreCharges, SEUIL_DESEQUILIBRE } from "./alertes.js";
 import { echeancesProfil, versCSV } from "./calendrier.js";
+import { equilibreContributions, normaliserFoyer } from "./moteur.js";
 import { prevuA, moisEntre } from "./projection.js";
 import { MARCHE, PLUS_VALUES } from "./fiscal.js";
 
@@ -109,6 +110,41 @@ verifier(ech && versCSV([ech]).includes("12/29/2026"), "calendrier : CSV avec le
 const apres = echeancesProfil(PLAN, avecCTO, { aujourdhui: new Date(2026, 11, 30) }).find((e) => e.titre.startsWith("Dernier jour de cession"));
 verifier(apres && apres.date.getFullYear() === 2027, "calendrier : année suivante une fois la date passée");
 verifier(!echeancesProfil(PLAN, sansCTO, { aujourdhui: AUJOURDHUI }).some((e) => e.titre.startsWith("Dernier jour de cession")), "calendrier : rien sans CTO");
+
+// Équilibre des contributions
+{
+  const plan0 = { ...clone(PLAN), hypotheses: { ...clone(PLAN.hypotheses), rendements: { ...clone(PLAN.hypotheses.rendements), prudent: 0 } } };
+  const concubin = (payeA, payeB) => ({ ...clone(EXEMPLE), salaireNetMensuel: 3000, depensesMensuelles: payeA, foyer: { actif: true, statut: "concubin" }, conjoint: { prenom: "", salaireNetMensuel: 2000, depensesMensuelles: payeB } });
+  {
+    const brut = concubin(1000, 1500), marie = { ...concubin(1000, 1500), foyer: { actif: true, statut: "marie" }, conjoint: { salaireNetMensuel: 2000, partCharges: 75 } };
+    for (const [nom, p] of [["concubin", brut], ["marié", marie]]) {
+      const a = equilibreContributions(p, plan0), b = equilibreContributions(normaliserFoyer(PLAN, clone(p)), plan0);
+      verifier(a && JSON.stringify(a) === JSON.stringify(b), `équilibre : profil brut = profil fusionné (${nom})`);
+    }
+    const moi = { ...clone(brut), foyer: { actif: true, statut: "concubin", vue: "moi" } };
+    verifier(JSON.stringify(equilibreContributions(moi, plan0)) === JSON.stringify(equilibreContributions(normaliserFoyer(PLAN, clone(moi)), plan0)), "équilibre : concubin « vue moi » identique une fois normalisé");
+  }
+  let r = equilibreContributions(concubin(1000, 1500), plan0);
+  verifier(r.disponible && r.ecart === 500, "équilibre concubin : écart 500");
+  verifier(r.surcontributeur === "B", "équilibre concubin : B paie trop");
+  verifier(r.manqueAGagner === 60000, "équilibre concubin : manque à gagner 60 000 (rendement 0)");
+  verifier(r.separatif === true, "équilibre concubin : séparatif");
+  verifier(ids(desequilibreCharges(concubin(1000, 1500), plan0)).includes("desequilibre"), "équilibre : alerte pour 500 €/mois");
+  verifier(ids(detecterAlertes(plan0, concubin(1000, 1500), { aujourdhui: AUJOURDHUI })).includes("desequilibre"), "équilibre : alerte dans detecterAlertes");
+  verifier(desequilibreCharges(concubin(1000, 1500), plan0)[0].vue === "mon-profil", "équilibre : renvoie vers l'onglet Profil (#mon-profil)");
+  // Écart de 100 €/mois : payeA 1400 / payeB 1100 pour D = 2500, théorique B = 1000
+  r = equilibreContributions(concubin(1400, 1100), plan0);
+  verifier(r.ecart === 100, "équilibre : écart 100");
+  verifier(desequilibreCharges(concubin(1400, 1100), plan0).length === 0, "équilibre : pas d'alerte à 100 €/mois");
+  const marie = { ...clone(EXEMPLE), salaireNetMensuel: 3000, depensesMensuelles: 2500, foyer: { actif: true, statut: "marie" }, conjoint: { salaireNetMensuel: 2000 }, succession: { regime: "communaute_legale" } };
+  verifier(equilibreContributions(marie, plan0).disponible === false, "équilibre marié sans partCharges : indisponible");
+  const marieP = { ...marie, conjoint: { salaireNetMensuel: 2000, partCharges: 80 } };
+  r = equilibreContributions(marieP, plan0);
+  verifier(r.disponible && r.separatif === false, "équilibre communauté : non séparatif");
+  verifier(!ids(detecterAlertes(plan0, marieP, { aujourdhui: AUJOURDHUI })).includes("desequilibre"), "équilibre communauté : aucune alerte");
+  verifier(equilibreContributions({ ...marie, foyer: { actif: false } }, plan0) === null, "équilibre : null hors couple");
+  verifier(SEUIL_DESEQUILIBRE.euros === 150, "seuil de déséquilibre exporté");
+}
 
 console.log(`test_alertes : ${ok} vérifications OK, ${ko} échec(s)`);
 if (ko) process.exit(1);

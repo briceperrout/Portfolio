@@ -60,7 +60,7 @@ export const MATRICE = {
     // « Ton activité d'indépendant » (bloc entier) et résidence fiscale
     "bloc-independant": A, "p-pays": A, "ligne-impot-pays": A,
     // « Ton budget »
-    "p-credits": I, "bloc-budget-conjoint": I, "p-vue": A, "p-carriere": I, "p-salaire10": A,
+    "p-credits": I, "bloc-budget-conjoint": I, "c-part-charges": I, "eq-resultat": I, "p-vue": A, "p-carriere": I, "p-salaire10": A,
     // « Ton logement » (le choix propriétaire/locataire et le loyer restent visibles partout)
     "lg-valeur": I, "lg-credit": I, "lg-mens": I,
     "lg-usage": A, "lg-origine": A, "lg-part": A, "lg-fin": A, "lg-loyer": A, "lg-charges": A, "lg-regime": A,
@@ -97,7 +97,7 @@ export const MATRICE = {
   transmission: {
     "tm-ch-union": I, "tm-ch-regime": I, "tm-ch-testament": I, "tm-ch-mineur": I, "tm-ch-clause": I,
     "tm-ch-option": A, "tm-ch-ddv": A, "tm-ch-noncommuns": A, "tm-ch-propres": A, "tm-ch-assurance": A, "tm-ch-donation-anterieure": A, "tm-ch-donation-annee": A,
-    "tm-options": A, "tm-donation": I, "bloc-depart": A,
+    "tm-options": A, "tm-statuts": I, "tm-partage": A, "tm-donation": I, "bloc-depart": A,
     "tm-ch-don-valeur": I, "tm-ch-don-croissance": I, "tm-ch-don-annees": I,
   },
   // Retraite : ids du gabarit de rendreRetraite() (app.js). En Débutant la page est remplacée par « ret-simple » + « ret-verdict-bloc » (data-seul).

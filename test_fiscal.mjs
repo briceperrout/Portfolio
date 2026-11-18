@@ -1,6 +1,6 @@
 // Tests de la fiscalité des indépendants et de la centralisation des taux — node test_fiscal.mjs
-import { alerteMillesime, FISCALITE, MILLESIME, PLAFONDS, BAREME, PFU, PRELEVEMENTS, DECOTE, PLAFOND_DEMI_PART, partsEnfants, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes, exitTax, economieDeduction, tauxMarginalEffectif } from "./fiscal.js";
-import { conseilPER, revenuImposableDe } from "./moteur.js";
+import { alerteMillesime, FISCALITE, MILLESIME, PLAFONDS, BAREME, PFU, PRELEVEMENTS, DECOTE, PLAFOND_DEMI_PART, partsEnfants, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes, exitTax, economieDeduction, tauxMarginalEffectif, impotSelonStatut, revenusImposablesConjoints } from "./fiscal.js";
+import { conseilPER, revenuImposableDe, normaliserFoyer } from "./moteur.js";
 import { PLAN } from "./plan.js";
 import { estimerPension } from "./pension.js";
 
@@ -290,6 +290,37 @@ verifier("barème indexé 1,1", impotBaremeIndexe(33000, 2, 2, 1.1).impot, impot
   verifier("alerte millésime : niveau", a?.niveau, "info");
   verifier("alerte millésime : cite 2026 et 2027", a.texte.includes("2026") && a.texte.includes("2027"), true);
   verifier("alerte millésime : aucun montant", /\d[\d\s]*€/.test(a.texte), false);
+}
+
+// Impôt selon le statut du couple (commun ou séparé)
+{
+  let r = impotSelonStatut({ revenuA: 50000, revenuB: 0, enfants: 0 });
+  verifier("statut : commun A seul", r.commun.impot, impotBareme(50000, 2, 2).impot, 0.01);
+  verifier("statut : séparé A seul", r.separe.impot, impotBareme(50000, 1, 1).impot, 0.01);
+  verifier("statut : gain commun positif (un seul revenu)", r.gainCommun > 0, true);
+  r = impotSelonStatut({ revenuA: 60000, revenuB: 60000, enfants: 0 });
+  verifier("statut : deux revenus égaux, écart quasi nul", Math.abs(r.gainCommun) <= 2, true);
+  r = impotSelonStatut({ revenuA: 80000, revenuB: 20000, enfants: 3 });
+  let minimal = true;
+  for (let k = 0; k <= 3; k++) {
+    const t = impotBareme(80000, 1 + partsEnfants(k), 1).impot + impotBareme(20000, 1 + partsEnfants(3 - k), 1).impot;
+    if (r.separe.impot > t + 0.01) minimal = false;
+  }
+  verifier("statut : répartition des enfants minimale", minimal, true);
+  verifier("statut : enfants répartis = 3", r.separe.enfantsA + r.separe.enfantsB, 3, 0);
+  const marie = { salaireNetMensuel: 3000, enfants: 1, foyer: { actif: true, statut: "marie" }, conjoint: { salaireNetMensuel: 2000 } };
+  verifier("revenus conjoints : null si foyer inactif", revenusImposablesConjoints({ salaireNetMensuel: 3000, foyer: { actif: false } }), null);
+  for (const [nom, p] of [["marié", marie], ["concubin", { ...marie, foyer: { actif: true, statut: "concubin" } }], ["sans salaire", { ...marie, salaireNetMensuel: undefined, conjoint: {} }]]) {
+    const v = revenusImposablesConjoints(p);
+    verifier(`revenus conjoints ${nom} : finis et positifs`, Number.isFinite(v.a) && Number.isFinite(v.b) && v.a >= 0 && v.b >= 0, true);
+    if (nom === "sans salaire") continue;
+    const w = revenusImposablesConjoints(normaliserFoyer(PLAN, JSON.parse(JSON.stringify(p))));
+    verifier(`revenus conjoints ${nom} : profil fusionné = profil brut`, Math.abs(w.a - v.a) < 0.01 && Math.abs(w.b - v.b) < 0.01, true);
+  }
+  {
+    const moi = { ...marie, foyer: { actif: true, statut: "concubin", vue: "moi" } }, v = revenusImposablesConjoints(moi), w = revenusImposablesConjoints(normaliserFoyer(PLAN, JSON.parse(JSON.stringify(moi))));
+    verifier("revenus conjoints concubin « vue moi » : profil normalisé = brut", Math.abs(w.a - v.a) < 0.01 && Math.abs(w.b - v.b) < 0.01, true);
+  }
 }
 
 console.log(`${ok} vérifications réussies, ${ko} échec(s)`);

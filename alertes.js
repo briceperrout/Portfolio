@@ -8,11 +8,14 @@
 // =====================================================================
 
 import { PLAFONDS, AV_DECES, MARCHE, PLUS_VALUES } from "./fiscal.js";
-import { analyser, reequilibrage, eur, pct } from "./moteur.js";
+import { analyser, reequilibrage, eur, pct, equilibreContributions } from "./moteur.js";
 import { prevuA, moisEntre } from "./projection.js";
 
 // Réglage d'interface (pas une règle fiscale) : écart maximal toléré entre l'allocation actuelle et la cible, en part du patrimoine
 export const SEUIL_DERIVE = 0.05;
+
+// Seuil applicatif (non réglementaire) : écart mensuel entre ce que paie un conjoint et sa part proportionnelle aux revenus
+export const SEUIL_DESEQUILIBRE = { euros: 150, part: 0.10 };
 
 const RANG_NIVEAU = { alerte: 0, action: 1, info: 2 };
 const LIVRETS = ["livretA", "ldds", "lep"];
@@ -178,6 +181,24 @@ export function bilanMensuel(releves, reference, aujourdhui = new Date()) {
   }];
 }
 
+// ------------------------------------------------------------- charges du foyer déséquilibrées
+/** Un conjoint paie nettement plus que sa part proportionnelle aux revenus, alors que l'épargne reste personnelle (concubinage, PACS, séparation de biens). */
+export function desequilibre(profil, plan) {
+  const res = equilibreContributions(profil, plan);
+  if (!(res?.disponible && res.separatif && Math.abs(res.ecart) >= Math.max(SEUIL_DESEQUILIBRE.euros, SEUIL_DESEQUILIBRE.part * res.D))) return [];
+  const prenom = profil?.conjoint?.prenom?.trim();
+  const sujet = res.surcontributeur === "B" ? `${prenom || "Ton conjoint"} paie` : "Tu paies";
+  return [{
+    id: "desequilibre",
+    cle: `desequilibre:${Math.round(Math.abs(res.ecart) / 50) * 50}`,
+    niveau: "action",
+    min: "intermediaire",
+    titre: "Charges du foyer déséquilibrées",
+    texte: `${sujet} ${eur(Math.abs(res.ecart))} par mois de plus que la répartition proportionnelle aux revenus. Un virement d'équilibrage de ${eur(res.virementMensuel)} par mois rétablirait l'équilibre ; sans cela, le manque à gagner atteint ${eur(res.manqueAGagner)} sur ${res.horizonAns} ans.`,
+    vue: "mon-profil",
+  }];
+}
+
 /**
  * Toutes les alertes, de la plus grave à la moins grave (alerte > action > info), puis dans l'ordre des détecteurs.
  * Un détecteur qui échoue est ignoré. `analyse` (facultatif) : résultat d'analyser() déjà calculé (sinon calculé ici) ; `releves` et `reference` : le Suivi du profil.
@@ -191,6 +212,7 @@ export function detecterAlertes(plan, profil, { aujourdhui = new Date(), analyse
     () => av70(profil),
     () => fenetreCTO(profil, aujourdhui),
     () => bilanMensuel(releves, reference, aujourdhui),
+    () => desequilibre(profil, plan),
   ];
   const toutes = [];
   for (const d of detecteurs) {

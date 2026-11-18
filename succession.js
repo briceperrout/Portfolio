@@ -24,7 +24,7 @@
 // }
 // Toutes les fonctions sont déterministes et ne mutent jamais leurs arguments.
 // =====================================================================
-import { DMTG, AV_DECES, BAREME_USUFRUIT, PRELEVEMENTS } from "./fiscal.js";
+import { DMTG, AV_DECES, BAREME_USUFRUIT, PRELEVEMENTS, revenusImposablesConjoints, impotSelonStatut } from "./fiscal.js";
 
 const cts = (x) => Math.round(x * 100) / 100;
 const ANNEE_REF = 2026; // année par défaut du rappel fiscal quand l'entrée n'en fournit pas
@@ -503,6 +503,97 @@ export function entreeDepuisProfil(profil, annee = 2026) {
     donations,
     patrimoineConjoint: { propre: 0 },
   };
+}
+
+// ==== Comparateur concubinage / PACS / mariage ========================
+// Pour un couple (foyer actif) : impôt annuel selon le statut et conséquences d'un décès de la personne principale (A), avec ou sans testament.
+export function comparerStatutsConjugaux(profil, annee = 2026) {
+  const foyer = profil?.foyerSuccession ?? profil?.foyer;
+  if (!foyer?.actif) return null;
+  const revenus = revenusImposablesConjoints(profil);
+  if (!revenus) return null;
+  const impot = impotSelonStatut({ revenuA: revenus.a, revenuB: revenus.b, enfants: Math.max(0, Math.round(Number(profil.enfants) || 0)) });
+  const base = entreeDepuisProfil(profil, annee);
+  const regimeProfil = profil.succession?.regime ?? "communaute_legale";
+  const testamentProfil = !!profil.succession?.testament;
+  const variantes = [
+    ["concubin", false], ["concubin", true], ["pacs", false], ["pacs", true], ["mariage", testamentProfil],
+  ];
+  const lignes = variantes.map(([statut, testament]) => {
+    const r = simulerSuccession({ ...base, situation: statut, testament, regime: regimeProfil });
+    const survivant = r.heritiers.find((h) => h.id === "conjoint" || h.id === "partenaire" || ["concubin", "pacs", "conjoint"].includes(h.lien));
+    return {
+      statut, testament,
+      impotAnnuel: statut === "concubin" ? impot.separe.impot : impot.commun.impot,
+      droitsSurvivant: survivant ? survivant.droitsTotal : 0,
+      netSurvivant: survivant ? survivant.net : 0,
+      heritierLegal: statut === "mariage",
+    };
+  });
+  const c = DMTG.CONCUBIN;
+  return {
+    revenus, impot, lignes,
+    hypotheses: [
+      "Le défunt simulé est la personne principale du profil.",
+      "Les salaires actuels du profil servent à estimer l'impôt sur le revenu.",
+      "Le PACS et le mariage sont imposés en commun ; les concubins déposent deux déclarations.",
+      `Le concubin survivant est taxé à ${c.taux} % après un abattement de ${c.abattement} € (art. 777 et 788 IV du CGI).`,
+    ],
+  };
+}
+
+// ==== Partage en cas de séparation ====================================
+// Photographie du partage des biens entre A (personne principale) et B (conjoint), à partir de la même entrée que la succession.
+// Mariage en communauté : les biens « commun » (et l'assurance-vie et le PER de A) sont communs ; communauté universelle : tout est mis en commun.
+// Autres cas (séparation de biens, PACS, concubinage) : les biens « commun » sont indivis, partagés selon quotePartA. `null` si seul.
+export function partageSeparation(entree, { quotePartA = 50 } = {}) {
+  const e = normaliser(entree);
+  if (e.situation === "seul") return null;
+  const propresB = Math.max(0, Number(entree?.patrimoineConjointPropre) || e.patrimoineConjointPropre || 0);
+  const q = Math.min(100, Math.max(0, Number(quotePartA) || 0)) / 100;
+  const communaute = e.situation === "mariage" && e.regime !== "separation";
+  const universelle = e.situation === "mariage" && e.regime === "communaute_universelle";
+  const contrats = e.avant70 + e.apres70Primes + e.per;
+  let propresA = 0, communs = 0, dettesPropres = 0, dettesCommunes = 0;
+  for (const a of e.actifs) { if (a.nature === "propre") propresA += a.valeur; else communs += a.valeur; }
+  for (const d of e.dettes) { if (d.nature === "propre") dettesPropres += d.montant; else dettesCommunes += d.montant; }
+  if (communaute) communs += contrats; else propresA += contrats;
+  const R = (x) => Math.round(x);
+  const hypotheses = [
+    communaute
+      ? "L'assurance-vie et le PER de la personne principale sont supposés alimentés par des revenus communs : ils entrent dans la communauté."
+      : "L'assurance-vie et le PER de la personne principale sont considérés comme ses biens propres.",
+  ];
+  let A, B;
+  if (universelle) {
+    const pool = propresA + propresB + communs - dettesPropres - dettesCommunes;
+    const mi = (x) => R(x / 2);
+    A = { propres: 0, communs: mi(propresA + propresB + communs), dettes: mi(dettesPropres + dettesCommunes), net: mi(pool) };
+    B = { propres: 0, communs: R(propresA + propresB + communs) - mi(propresA + propresB + communs), dettes: R(dettesPropres + dettesCommunes) - mi(dettesPropres + dettesCommunes), net: R(pool) - mi(pool) };
+    hypotheses.push("Communauté universelle : tous les biens et dettes sont mis en commun puis partagés par moitié.");
+  } else {
+    const part = communaute ? 0.5 : q;
+    hypotheses.push(communaute
+      ? "Communauté : les biens et dettes communs sont partagés par moitié ; les biens propres de chacun sont conservés."
+      : `Biens indivis partagés à ${R(part * 100)} % / ${R((1 - part) * 100)} % (quote-part de A / de B) ; les biens propres de chacun sont conservés.`);
+    A = { propres: R(propresA), communs: R(communs * part), dettes: R(dettesPropres + dettesCommunes * part) };
+    B = { propres: R(propresB), communs: R(communs * (1 - part)), dettes: R(dettesCommunes * (1 - part)) };
+    A.net = A.propres + A.communs - A.dettes;
+    B.net = B.propres + B.communs - B.dettes;
+  }
+  const horsPerimetre = [
+    ...(e.situation === "mariage" ? ["Prestation compensatoire, fixée par le juge selon la disparité des niveaux de vie."] : []),
+    ...(e.situation === "mariage" && e.regime === "communaute_legale" ? ["Récompenses entre la communauté et chacun des époux."] : []),
+    "Créances entre conjoints (avances, remboursements d'un crédit sur un bien de l'autre).",
+    "Frais de partage et de notaire.",
+  ];
+  return { situation: e.situation, regime: e.regime, A, B, ecart: A.net - B.net, hypotheses, horsPerimetre };
+}
+
+export function partageDepuisProfil(profil, annee = 2026) {
+  const foyer = profil?.foyerSuccession ?? profil?.foyer;
+  if (!foyer?.actif) return null;
+  return partageSeparation({ ...entreeDepuisProfil(profil, annee), patrimoineConjointPropre: profil?.succession?.patrimoineConjointPropre });
 }
 
 // Assurance-vie d'avant 70 ans à garder pour l'abattement de 152 500 € par bénéficiaire (art. 990 I) : utile pour les enfants et un
