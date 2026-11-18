@@ -35,6 +35,6 @@ Prompt
 test_*.mjs
 test_*.py
 
-# Documentation (non nécessaire à l'application)
-README.md
+# Documentation et rapports d'audit (non nécessaires à l'application, parfois sensibles : faiblesses connues)
+*.md
 LICENSE

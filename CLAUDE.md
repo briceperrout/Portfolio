@@ -60,17 +60,19 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 
 ### Backend IA, Routage & Privacy-by-Design (`serveur.py` / `worker.js`)
 - **Routage des modèles OpenAI (optimisation quota Data Sharing 2,5M tokens/jour) :**
-  - *Chat général, synthèse et RAG :* `gpt-5.4-mini` (ou `gpt-5-mini`).
-  - *Raisonnement complexe, arbitrages fiscaux et simulations :* `o4-mini`.
-  - *Paramètres obligatoires pour `o4-mini` :* utilise `max_completion_tokens` (jamais `max_tokens`), n'envoie **jamais** `temperature`, et utilise le rôle `developer` à la place de `system`.
+  - *Chat général, synthèse et RAG :* `gpt-5.4-mini` (ou `gpt-5-mini`), pool « rapide » de 2,5 M tokens/jour, effort `low`.
+  - *Raisonnement complexe, arbitrages fiscaux et simulations :* `o3` (`MODEL_REASONING`), pool « raisonnement » distinct de 250 k tokens/jour (modèle phare), effort `medium`. Déclenché par `modeApprofondi: true` ou par un mot-clé de `MOTS_COMPLEXES`.
+  - *Repli :* au-delà du plafond de 225 000 tokens du pool raisonnement, ou si OpenAI refuse `o3` (statuts 400, 403, 404, 429), la requête est rejouée sur `gpt-5.4-mini` en effort `high`. `OPENAI_ENABLE_REASONING=0` est le coupe-circuit (tout reste sur le modèle rapide).
+  - *Paramètres obligatoires pour `o3` et la famille `gpt-5` :* utilise `max_completion_tokens` (jamais `max_tokens`), n'envoie **jamais** `temperature`, et utilise le rôle `developer` à la place de `system`.
+  - *Source de vérité :* les constantes de `worker.js` (`MODEL_FAST`, `MODEL_REASONING`, plafonds, alertes) ; `serveur.py` les reproduit à l'identique et `test_routage.py` les vérifie. Toute modification de modèle ou de plafond se fait des deux côtés, puis dans ce paragraphe.
 - **Anonymisation stricte avant appel Cloud (`sanitize_payload_for_cloud`) :**
   - Aucune donnée personnelle (nom, email, IBAN, numéro de compte, nom d'établissement bancaire ou agrégateur comme Trade Republic, Boursorama, Finary) ne doit quitter le serveur.
   - Ne transmets jamais de soldes bruts en euros : convertis systématiquement le portefeuille en **pourcentages d'allocation**, **plus/moins-values latentes en %**, **tickers** et **types d'enveloppes** (`PEA`, `CTO`, `AV`, `PER`, `Livret`).
   - Si un document brut non anonymisable doit être analysé (ex. PDF de relevé), route exclusivement vers l'instance locale **Ollama**.
-- **Suivi des quotas :** Maintiens un compteur journalier réinitialisé à 00:00 UTC cumulant `prompt_tokens + completion_tokens` (incluant les `reasoning_tokens`) et journalise une alerte dès **2 200 000 tokens** atteints.
+- **Suivi des quotas :** Maintiens un compteur journalier réinitialisé à 00:00 UTC cumulant `prompt_tokens + completion_tokens` (incluant les `reasoning_tokens`) et journalise une alerte dès **2 200 000 tokens** atteints sur le pool rapide (plafond 2 350 000, au-delà : refus 429 et repli local côté client) et dès **200 000 tokens** sur le pool raisonnement (plafond 225 000).
 
 ### Sécurité & PWA
-- **Zéro CDN tiers en production :** Toutes les bibliothèques externes (graphiques, compression LZ-String, chiffrement) doivent être hébergées localement dans `/vendor/` pour respecter une Content Security Policy (`_headers`) stricte (`default-src 'self'`).
+- **Zéro CDN tiers en production :** Toutes les bibliothèques externes (graphiques, compression LZ-String, chiffrement) doivent être hébergées localement dans `/vendor/` pour respecter une Content Security Policy (`_headers`) stricte (`default-src 'self'`). Aujourd'hui `vendor/` ne contient que les polices Inter et Manrope (`vendor/fonts/*.woff2` + licences OFL, déclarées par `@font-face` dans `index.html` et pré-cachées dans `SHELL`) : aucune bibliothèque JS n'est utilisée (le chiffrement passe par WebCrypto natif). `test_niveaux.mjs` échoue si la CSP ou `index.html` référencent un hôte externe. Tout nouveau fichier de `vendor/` doit être ajouté à `SHELL` (et `CACHE_VERSION` incrémentée).
 - **Aucune clé API côté client :** Les clés OpenAI ou Turnstile restent strictement dans les variables d'environnement de `serveur.py` / Cloudflare Secrets.
 - **Service Worker (`service-worker.js`) :** Pré-cache les assets légers de l'application, mais gère `prix-m2.json` en stratégie **Cache-First à la demande** (au premier accès immobilier) pour ne pas bloquer l'installation de la PWA.
 

@@ -9,12 +9,12 @@
  * À CHAQUE DÉPLOIEMENT qui modifie un fichier du shell, incrémenter CACHE_VERSION : l'ancien cache est alors purgé à l'activation
  * (le SWR garde les modules cohérents d'une visite à l'autre, mais une visite peut mélanger anciennes et nouvelles versions).
  */
-const CACHE_VERSION = "plan-patrimoine-v20";
+const CACHE_VERSION = "plan-patrimoine-v21";
 const CACHE_SHELL = CACHE_VERSION;
 const CACHE_DONNEES = `${CACHE_VERSION}-data`;
 const PREFIXE = "plan-patrimoine-";
 
-// Shell applicatif : HTML, modules JS (moteur déterministe, fiches, lexique…), manifeste et icônes. Le CSS est inline dans index.html.
+// Shell applicatif : HTML, modules JS (moteur déterministe, fiches, lexique…), manifeste, icônes et polices locales (vendor/fonts/). Le CSS est inline dans index.html.
 const SHELL = [
   "./",
   "index.html",
@@ -24,6 +24,7 @@ const SHELL = [
   "fiches.js", "lexique.js",
   "manifest.json", "favicon.svg",
   "icons/icon.svg", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/apple-touch-icon.png",
+  "vendor/fonts/inter-latin-wght-normal.woff2", "vendor/fonts/manrope-latin-wght-normal.woff2",
 ];
 
 const urlRelative = (chemin) => new URL(chemin, self.registration.scope).href;
@@ -83,7 +84,7 @@ self.addEventListener("fetch", (event) => {
   const requete = event.request;
   if (requete.method !== "GET") return;
   const url = new URL(requete.url);
-  if (url.origin !== self.location.origin) return; // polices, CDN : laissés au navigateur
+  if (url.origin !== self.location.origin) return; // autres origines (aucune en production : la CSP les interdit) : laissées au navigateur
   if (url.pathname.includes("/api/")) return;      // réseau uniquement : on n'appelle même pas respondWith
   if (requete.headers.has("range")) return;        // lecture partielle : réponse 206 non cachable
 

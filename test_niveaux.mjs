@@ -227,6 +227,22 @@ for (const groupe of ["livrets", "assuranceVie", "bourse"]) for (const montant o
   }
   const cacheMatch = sw.match(/CACHE_VERSION = "plan-patrimoine-v(\d+)"/);
   verifier(cacheMatch && Number(cacheMatch[1]) >= 16, `CACHE_VERSION incrémentée (v${cacheMatch?.[1]})`);
+  verifier(cacheMatch && Number(cacheMatch[1]) >= 21, `CACHE_VERSION ≥ v21 (polices locales dans le shell)`);
+
+  // Zéro CDN tiers (CLAUDE.md) : CSP sans hôte externe, index.html sans ressource externe, polices locales pré-cachées
+  const entetes = readFileSync(new URL("./_headers", import.meta.url), "utf8");
+  const csp = entetes.match(/^\s*Content-Security-Policy:\s*(.+)$/m)?.[1] ?? "";
+  verifier(csp.length > 0, "_headers : Content-Security-Policy présente");
+  verifier(!/https?:\/\//i.test(csp), "CSP sans hôte tiers (aucun http(s):// : Google Fonts, CDN…)");
+  verifier(/default-src 'self'/.test(csp) && /font-src 'self'(;|$)/.test(csp), "CSP : default-src 'self' et font-src 'self'");
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const externes = [...html.matchAll(/<(?:link|script)\b[^>]*\b(?:href|src)="(https?:)?\/\/[^"]+"|@import\s+(?:url\()?["']?https?:|url\(\s*["']?https?:/gi)].map((m) => m[0]);
+  verifier(externes.length === 0, `index.html : aucune ressource externe (link/script/@import/url) — trouvé : ${externes.join(" | ") || "aucune"}`);
+  for (const m of html.matchAll(/url\("(vendor\/fonts\/[^"]+\.woff2)"\)/g)) {
+    verifier(shell.includes(m[1]), `SHELL : police ${m[1]} (index.html) est pré-cachée`);
+    verifier(existsSync(new URL(`./${m[1]}`, import.meta.url)), `police ${m[1]} existe sur le disque`);
+  }
+  verifier(/@font-face[^}]*font-family:\s*"Inter"/.test(html) && /@font-face[^}]*font-family:\s*"Manrope"/.test(html), "index.html : @font-face Inter et Manrope déclarés");
 }
 
 console.log(`test_niveaux : ${resultats.ok} vérifications OK, ${resultats.echecs.length} échec(s)`);

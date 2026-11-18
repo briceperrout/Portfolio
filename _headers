@@ -3,12 +3,11 @@
 #
 # Content-Security-Policy stricte : aucun script tiers ni inline, aucune connexion hors de l'origine.
 #  - script-src 'self'            : modules locaux uniquement (index.html n'a aucun <script> inline)
-#  - style-src 'unsafe-inline'    : le CSS est inline dans index.html (CLAUDE.md) et le code pose des style="" ;
-#                                   fonts.googleapis.com : feuille de style des polices Inter / Manrope
-#  - font-src fonts.gstatic.com   : fichiers de polices Google Fonts
+#  - style-src 'unsafe-inline'    : le CSS est inline dans index.html (CLAUDE.md) et le code pose des style="" ; aucun hôte tiers
+#  - font-src 'self'              : polices Inter / Manrope hébergées dans vendor/fonts/ (aucun Google Fonts, aucun CDN)
 #  - connect-src 'self'           : /api/chat, /api/statut, /api/sync et prix-m2.json seulement
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer
