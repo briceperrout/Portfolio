@@ -104,6 +104,27 @@ pe = estimerPension(PLAN, { age: 32, salaireNetMensuel: 3200, statutPro: "stable
 verifier("salarié régime général", pe.regime, "general");
 verifier("salarié champs historiques", ["trimestres", "sam", "points", "auLegal", "aTauxPlein", "demande"].every((k) => k in pe), true);
 
+// Âge de liquidation par défaut : le plus tardif de l'arrêt d'activité et de l'âge légal
+{
+  const an = new Date().getFullYear();
+  const sal = (naiss) => ({ age: an - naiss, salaireNetMensuel: 3200, statutPro: "stable", foyer: { actif: false } });
+  const pen = (naiss, opts) => estimerPension(PLAN, sal(naiss), { ageDebut: 22, ...opts });
+  let q = pen(1964, { ageArret: 64 });
+  verifier("liquidation 1964, arrêt 64 : âge de demande", q.demande.age, 64, 0);
+  verifier("liquidation 1964, arrêt 64 : affichage arrondi", Math.ceil(q.demande.age), 64, 0);
+  verifier("liquidation 1964 : âge légal inchangé", q.auLegal.age, 62.75, 0);
+  q = pen(1964, { ageArret: 60 });
+  verifier("liquidation 1964, arrêt 60 : âge légal", q.demande.age, 62.75, 0);
+  q = pen(1964, { ageArret: 64, ageDemande: 66 });
+  verifier("liquidation 1964, demande 66 saisie", q.demande.age, 66, 0);
+  q = pen(1964, { ageArret: 64, trimestresDeja: 100 });
+  verifier("liquidation 1964, carrière courte : trimestres insuffisants", q.trimestres < q.regles.trimestres, true);
+  verifier("liquidation 1964, carrière courte : décote non aggravée", q.demande.decote <= q.auLegal.decote, true);
+  verifier("liquidation 1964, carrière courte : pension non réduite", q.demande.net >= q.auLegal.net, true);
+  q = pen(1970, { ageArret: 64 });
+  verifier("liquidation 1970, arrêt 64 : inchangé", q.demande.age, 64, 0);
+}
+
 // Décumulation : primitives fiscales
 let av = impotRachatAV({ montant: 10000, valeur: 100000, primes: 60000, ancien8: true, abattementRestant: 4600 });
 verifier("av gain", av.gain, 4000); verifier("av ir sous abattement", av.ir, 0); verifier("av ps", av.ps, 688);
