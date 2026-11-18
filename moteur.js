@@ -1,4 +1,5 @@
 import { PLAFONDS, decomposerSalaire, foyerFiscal, revenuImposableSalaires, impotBareme, economieDeduction, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant } from "./fiscal.js";
+import { echapperRegex as echapperRegexp } from "./utilitaires.js";
 import { projetLocatifDe } from "./locatif.js";
 import { tauxFiscalScpi } from "./alternatifs.js";
 // =====================================================================
@@ -1421,7 +1422,6 @@ export const MOTS_COMPTES = [
 ];
 
 const normaliserTexte = (t) => " " + String(t ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[’‘]/g, "'") + " ";
-const echapperRegexp = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Identifiant du compte (clé de MOTS_COMPTES) d'après un libellé libre, ou null
 export function idCompteDepuisLibelle(libelle) {

@@ -1,59 +1,32 @@
 import { PLAN } from "./plan.js";
-import { analyserTaux, DEVISES, NOM_DEVISE, devisesParDefaut, DEVISES_COMPTES, TYPES_COMPTES_ETRANGERS, TAUX_REFERENCE, tauxEffectifs, consoliderEtrangers, avecComptesEtrangers, expositionChange } from "./devises.js";
-import { analyser, tauxGains, foyerScpiDe, capitalDe, GROUPES_PLACEMENTS, grouperAllocation, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer, consequencesDepart, NOTE_CONSEQUENCES_DEPART, equilibreContributions } from "./moteur.js";
+import { analyserTaux, DEVISES, NOM_DEVISE, devisesParDefaut, DEVISES_COMPTES, TYPES_COMPTES_ETRANGERS, tauxEffectifs, consoliderEtrangers, avecComptesEtrangers, expositionChange } from "./devises.js";
+import { analyser, foyerScpiDe, capitalDe, GROUPES_PLACEMENTS, grouperAllocation, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, normaliserFoyer, equilibreContributions } from "./moteur.js";
 import { projetLocatifDe, analyseLocatif, mensualitePret } from "./locatif.js";
 import { fiscaliteScpi, comparerNuePropriete, delaiJouissance, TMI_PAR_DEFAUT } from "./alternatifs.js";
-import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, libertePatrimoine, moisPrecaution, referenceSuivi, prevuA, moisEntre, situationFuture, contexteRetraite, evaluerRetraite, capitalNecessaire, CRISES, simulerCrise, fluxLocatif, backtesterHistorique, scenarioInflation, SCENARIO_INFLATION } from "./projection.js";
-import { HISTORIQUE } from "./historique.js";
-import { SCENARIOS_FISCAUX, NEUTRE, optionFiscale, comparerTaux } from "./evolution-fiscale.js";
-import { echeancesProfil, echeancesGenerales, versCSV } from "./calendrier.js";
+import { achatPourProjection, comparaisonAchatLocation, projeter, situationFuture, fluxLocatif } from "./projection.js";
+import { echeancesProfil, echeancesGenerales } from "./calendrier.js";
 import { genererRecapHTML, encoderProfilPartage, decoderProfilPartage } from "./recap.js";
-import { FICHES as CONTENU_FICHES, VERIFIE_LE, PARCOURS_DEBUTANT } from "./fiches.js";
+import { FICHES as CONTENU_FICHES } from "./fiches.js";
 import { LEXIQUE, lierTermes } from "./lexique.js";
-import { DEPARTEMENTS, chargerPrix, prixCharges, estimer, estimerLoyer, libelleCommune, chercherCommunes, codeCommune } from "./immobilier.js";
+import { DEPARTEMENTS, chargerPrix, chargerDepartement, departementCharge, departementDe, prixCharges, estimer, estimerLoyer, libelleCommune, chercherCommunes, codeCommune } from "./immobilier.js";
 import { estimerPension, ageEnTexte } from "./pension.js";
-import { entreeDepuisProfil, comparerStatutsConjugaux, partageDepuisProfil, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, optionsPossibles, reserveAVTransmissible } from "./succession.js";
-import { decomposerSalaire, foyerFiscal, impotBareme, tauxMarginalEffectif, BAREME, exitTax, PRELEVEMENTS, PFU, PLAFONDS, ABATTEMENT_AV, SEUIL_PRIMES_AV, alerteMillesime } from "./fiscal.js";
-import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
-import { plafondPEREstime, revenuImposableDe, economieInteressement, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER, etatReleve, comparerReleve } from "./moteur.js";
+import { decomposerSalaire, foyerFiscal, impotBareme, tauxMarginalEffectif, BAREME, PRELEVEMENTS, PFU, PLAFONDS, alerteMillesime } from "./fiscal.js";
+import { plafondPEREstime, revenuImposableDe, economieInteressement, endettementBancaire, lepEstime, simulerIndependant } from "./moteur.js";
 import { monterAssistant } from "./assistant.js";
 import { masquerTexte, contientMontant } from "./discretion.js";
 import { detecterAlertes } from "./alertes.js";
-import { TYPES_CREDIT, creditsDuProfil, creditsMensuelsDe, mensualitesConso, prioriserCredits, arbitrerRemboursement, normaliserCredit } from "./credits.js";
+import { TYPES_CREDIT, creditsDuProfil, creditsMensuelsDe, mensualitesConso, prioriserCredits, arbitrerRemboursement } from "./credits.js";
 import { NIVEAUX, INFOS_NIVEAUX, visible, reglagesAvancesActifs, niveauLePlusBas, nomVue, libelleOnglet, suiteVue } from "./niveaux.js";
 import { genererCode, extraireCode, formaterCode, creerLien, estCleSynchronisable, synchroniser, effacerDistant, oublierCles } from "./sync.js";
 
+import { $, clone, lire, ecrire, fusion, memo, crochets, cleProfilCourant, horsSauvegarde, keur, etat, echapper, DEPART_DEFAUT, PTZ_DEFAUT, SUCCESSION_DEFAUT, PROFIL_EXEMPLE, PROFIL_VIDE, proches, cle, docCourant, GEOM, ORDRE, COULEUR, TYPES_EV } from "./ui/commun.js";
+import { rendreTransmission, monterTransmission } from "./vues/transmission.js";
+import { rendreSuivi, monterSuivi, suiviCourant, ecrireSuivi, suivisTest, reinitialiserBrouillonReleve, ouvrirSuivi } from "./vues/suivi.js";
+import { rendreFiches, rendreEpargneIdeale, monterFiches } from "./vues/fiches.js";
+import { rendreTrajectoire, planifierTrajectoire, scenariosGardes, garderScenarios, monterTrajectoire } from "./vues/trajectoire.js";
+import { rendreRetraite, monterRetraite } from "./vues/retraite.js";
+
 // ---------------------------------------------------------------- outils
-const $ = (s) => document.querySelector(s);
-const clone = (x) => JSON.parse(JSON.stringify(x));
-const lire = (o, chemin) => chemin.split(".").reduce((a, k) => (a == null ? undefined : a[k]), o);
-function ecrire(o, chemin, v) {
-  const ks = chemin.split(".");
-  const dernier = ks.pop();
-  const cible = ks.reduce((a, k) => (a[k] ??= {}), o);
-  cible[dernier] = v;
-}
-function fusion(base, sur) {
-  if (sur === undefined || sur === null) return clone(base);
-  if (base === null || typeof base !== "object" || typeof sur !== "object" || Array.isArray(base) || Array.isArray(sur)) return clone(sur);
-  const r = clone(base);
-  for (const k of Object.keys(sur)) r[k] = k in base ? fusion(base[k], sur[k]) : clone(sur[k]);
-  return r;
-}
-let hookEcriture = null; // synchronisation multi-appareils (plus bas) : prévenue après chaque écriture locale
-const memo = {
-  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
-  set(k, v) {
-    try {
-      // Scénario partagé ou simulation What-If en cours : le brouillon enregistré du profil n'est jamais écrasé
-      if (k === "profil-v2" && horsSauvegarde()) return;
-      localStorage.setItem(k, JSON.stringify(v));
-      // Le brouillon du formulaire est rattaché au profil sélectionné : il ne se mélange pas avec un autre profil
-      if (k === "profil-v2") localStorage.setItem("profil-v2-de", JSON.stringify(cleProfilCourant()));
-      hookEcriture?.(k);
-    } catch {}
-  },
-};
 
 // Niveau de lecture (Débutant / Intermédiaire / Avancé) : lu au plus tôt pour éviter un flash d'affichage complet.
 // Mémorisé par appareil (clé « niveau »), jamais synchronisé : estCleSynchronisable() ne l'accepte pas.
@@ -61,61 +34,12 @@ const NIVEAU_MEMORISE = memo.get("niveau");
 const PREMIER_LANCEMENT = !NIVEAUX.includes(NIVEAU_MEMORISE);
 const DONNEES_EXISTANTES = PREMIER_LANCEMENT && [memo.get("profil-v2"), memo.get("local-profils")].some((v) => v && typeof v === "object" && Object.keys(v).length > 0);
 document.documentElement.dataset.niveau = PREMIER_LANCEMENT ? (DONNEES_EXISTANTES ? "avance" : "debutant") : NIVEAU_MEMORISE;
-// Profil sélectionné (« col:id »), lu dans ce navigateur : utilisable avant le chargement des profils des proches
-function cleProfilCourant() {
-  try { if (etat.partage) return "partage:lien"; } catch { /* état pas encore créé */ }
-  const c = memo.get("profil-courant") ?? { col: "exemple", id: "exemple" }; return `${c.col}:${c.id}`;
-}
-// Vrai tant que le profil affiché n'est pas celui qui est enregistré : scénario ouvert par un lien, ou simulation What-If
-function horsSauvegarde() { try { return !!(etat.partage || etat.simulation); } catch { return false; } }
-const echapper = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const keur = (v) => `${Math.round(v / 1000).toLocaleString("fr-FR")} k€`;
 
-// Couleurs : ordre catégoriel validé (adjacent), bourse → SCPI
-const ORDRE = ["bourse", "bitcoin", "prudent", "or", "projet", "securite", "scpi"];
-const COULEUR = { bourse: "--s1", bitcoin: "--s2", prudent: "--s3", or: "--s4", projet: "--s5", securite: "--s6", scpi: "--s7" };
 const FICHES = Object.fromEntries(CONTENU_FICHES.map((f) => [f.id, f.titre]));
-const texteLie = (t, exclure) => lierTermes(echapper(t), { exclure });
-const lienFiche = (id, texte) => (FICHES[id] ? `<a class="lien-fiche" href="#fiche-${id}">${texte ?? `Fiche ${FICHES[id]}`}</a>` : "");
+export function texteLie(t, exclure) { return lierTermes(echapper(t), { exclure }); }
+export function lienFiche(id, texte) { return FICHES[id] ? `<a class="lien-fiche" href="#fiche-${id}">${texte ?? `Fiche ${FICHES[id]}`}</a>` : ""; }
 
 // ---------------------------------------------------------------- état
-const PTZ_DEFAUT = { actif: false, zone: "B1", tranche: 2, typeOperation: "collectifNeuf", personnes: null, travauxPctCout: 0 };
-const SUCCESSION_DEFAUT = { union: "mariage", regime: "communaute_legale", optionConjoint: "auto", donationDernierVivant: false, enfantsNonCommuns: 0, testament: false, enfantMineurAuFoyer: false, biensPropres: 0, patrimoineConjointPropre: 0, clauseAV: "conjoint_puis_enfants", quotiteAssuranceEmprunteur: 100, donationAnterieure: { annee: null, montantParEnfant: 0 }, projetDonation: { valeur: 0, croissance: 3, annees: 15 } };
-const DEPART_DEFAUT = { pays: "", destination: "ue", valeurTitres: null, plusValuesLatentes: null, moinsValuesLatentes: null, participation50: false, anneesResidence10: null };
-const PROFIL_EXEMPLE = {
-  age: 32, salaireNetMensuel: 3200, epargneMensuelle: 1000, depensesMensuelles: 1800, tmi: "30",
-  pays: "FR", statutPro: "stable", eligibleLEP: false, creditsMensuels: 0, credits: [],
-  comptesEtrangers: [], tauxChange: {}, scpiDetail: { partEtrangere: 0, impotEtranger: 0, delaiJouissanceMois: null },
-  futur: { actif: false, age: 40, capital: null, salaire: null, epargne: null },
-  proprietaire: false, loyerMensuel: 900,
-  placements: { livretA: 22950, ldds: 12000, livretBancaire: 5050, assuranceVie: 25000, assuranceVieUC: 0, pea: 30000, cto: 0, orPhysique: 0, plateformeCrypto: 5000, coldWallet: 0, scpi: 0, per: 0 },
-  pea: { ouvert: true, dateOuverture: "2023-03", versements: 26000, etablissement: "Banque traditionnelle" },
-  assuranceVie: { ouverte: true, dateOuverture: "2019-06", type: "Banque traditionnelle" },
-  projetRP: { actif: true, prix: 320000, type: "ancien", imperatif: false, horizonAnnees: 3, aideFamiliale: 0, ageChoisi: null, departement: "", commune: "", typeLogement: "appartement", surface: null, ptz: { ...PTZ_DEFAUT }, loyerEquivalent: null, chargesCoproMensuelles: null },
-  salaireDans10Ans: null, rythmeReequilibrage: "", avPartEuros: 100,
-  logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, tauxCredit: 1.3, assuranceCredit: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
-  abondement: { acces: "?", actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false },
-  independant: { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false },
-  foyer: { actif: false, statut: "marie" },
-  conjoint: { prenom: "", age: 31, salaireNetMensuel: 2400, pea: { ouvert: false, versements: 0, etablissement: "" } },
-  succession: clone(SUCCESSION_DEFAUT),
-};
-
-const PROFIL_VIDE = {
-  age: 30, salaireNetMensuel: 0, epargneMensuelle: 0, depensesMensuelles: 0, proprietaire: false, loyerMensuel: 0,
-  pays: "FR", statutPro: "", eligibleLEP: false, creditsMensuels: 0, credits: [],
-  comptesEtrangers: [], tauxChange: {}, scpiDetail: { partEtrangere: 0, impotEtranger: 0, delaiJouissanceMois: null },
-  futur: { actif: false, age: null, capital: null, salaire: null, epargne: null },
-  placements: {}, pea: { ouvert: false, versements: 0, etablissement: "" }, assuranceVie: { ouverte: false, type: "" },
-  projetRP: { actif: false, prix: 0, type: "ancien", imperatif: false, horizonAnnees: 0, aideFamiliale: 0, ageChoisi: null, departement: "", commune: "", typeLogement: "appartement", surface: null, ptz: { ...PTZ_DEFAUT }, loyerEquivalent: null, chargesCoproMensuelles: null },
-  salaireDans10Ans: null, rythmeReequilibrage: "", avPartEuros: 100,
-  logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, tauxCredit: null, assuranceCredit: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
-  abondement: { acces: "?", actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false },
-  independant: { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false },
-  foyer: { actif: false, statut: "marie" },
-  conjoint: { prenom: "", age: 30, salaireNetMensuel: 0, pea: { ouvert: false, versements: 0, etablissement: "" } },
-  succession: clone(SUCCESSION_DEFAUT),
-};
 const INDEPENDANT_VIDE = { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false };
 const COURANT_INITIAL = memo.get("profil-courant") ?? { col: "exemple", id: "exemple" };
 
@@ -129,7 +53,7 @@ function lireProfilPartage(hash = location.hash) {
 }
 const PARTAGE_INITIAL = lireProfilPartage();
 
-const etat = {
+Object.assign(etat, {
   partage: PARTAGE_INITIAL?.code ?? null, // code du scénario ouvert par un lien (non enregistré), sinon null
   simulation: null,                       // { base } pendant une simulation What-If (non enregistrée)
   reference: clone(PLAN),     // dernier plan enregistré (ou défaut)
@@ -146,13 +70,13 @@ const etat = {
   auteur: !window.claude,
   chargement: true,
   tauxDuJour: null,           // taux de change du jour (BCE) : rempli plus tard, jamais enregistré ; sinon taux de référence de devises.js
-};
+});
 const modifie = () => JSON.stringify(etat.brouillon) !== JSON.stringify(etat.reference);
 
 // Profil passé aux calculs : le profil enregistré + le total converti des comptes étrangers dans placements.comptesEtrangers
 // (dérivé ici, jamais écrit dans etat.profil, donc jamais sauvegardé, exporté ni synchronisé).
-function profilDeCalcul(profil = etat.profil) { return avecComptesEtrangers(profil, tauxEffectifs(profil, etat.tauxDuJour).taux); }
-function profilPourMoteur() { return profilDeCalcul(normaliserProfil(etat.profil)); }
+export function profilDeCalcul(profil = etat.profil) { return avecComptesEtrangers(profil, tauxEffectifs(profil, etat.tauxDuJour).taux); }
+export function profilPourMoteur() { return profilDeCalcul(normaliserProfil(etat.profil)); }
 // Profil utilisé par « Rééquilibrage » : la situation d'aujourd'hui, ou celle d'un âge futur
 function profilSimule() {
   const p = profilPourMoteur();
@@ -183,7 +107,7 @@ function completerProfil(p) {
   return p;
 }
 // Phrase sur le taux d'impôt appliqué aux loyers (tranche retenue, changement de tranche, décote)
-const A_MAX = () => etat.brouillon?.achatRP?.tauxEndettementMax ?? 35;
+export function A_MAX() { return etat.brouillon?.achatRP?.tauxEndettementMax ?? 35; }
 function texteTauxLoyers(T, debut = "") {
   if (!T) return "";
   const t = pct(T.taux);
@@ -222,7 +146,7 @@ function rendreEndettement(p) {
     <p class="note" style="margin:10px 0 0">Le trait marque le maximum de ${E.max} % (assurance comprise). Au-dessus, la banque refuse en général ; elle peut déroger pour une partie de ses dossiers, surtout pour une résidence principale. Montants de chaque époque, salaire selon ton évolution de carrière${p.foyer?.actif ? ` ; foyer à deux salaires${p.foyer?.statut === "concubin" ? " (chacun imposé séparément)" : ""}` : ""}. Le détail de l'achat est dans « Trajectoire ».</p>`;
 }
 
-function normaliserProfil(source) {
+export function normaliserProfil(source) {
   const p = clone(source);
   if (p.assuranceVie?.ouverte === false) p.assuranceVie = { ouverte: false, type: "" };
   if (p.proprietaire && (p.logement?.usage ?? "rp") === "rp") p.loyerMensuel = 0;
@@ -426,7 +350,7 @@ function blocCoutsEtAcheterLouer(res) {
   return `${couts}${ptzHTML}<h3 style="margin:16px 0 4px">Acheter ou louer ?</h3>${al}`;
 }
 
-function blocAchat(res) {
+export function blocAchat(res) {
   const a = res.achat; if (!a) return "";
   const plan = etat.brouillon, A = plan.achatRP;
   const loyer = res.profil.loyerMensuel ?? 0;
@@ -594,7 +518,7 @@ function blocFamilles(res) {
     <ul class="familles">${F.map((f) => `<li><span class="pastille" style="background:var(${COULEUR_FAMILLE[f.id]})"></span><span><b>${f.libelle}</b> · <b class="num">${eur(f.montant)}</b> (${pct(f.part)})<span class="small muted"> : ${DETAIL[f.id]}</span></span></li>`).join("")}</ul>`;
 }
 
-function rendreResultats() {
+export function rendreResultats() {
   majBadgeAvances();
   let res, sim;
   try { sim = profilSimule(); res = analyser(etat.brouillon, sim.profil); }
@@ -709,7 +633,7 @@ $("#resultats").addEventListener("change", (e) => {
 });
 
 // Téléchargement unique : API « downloads » de l'hôte si elle existe, sinon Blob + <a download> (localhost, Cloudflare Pages)
-async function telechargerFichier(fichier, blob) {
+export async function telechargerFichier(fichier, blob) {
   if (etat.downloads) { await etat.downloads.save({ filename: fichier, data: blob }); return; }
   const a = document.createElement("a");
   const url = URL.createObjectURL(blob);
@@ -764,9 +688,8 @@ document.addEventListener("focusin", (e) => {
 });
 
 // ---------------------------------------------------------------- trajectoire
-const GEOM = { W: 680, H: 280, g: 62, d: 16, h: 18, b: 30 };
 
-function cadre(ages, ymax) {
+export function cadre(ages, ymax) {
   const { W, H, g, d, h, b } = GEOM;
   const x = (i) => g + (i * (W - g - d)) / Math.max(1, ages.length - 1);
   const y = (v) => H - b - (Math.max(0, v) * (H - b - h)) / ymax;
@@ -779,625 +702,20 @@ function cadre(ages, ymax) {
   s += `<line class="axe" x1="${g}" x2="${W - d}" y1="${H - b}" y2="${H - b}"/>`;
   return { x, y, s };
 }
-function colonnesSurvol(ages, x, bulle, idCurseur) {
+export function colonnesSurvol(ages, x, bulle, idCurseur) {
   const { W, H, g, d, h, b } = GEOM;
   const l = (W - g - d) / Math.max(1, ages.length - 1);
   return `<line id="${idCurseur}" class="curseur" x1="0" x2="0" y1="${h}" y2="${H - b}" stroke="var(--faint)" stroke-width="1" visibility="hidden"/>` +
     ages.map((a, i) => `<rect x="${x(i) - l / 2}" y="${h}" width="${l}" height="${H - b - h}" fill="transparent" data-x="${x(i)}" data-curseur="${idCurseur}" data-bulle="${echapper(bulle(i))}"/>`).join("");
 }
 // Maximum de l'axe : 4 graduations « rondes »
-const echelle = (v) => {
+export function echelle(v) {
   const brut = Math.max(1, v * 1.04) / 4, mag = Math.pow(10, Math.floor(Math.log10(brut)));
   const pas = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map((k) => k * mag).find((x) => x >= brut);
   return pas * 4;
-};
-
-function graphiqueComposition(central, defl, achat) {
-  const plan = etat.brouillon;
-  const ages = central.map((p) => p.age);
-  const classes = ORDRE.filter((c) => central.some((p) => (p.classes[c] ?? 0) > 1));
-  const piles = central.map((p, i) => { let cum = 0; return classes.map((c) => (cum += (p.classes[c] ?? 0) * defl(i))); });
-  const ymax = echelle(Math.max(...piles.map((s) => s[s.length - 1] ?? 0)));
-  const { x, y, s } = cadre(ages, ymax);
-  let svg = `<svg class="graphe" viewBox="0 0 ${GEOM.W} ${GEOM.H}" role="img" aria-label="Composition des placements selon l'âge (scénario central)">${s}`;
-  classes.forEach((c, k) => {
-    const haut = piles.map((pl, i) => `${x(i).toFixed(1)},${y(pl[k]).toFixed(1)}`);
-    const bas = piles.map((pl, i) => `${x(i).toFixed(1)},${y(k ? pl[k - 1] : 0).toFixed(1)}`).reverse();
-    svg += `<polygon points="${haut.concat(bas).join(" ")}" fill="var(${COULEUR[c]})" stroke="var(--surface)" stroke-width="1"/>`;
-  });
-  if (achat) {
-    const i = central.findIndex((p) => p.evenement === "achat");
-    if (i >= 0) svg += `<line x1="${x(i)}" x2="${x(i)}" y1="${GEOM.h}" y2="${GEOM.H - GEOM.b}" stroke="var(--fg)" stroke-width="1.5" stroke-dasharray="4 4"/><text x="${Math.min(x(i) + 6, GEOM.W - 150)}" y="${GEOM.h + 10}" style="fill:var(--fg);font-weight:600">Achat de la résidence</text>`;
-  }
-  svg += colonnesSurvol(ages, x, (i) => {
-    const p = central[i];
-    return `${p.age} ans · ${eur(p.financier * defl(i))}\n` + classes.filter((c) => (p.classes[c] ?? 0) > 1).reverse().map((c) => `${plan.classes[c].libelle} : ${eur(p.classes[c] * defl(i))}`).join("\n");
-  }, "curseur-compo");
-  svg += `</svg>`;
-  return svg + `<div class="legende-g">${classes.slice().reverse().map((c) => `<span><span class="pastille" style="background:var(${COULEUR[c]})"></span>${plan.classes[c].libelle}</span>`).join("")}</div>`;
 }
 
-function graphiqueEventail(central, eventail, defl) {
-  const ages = eventail.map((p) => p.age);
-  const ymax = echelle(Math.max(...eventail.map((p, i) => Math.max(p.p90, central[i].financier) * defl(i))));
-  const { x, y, s } = cadre(ages, ymax);
-  const ligne = (f) => eventail.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(f(p, i) * defl(i)).toFixed(1)}`).join("");
-  const bande = eventail.map((p, i) => `${x(i).toFixed(1)},${y(p.p90 * defl(i)).toFixed(1)}`)
-    .concat(eventail.map((p, i) => `${x(i).toFixed(1)},${y(p.p10 * defl(i)).toFixed(1)}`).reverse()).join(" ");
-  let svg = `<svg class="graphe" viewBox="0 0 ${GEOM.W} ${GEOM.H}" role="img" aria-label="Éventail des scénarios : placements selon l'âge">${s}`;
-  svg += `<polygon points="${bande}" fill="var(--s1)" fill-opacity="0.16" stroke="none"/>`;
-  svg += `<path d="${ligne((p) => p.p10)}" fill="none" stroke="var(--s1)" stroke-width="1" stroke-opacity="0.6"/>`;
-  svg += `<path d="${ligne((p) => p.p90)}" fill="none" stroke="var(--s1)" stroke-width="1" stroke-opacity="0.6"/>`;
-  svg += `<path d="${ligne((p, i) => central[i].financier)}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
-  svg += `<path d="${ligne((p) => p.p50)}" fill="none" stroke="var(--s1)" stroke-width="2"/>`;
-  svg += colonnesSurvol(ages, x, (i) => {
-    const p = eventail[i], k = defl(i);
-    return `${p.age} ans\nOptimiste (1 chance sur 10 de faire mieux) : ${eur(p.p90 * k)}\nMédiane : ${eur(p.p50 * k)}\nPessimiste (1 chance sur 10 de faire moins bien) : ${eur(p.p10 * k)}\nScénario central : ${eur(central[i].financier * k)}`;
-  }, "curseur-eventail");
-  svg += `</svg>`;
-  return svg + `<div class="legende-g"><span><span class="trait" style="background:var(--s1)"></span>Médiane</span><span><span class="pastille" style="background:var(--s1);opacity:.35"></span>8 scénarios sur 10 dans cette zone</span><span><span class="trait" style="background:var(--muted)"></span>Scénario central (rendements moyens, pointillés)</span></div>`;
-}
-
-let minuteurTrajectoire = null;
-function planifierTrajectoire() {
-  clearTimeout(minuteurTrajectoire);
-  if (!$("#vue-trajectoire").hidden) minuteurTrajectoire = setTimeout(rendreTrajectoire, 200);
-  else if (!$("#vue-retraite").hidden) minuteurTrajectoire = setTimeout(rendreRetraite, 250);
-}
-// Projection mise en cache : la même sert à « Trajectoire » et à « Retraite ».
-// Deux entrées : la projection complète (avec l'éventail Monte-Carlo) et le scénario central seul (niveau Débutant).
-// Le central est identique dans les deux ; une projection complète déjà en cache sert aussi au besoin central.
-let cacheProjection = { cle: null, r: null };
-let cacheCentral = { cle: null, r: null };
-let cacheLegere = { cle: null, r: null }; // tirages au hasard mais sans éventail (verdict Débutant de l'onglet Retraite)
-function projectionCourante(inclureAchat = true, { central = false, legere = false } = {}) {
-  const r = { ...(etat.profil.retraite ?? {}) };
-  const cle = JSON.stringify([etat.brouillon, { ...etat.profil, retraite: r }, inclureAchat]);
-  if (cacheProjection.cle === cle) return cacheProjection.r;
-  if (central) {
-    if (cacheCentral.cle !== cle) cacheCentral = { cle, r: projeterCentral(etat.brouillon, profilPourMoteur(), { inclureAchat }) };
-    return cacheCentral.r;
-  }
-  if (legere) {
-    if (cacheLegere.cle !== cle) cacheLegere = { cle, r: projeter(etat.brouillon, profilPourMoteur(), { inclureAchat, legere: true }) };
-    return cacheLegere.r;
-  }
-  cacheProjection = { cle, r: projeter(etat.brouillon, profilPourMoteur(), { inclureAchat }) };
-  return cacheProjection.r;
-}
-// En Débutant : l'achat de la résidence est inclus s'il est actif, et les montants sont toujours en euros d'aujourd'hui
-const achatInclus = () => niveauCourant() === "debutant" || $("#t-achat").checked;
-const montantsReels = () => niveauCourant() === "debutant" || $("#t-reel").checked;
-
-// Courbe centrale du patrimoine net (placements + immobilier − crédits), scénario central : tous niveaux.
-// Les valeurs de l'infobulle sont celles de « Mon avenir en 3 chiffres » (C[i].net × defl(i)).
-function graphiqueTrajectoire(central, defl, r, iR) {
-  const ages = central.map((p) => p.age);
-  const ymax = echelle(Math.max(...central.map((p, i) => Math.max(p.net, p.financier) * defl(i))));
-  const { x, y, s } = cadre(ages, ymax);
-  const ligne = (k, coul, larg, tiret) => `<path d="${central.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p[k] * defl(i)).toFixed(1)}`).join("")}" fill="none" stroke="${coul}" stroke-width="${larg}"${tiret ? ' stroke-dasharray="5 4"' : ""} stroke-linejoin="round"/>`;
-  const repere = (i, texte, decalage) => i > 0 && i < central.length
-    ? `<line x1="${x(i)}" x2="${x(i)}" y1="${GEOM.h}" y2="${GEOM.H - GEOM.b}" stroke="var(--fg)" stroke-width="1.5" stroke-dasharray="4 4"/><text x="${Math.min(x(i) + 6, GEOM.W - 110)}" y="${GEOM.h + 10 + decalage}" style="fill:var(--fg);font-weight:600">${texte}</text>` : "";
-  let svg = `<svg class="graphe" viewBox="0 0 ${GEOM.W} ${GEOM.H}" role="img" aria-label="Patrimoine net selon l'âge (scénario central)">${s}`;
-  svg += ligne("financier", "var(--muted)", 1.5, true) + ligne("net", "var(--s1)", 2.5);
-  svg += repere(central.findIndex((p) => p.evenement === "achat"), "Achat de la résidence", 14) + repere(iR, "Retraite", 0);
-  svg += colonnesSurvol(ages, x, (i) => {
-    const p = central[i], f = defl(i);
-    return `${p.age} ans\nPatrimoine net : ${eur(p.net * f)}\nDont placements : ${eur(p.financier * f)}` + (p.bien - p.dette > 0.5 || p.bien > 0.5 ? `\nImmobilier net du crédit : ${eur((p.bien - p.dette) * f)}` : "");
-  }, "curseur-traj");
-  svg += `</svg>`;
-  return svg + `<div class="legende-g"><span><span class="trait" style="background:var(--s1)"></span>Patrimoine net (placements + immobilier − crédits)</span><span><span class="trait" style="background:var(--muted)"></span>Placements seuls (pointillés)</span></div>`;
-}
-
-// Résumé de l'achat de la résidence, à partir du même diagnostic que le panneau « Résidence principale » (blocAchat)
-function resumeAchat(res) {
-  const a = res?.achat; if (!a) return null;
-  const plan = etat.brouillon;
-  if (a.imperatif && a.horizon) return a.horizon.manque > 0.5 ? { ok: false, age: a.horizon.age, manque: a.horizon.manque } : { ok: true, age: a.horizon.age, manque: 0 };
-  const ch = a.choisi, i = a.ideal;
-  if (ch && (ch.horsLimite || ch.tropTard)) return { ok: false, age: ch.age, impossible: true, manque: 0 };
-  if (ch) return ch.ok || ch.okAvecPlacements ? { ok: true, age: ch.age, manque: 0, aVendre: ch.ok ? 0 : ch.aVendre } : { ok: false, age: ch.age, manque: ch.manqueTotal };
-  if (i) return { ok: true, age: i.age, manque: 0 }; // l'âge idéal est, par construction, finançable
-  // Aucun âge finançable : on montre l'apport qui manque à l'âge où l'écart est le plus faible (colonne « Verdict » du tableau)
-  const pires = a.serie.map((p) => diagnosticAchat(plan, p)).filter((d) => !d.tropTard);
-  const meilleur = pires.reduce((m, d) => (!m || d.manqueTotal < m.manqueTotal ? d : m), null);
-  return meilleur ? { ok: false, age: meilleur.age, manque: meilleur.manqueTotal } : { ok: false, age: null, impossible: true, manque: 0 };
-}
-
-// « Mon avenir en 3 chiffres » (niveau Débutant) : tout vient du scénario central, sans tirages au hasard
-function avenirEnTroisChiffres(r, defl, iR) {
-  const C = r.central, H = etat.brouillon.hypotheses, R = r.retraite;
-  const ageR = R?.age ?? C[iR].age;
-  const net = C[iR].net * defl(iR);
-  const L = libertePatrimoine(r, H, etat.resultat?.alloc ?? {});
-  let libre = "pas de calcul possible", libreSous = "", phraseLibre = "";
-  if (L && !(L.objectif > 0)) { libre = "déjà couverte"; libreSous = "ta retraite publique suffit"; phraseLibre = "Ta retraite publique couvre déjà tes besoins."; }
-  else if (L) {
-    libre = L.fire ? (L.fire.age <= C[0].age ? "déjà atteinte" : `à ${L.fire.age} ans`) : `pas avant ${ageR} ans`;
-    libreSous = `capital de ${keur(L.objectif)} (25 × tes besoins annuels)`;
-    phraseLibre = L.fire ? `Ton capital pourrait financer tes besoins ${L.fire.age <= C[0].age ? "dès aujourd'hui" : `dès ${L.fire.age} ans`}.` : `Ton capital ne suffirait pas à vivre de tes placements avant ${ageR} ans : il faut continuer d'épargner.`;
-  }
-  let tuile3, phrase3;
-  if (etat.profil.projetRP?.actif) {
-    const A = resumeAchat(etat.resultat);
-    if (!A) { tuile3 = ["Achat de ta résidence", "prix à renseigner", "dans Mon profil"]; phrase3 = "Renseigne le prix visé dans Mon profil pour savoir à quel âge acheter ta résidence principale."; }
-    else if (A.impossible) { tuile3 = ["Achat de ta résidence", A.age ? `impossible à ${A.age} ans` : "hors de portée", "revois l'âge ou le prix dans Mon profil"]; phrase3 = "Ton projet de résidence principale n'est pas finançable en l'état."; }
-    else if (A.ok) { tuile3 = ["Achat de ta résidence", `finançable à ${A.age} ans`, A.aVendre > 0.5 ? `en vendant ${eur(A.aVendre)} de placements` : "apport couvert"]; phrase3 = `Ta résidence principale serait finançable à ${A.age} ans.`; }
-    else { tuile3 = ["Achat de ta résidence", `apport manquant : ${eur(A.manque)}`, `pour acheter à ${A.age} ans`]; phrase3 = `Il te manque encore ${eur(A.manque)} d'apport pour acheter ta résidence principale à ${A.age} ans.`; }
-  } else {
-    const p0 = profilPourMoteur(), mois = moisPrecaution(p0.placements, p0.depensesMensuelles);
-    tuile3 = ["Épargne de précaution", mois == null ? "dépenses à renseigner" : `${(Math.round(mois * 10) / 10).toLocaleString("fr-FR")} mois de dépenses`, "en livrets, avant d'investir"];
-    phrase3 = mois == null ? "" : mois < 3 ? "Ton épargne de précaution couvre moins de 3 mois de dépenses : c'est la première priorité." : mois < 6 ? "Ton épargne de précaution couvre déjà plusieurs mois de dépenses : c'est solide." : "Ton épargne de précaution couvre 6 mois de dépenses ou plus : tu es à l'abri des imprévus.";
-  }
-  const tuiles = [[`Ton patrimoine à la retraite`, eur(net), `net, à ${ageR} ans, en euros d'aujourd'hui`], ["Liberté financière", libre, libreSous], tuile3];
-  const phrase = `En suivant ton plan, tu aurais environ ${eur(net)} à ${ageR} ans, en euros d'aujourd'hui. ${phraseLibre} ${phrase3}`.replace(/\s+/g, " ").trim();
-  return `<section class="panneau" id="tr-avenir" data-seul="debutant"><h2>Mon avenir en 3 chiffres</h2>
-    <div class="tuiles trois">${tuiles.map(([k, v, sous]) => `<div class="tuile"><span>${k}</span><b class="num">${v}</b>${sous ? `<span class="small muted">${sous}</span>` : ""}</div>`).join("")}</div>
-    <p class="note" style="margin:0">${echapper(phrase)}</p>
-  </section>`;
-}
-
-function rendreTrajectoire() {
-  const t0 = performance.now();
-  const plan = etat.brouillon, H = plan.hypotheses;
-  const deb = niveauCourant() === "debutant";
-  // Panneaux produits seulement au niveau où ils sont visibles : en Débutant, ni éventail, ni crise, ni fiscalité
-  $("#achat-trajectoire").innerHTML = siNiveau("intermediaire", () => (etat.resultat ? blocAchat(etat.resultat) : "")
-    || `<section class="panneau"><h2>Résidence principale</h2><p class="small muted" style="margin:6px 0 0">Pas de projet d'achat pour ce profil. Pour savoir à quel âge acheter et quel apport viser, coche « Projet d'achat » dans <a class="lien-fiche" href="#mon-profil">Mon profil</a>.</p></section>`);
-  let r;
-  try { r = projectionCourante(achatInclus(), { central: deb }); }
-  catch (e) { console.error(e); $("#trajectoire").innerHTML = `<div class="erreur">La projection ne peut pas être calculée : ${echapper(e.message)}.</div>`; return; }
-  const reel = montantsReels();
-  const defl = (i) => (reel ? Math.pow(1 + (H.inflation ?? 0) / 100, -i) : 1);
-  const C = r.central, E = r.eventail;
-  const iR = Math.max(0, Math.min(C.length - 1, (H.ageRetraite ?? 64) - C[0].age));
-  const iF = C.length - 1;
-  const iRet = Math.max(0, Math.min(C.length - 1, (r.retraite?.age ?? H.ageRetraite ?? 64) - C[0].age));
-  const unite = reel ? "en euros d'aujourd'hui" : "en euros de l'époque";
-
-  const tuiles = siNiveau("intermediaire", () => `<div class="tuiles quatre" id="tr-tuiles" data-min="intermediaire">${[
-    [`À ${C[iR].age} ans (médiane)`, eur(E[iR].p50 * defl(iR))],
-    [`Fourchette à ${C[iR].age} ans`, `${keur(E[iR].p10 * defl(iR))} – ${keur(E[iR].p90 * defl(iR))}`],
-    [`Patrimoine net à ${C[iF].age} ans`, eur(C[iF].net * defl(iF))],
-    [`Après impôts à ${C[iF].age} ans`, eur(C[iF].apresImpots * defl(iF))],
-  ].map(([k, v]) => `<div class="tuile"><span>${k}</span><b class="num">${v}</b></div>`).join("")}</div>`);
-  const infoAchat = siNiveau("intermediaire", () => {
-    let t = "";
-    if (r.achat) {
-      const a = r.achat, i = C.findIndex((p) => p.evenement === "achat");
-      t = i >= 0
-        ? `Achat de la résidence à ${a.age} ans (${a.imperatif ? "date impérative" : "âge idéal"}) : ${eur(a.prix)}, apport ${eur(a.apportRequis)} prélevé sur les placements, prêt de ${eur(a.pret)} sur ${a.duree} ans (${eur(a.mensualite)}/mois). Le loyer s'arrête, la mensualité est déduite de l'épargne.`
-        : `L'achat prévu à ${a.age} ans n'a pas pu être financé dans le scénario central.`;
-      if (r.achatsRates > 0) t += ` Dans ${Math.round((100 * r.achatsRates) / r.simulations)} % des scénarios, l'apport manque à cette date.`;
-    } else if (etat.profil.projetRP?.actif && achatInclus()) t = "Aucun âge d'achat finançable avant la limite du plan : l'achat n'est pas inclus.";
-    return t ? `<p class="small" style="margin:0" data-min="intermediaire">${echapper(t)}</p>` : "";
-  });
-  const infoPER = siNiveau("intermediaire", () => r.per?.actif ? `<p class="small" data-min="intermediaire" style="margin:6px 0 0">PER : ${eur(r.per.annuel)} versés par an jusqu'à ${Math.min(H.ageRetraite ?? 64, 70)} ans, ${plan.per?.reinvestirEconomie ? `et ${eur(r.per.economie)} d'économie d'impôt réépargnés chaque année` : "économie d'impôt non réépargnée"}. Dans « après impôts », les versements déduits sont imposés à ${plan.per?.tmiRetraite ?? 0} % à la sortie (hypothèse).</p>` : "");
-
-  // Repères : tous les 5 ans, plus la retraite, l'achat et la fin de la projection
-  const idx = [...new Set(C.map((p, i) => i).filter((i) => i % 5 === 0 || i === iR || i === iF || C[i].evenement === "achat"))].sort((x, y) => x - y);
-  const gain = (x, mis) => (mis > 0.5 ? (x - mis) / mis : null);
-  const celluleGain = (x, mis, f, i) => {
-    const g = i === 0 ? null : gain(x, mis);
-    return `<td class="m">${eur(x * f)}${g == null ? "" : `<div class="small ${g >= 0 ? "ecart-plus" : "ecart-moins"}">${g >= 0 ? "+" : "−"}${pct(Math.abs(100 * g))}</div>`}</td>`;
-  };
-  const panneauRapporte = () => {
-    const lignesGains = idx.map((i) => {
-      const f = defl(i), mis = C[i].verse;
-      return `<tr><td>${C[i].age} ans${C[i].evenement === "achat" ? " · achat" : ""}</td><td class="m">${mis > 0.5 ? eur(mis * f) : '<span class="small muted">déjà tout récupéré</span>'}</td>
-      ${celluleGain(E[i].p10, mis, f, i)}${celluleGain(E[i].p50, mis, f, i)}${celluleGain(E[i].p90, mis, f, i)}${celluleGain(C[i].financier, mis, f, i)}
-      <td class="m"><b>${i === 0 ? "—" : E[i].probaGain >= 1 ? "100 %" : E[i].probaGain >= 0.995 ? "plus de 99 %" : `${Math.round(100 * E[i].probaGain)} %`}</b></td></tr>`;
-    }).join("");
-    return `<section class="panneau" id="tr-rapporte" data-min="intermediaire"><h2>Ce que rapporte ton épargne</h2>
-      ${(() => { const RR = r.retraite; return RR ? `<p class="verdict ok" style="margin:4px 0 8px"><b>Hypothèses retraite utilisées :</b> arrêt de travail à ${RR.age} ans, puis ${eur(RR.revenu)} par mois (après impôt, en euros d'aujourd'hui) pris sur tes placements${RR.pension > 0 ? `, moins ${eur(RR.pension)} de retraite publique à partir de ${RR.agePension} ans` : ", sans retraite publique comptée"}. <a class="lien-fiche" href="#mon-profil">Modifier dans « Mon profil », bloc « Ta retraite »</a></p>` : ""; })()}
-      <p class="note" style="margin:4px 0 8px">« Argent mis » : ton capital de départ, plus toute l'épargne versée jusqu'à cet âge${r.achat ? ", moins l'apport sorti pour l'achat" : ""}. Sous chaque montant, le gain ou la perte par rapport à cet argent mis. Pessimiste : 1 scénario sur 10 fait moins bien ; optimiste : 1 sur 10 fait mieux ; médiane : la moitié fait mieux, la moitié moins bien ; central : rendements moyens chaque année. Placements seulement, avant impôts.</p>
-      <div class="table-wrap"><table><thead><tr><th>Âge</th><th class="m">Argent mis</th><th class="m">Pessimiste</th><th class="m">Médiane</th><th class="m">Optimiste</th><th class="m">Central</th><th class="m">Chances d'avoir gagné</th></tr></thead><tbody>${lignesGains}</tbody></table></div>
-      <p class="note" style="margin:8px 0 0">« Chances d'avoir gagné » : part des ${r.simulations} scénarios où les placements valent plus que l'argent mis à cet âge. Ces chances ne montent pas toujours avec l'âge : l'épargne des dernières années n'a pas encore eu le temps de rapporter, et un krach juste avant la date regardée suffit à faire repasser quelques scénarios sous l'argent mis. Après ${H.ageRetraite ?? 64} ans, l'argent mis diminue des revenus que tu te verses.</p>
-    </section>`;
-  };
-  // Après impôts : impôt du scénario central, et même taux d'impôt sur les gains pour les autres scénarios
-  const panneauApresImpots = () => {
-    const lignesImpots = idx.map((i) => {
-      const p = C[i], f = defl(i);
-      const gainsCentral = Math.max(1, p.financier - p.baseTotal);
-      const taux = Math.min(0.6, Math.max(0, p.impotPlacements / gainsCentral));
-      const immo = p.bien - p.dette;
-      // Chaque scénario a son propre impôt (sa composition, ses gains) ; à défaut, le taux du scénario central
-      const parScenario = E[i].a10 != null;
-      const cellule = (pX, aX, tX) => parScenario
-        ? `<td class="m">${eur((aX + immo) * f)}<div class="small muted">impôts ${eur(tX * f)}</div></td>`
-        : `<td class="m">${eur((pX - taux * Math.max(0, pX - p.baseTotal) - p.impotPER + immo) * f)}<div class="small muted">impôts ${eur((taux * Math.max(0, pX - p.baseTotal) + p.impotPER) * f)}</div></td>`;
-      return `<tr><td>${p.age} ans</td><td class="m">${eur(immo * f)}</td>
-      ${cellule(E[i].p10, E[i].a10, E[i].t10)}${cellule(E[i].p50, E[i].a50, E[i].t50)}${cellule(E[i].p90, E[i].a90, E[i].t90)}
-      <td class="m"><b>${eur(p.apresImpots * f)}</b><div class="small muted">impôts ${eur((p.impotPlacements + p.impotPER) * f)}</div></td></tr>`;
-    }).join("");
-    return `<section class="panneau" id="tr-apres-impots" data-min="avance"><h2>Après impôts, si tout était vendu</h2>
-      <p class="note" style="margin:4px 0 8px">Patrimoine net : placements moins les impôts dus si tout était vendu à cet âge, plus ${etat.profil.proprietaire || r.achat ? "l'immobilier net du crédit restant (colonne « Immobilier net »)" : "l'immobilier s'il y en a"}. Chaque scénario a sa ligne ; sous chaque montant, le total des impôts qui seraient payés.</p>
-      <div class="table-wrap"><table><thead><tr><th>Âge</th><th class="m">Immobilier net</th><th class="m">Pessimiste</th><th class="m">Médiane</th><th class="m">Optimiste</th><th class="m">Central</th></tr></thead><tbody>${lignesImpots}</tbody></table></div>
-      <p class="note" style="margin:8px 0 0">Impôts calculés pour le scénario central selon la fiscalité ${plan.fiscalite?.verifieeLe ? `vérifiée le ${new Date(plan.fiscalite.verifieeLe + "T12:00").toLocaleDateString("fr-FR")}` : "du plan"} (gains de chaque compte, or au régime le plus favorable, résidence principale exonérée${r.per?.actif ? ", PER imposé à la sortie" : ""}) . Pessimiste, médiane et optimiste : chacun des scénarios tirés au hasard est taxé avec sa propre répartition et ses propres gains (moins de gains et plus de livrets quand les marchés ont stagné, donc moins d'impôt), puis on prend le 1er dixième, la médiane et le 9e dixième du résultat après impôts. Immobilier net : valeur du logement moins le crédit restant ; il est valorisé de ${pct(H.valorisationImmobiliere ?? 0)} par an (hypothèse modifiable dans « Mon plan »), donc en euros d'aujourd'hui il ne monte que si ce taux dépasse l'inflation (${pct(H.inflation ?? 0)}). Ne sont pas comptés : les impôts payés lors des rééquilibrages, les abattements annuels de l'assurance-vie et la plus-value d'un logement autre que la résidence principale.</p>
-    </section>`;
-  };
-
-  $("#trajectoire").innerHTML = `
-    ${deb ? avenirEnTroisChiffres(r, defl, iRet) : ""}
-    <section class="panneau" id="tr-trajectoire"><h2>Trajectoire du patrimoine</h2>
-      <p class="note" style="margin:4px 0 0">${etat.profil.foyer?.actif ? "Foyer : les âges affichés sont l'âge de référence du couple. " : ""}Chaque année, le plan est réappliqué : paliers, âge, protection de l'apport. L'épargne suit le salaire (${normaliserProfil(etat.profil).salaireDans10Ans > 0 ? "selon ton salaire espéré dans 10 ans, puis ta carrière" : `carrière « ${echapper((carriereDe(plan, etat.profil).libelle ?? "").split(" :")[0])} »`}) et s'arrête à ${r.retraite?.age ?? H.ageRetraite} ans. Montants ${unite}.</p>
-      ${tuiles}${infoAchat}${infoPER}
-      <div style="margin-top:10px">${graphiqueTrajectoire(C, defl, r, iRet)}</div>
-      <p class="small" style="margin:6px 0 0" id="tr-ligne-retraite">À ${C[iRet].age} ans (retraite) : patrimoine net <b class="num">${eur(C[iRet].net * defl(iRet))}</b>, dont ${eur(C[iRet].financier * defl(iRet))} de placements. Survole le graphique pour lire chaque âge.</p>
-    </section>
-    ${siNiveau("intermediaire", () => `<div id="tr-objectifs" data-min="intermediaire">${blocObjectifs(r)}</div>`)}
-    ${siNiveau("intermediaire", () => blocTranches(r, defl, unite))}
-    ${siNiveau("avance", () => `<section class="panneau" id="tr-composition" data-min="avance"><h2>Composition des placements · scénario central</h2>
-      <p class="note" style="margin:4px 0 8px">Rendements moyens du plan chaque année. Survole le graphique pour le détail.</p>${graphiqueComposition(C, defl, r.achat)}</section>`)}
-    ${siNiveau("intermediaire", () => `<section class="panneau" id="tr-eventail" data-min="intermediaire"><h2>Éventail des possibles · ${r.simulations} scénarios</h2>
-      <p class="note" style="margin:4px 0 8px">Les rendements sont tirés au hasard chaque année selon la volatilité de chaque classe (bitcoin très variable). La médiane est sous le scénario central : les années de baisse pèsent plus que les années de hausse.</p>${graphiqueEventail(C, E, defl)}</section>`)}
-    ${siNiveau("avance", () => `<section class="panneau" id="bloc-crise" data-min="avance"><h2>Et si une crise arrivait ?</h2>
-      <p class="note" style="margin:4px 0 10px">On rejoue une crise passée sur ton portefeuille, puis les rendements moyens du plan. Pour voir ce que tu risques, et pourquoi il ne faut pas paniquer.</p>
-      <div class="ligne-actions">
-        <label for="crise-choix" class="small">Crise</label><select id="crise-choix" style="width:auto">${Object.entries(CRISES).map(([k, c]) => `<option value="${k}" ${k === uiCrise.id ? "selected" : ""}>${echapper(c.libelle)}</option>`).join("")}</select>
-        <label for="crise-moment" class="small">Quand</label><select id="crise-moment" style="width:auto">${[["bientot", "L'année prochaine"], ["avant", "5 ans avant ta retraite"], ["retraite", "L'année où tu arrêtes de travailler"]].map(([k, l]) => `<option value="${k}" ${k === uiCrise.moment ? "selected" : ""}>${l}</option>`).join("")}</select>
-      </div>
-      <div id="crise-resultat" style="margin-top:10px"></div>
-    </section>`)}
-    ${siNiveau("avance", () => `<section class="panneau" id="bloc-historique" data-min="avance"><h2>Rejouer l'histoire réelle (${HISTORIQUE.debut}–${HISTORIQUE.fin})</h2>
-      <p class="note" style="margin:4px 0 10px">On applique à ton plan, une fenêtre après l'autre, les rendements et l'inflation réellement observés depuis ${HISTORIQUE.debut}. Ce n'est pas une prévision : le passé ne se répète pas à l'identique.</p>
-      <div class="ligne-actions">
-        <label for="hist-longueur" class="small">Durée</label><select id="hist-longueur" style="width:auto">${[20, 30].map((n) => `<option value="${n}" ${n === uiHistorique.longueur ? "selected" : ""}>${n} ans</option>`).join("")}</select>
-        <label for="hist-depart" class="small">Départ</label><select id="hist-depart" style="width:auto"><option value="maintenant" ${uiHistorique.depart === "maintenant" ? "selected" : ""}>Maintenant</option><option value="retraite" ${uiHistorique.depart === "retraite" ? "selected" : ""}>À la retraite</option></select>
-      </div>
-      <div id="hist-resultat" style="margin-top:10px"></div>
-    </section>`)}
-    ${siNiveau("intermediaire", () => `<section class="panneau" id="bloc-inflation" data-min="intermediaire"><h2>Et si l'inflation restait à 4–6 % pendant 10 ans ?</h2>
-      <div class="ligne-actions">
-        <label for="infl-taux" class="small">Inflation</label><select id="infl-taux" style="width:auto">${[4, 5, 6].map((n) => `<option value="${n}" ${n === uiInflation.taux ? "selected" : ""}>${n} % par an</option>`).join("")}</select>
-      </div>
-      <div id="infl-resultat" style="margin-top:10px"></div>
-    </section>`)}
-    ${siNiveau("intermediaire", panneauRapporte)}
-    ${siNiveau("avance", panneauApresImpots)}
-    ${siNiveau("avance", () => `<section class="panneau" id="bloc-ab" data-min="avance">${blocScenarios(r, reel)}</section>`)}
-    ${siNiveau("avance", () => `<section class="panneau" id="bloc-fiscal" data-min="avance"></section>`)}`;
-  rendreCrise();
-  rendreHistorique();
-  rendreInflation();
-  rendreFiscal();
-  try { performance.measure(`rendreTrajectoire:${niveauCourant()}`, { start: t0 }); } catch {} // mesure lisible via performance.getEntriesByType("measure")
-}
-
-// ---------------------------------------------------------------- évolution de la fiscalité
-// « Et si la fiscalité changeait ? » : tout est recalculé avec d'autres règles à partir d'une année choisie
-let simFiscale = { scenario: "ps", annee: 1, perso: { ...NEUTRE, dPS: 1.4 }, ...(memo.get("sim-fiscale") ?? {}) };
-let cacheFiscal = { cle: null, r: null, sens: null }, minuteurFiscal = null;
-const reglesFiscales = () => (simFiscale.scenario === "perso" ? simFiscale.perso : SCENARIOS_FISCAUX.find((s) => s.id === simFiscale.scenario)?.h ?? {});
-function rendreFiscal() {
-  const el = $("#bloc-fiscal"); if (!el) return;
-  const plan = etat.brouillon, base = projectionCourante(true), R = base.retraite;
-  const iR = R?.iR ?? null, ageAuj = base.central[0]?.age ?? 0;
-  const S = SCENARIOS_FISCAUX.find((s) => s.id === simFiscale.scenario);
-  const P = simFiscale.perso;
-  const annees = [[1, `En ${new Date().getFullYear() + 1} (prochaine loi de finances)`], [5, "Dans 5 ans"], [10, "Dans 10 ans"], ...(iR > 0 ? [[iR, `À ta retraite (${ageAuj + iR} ans)`]] : [])];
-  const ch = (id, lib, v, aide = "") => `<label class="coche"><input type="checkbox" data-fs="${id}" ${v ? "checked" : ""}> ${lib}</label>${aide ? `<p class="note" style="margin:-4px 0 0">${aide}</p>` : ""}`;
-  const nb = (id, lib, v, unite, pas, min, max) => `<div class="champ"><label for="fs-${id}">${lib}</label><div class="saisie"><input id="fs-${id}" type="number" step="${pas}" min="${min}" max="${max}" data-fs="${id}" value="${v}"><span>${unite}</span></div></div>`;
-  el.innerHTML = `<h2>Et si la fiscalité changeait ?</h2>
-    <p class="note" style="margin:4px 0 8px">Les règles changent presque chaque année avec la loi de finances : flat tax en 2018, prélèvements sociaux relevés en 2026, amortissement du meublé rogné en 2025… Choisis un changement possible et sa date : le site recalcule ta trajectoire et ta retraite avec ces nouvelles règles, pour voir à quel point ton plan en dépend. Ce sont des hypothèses, pas des prévisions.</p>
-    <div class="champs" style="max-width:640px">
-      <div class="champ"><label for="fs-scenario">Changement à tester</label><select id="fs-scenario">${SCENARIOS_FISCAUX.map((s) => `<option value="${s.id}" ${s.id === simFiscale.scenario ? "selected" : ""}>${echapper(s.nom)}</option>`).join("")}<option value="perso" ${simFiscale.scenario === "perso" ? "selected" : ""}>Mon propre scénario</option></select></div>
-      <div class="champ"><label for="fs-annee">À partir de</label><select id="fs-annee">${annees.map(([v, l]) => `<option value="${v}" ${v === simFiscale.annee ? "selected" : ""}>${l}</option>`).join("")}</select></div>
-    </div>
-    ${S ? `<p class="small" style="margin:6px 0 0">${echapper(S.texte)}</p>` : ""}
-    <details id="fs-perso" style="margin-top:8px" ${simFiscale.scenario === "perso" ? "open" : ""}><summary class="small"><b>Construire mon propre scénario</b></summary>
-      <div class="champs" style="max-width:640px;margin-top:8px">
-        ${nb("dPS", "Prélèvements sociaux : variation (18,6 % aujourd'hui)", P.dPS, "points", 0.1, -5, 10)}
-        ${nb("dIR", "Part impôt de la flat tax : variation (12,8 % aujourd'hui)", P.dIR, "points", 0.1, -5, 20)}
-        ${ch("peaIR", "Le PEA de plus de 5 ans paie aussi l'impôt sur le revenu", P.peaIR)}
-        ${ch("avFin", "L'assurance-vie de plus de 8 ans perd son taux réduit", P.avFin)}
-        ${ch("livrets", "Les intérêts du Livret A, du LDDS et du LEP deviennent imposés", P.livrets)}
-        ${ch("lmnpFin", "Fin de l'amortissement en location meublée (LMNP)", P.lmnp === false)}
-        ${nb("perDed", "PER : part de l'économie d'impôt qui reste", P.perDed, "%", 10, 0, 100)}
-        <div class="champ"><label for="fs-perSortie">PER : tranche appliquée à la sortie</label><select id="fs-perSortie" data-fs="perSortie">${[["", `Celle du plan (${plan.per?.tmiRetraite ?? 11} %)`], ["0", "0 %"], ["11", "11 %"], ["30", "30 %"], ["41", "41 %"]].map(([v, l]) => `<option value="${v}" ${String(P.perSortie ?? "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
-      </div>
-    </details>
-    <div id="fs-resultat" style="margin-top:12px"><p class="muted small">Calcul en cours…</p></div>`;
-  clearTimeout(minuteurFiscal);
-  minuteurFiscal = setTimeout(calculerFiscal, 60);
-}
-function calculerFiscal() {
-  const out = $("#fs-resultat"); if (!out) return;
-  const plan = etat.brouillon, H = plan.hypotheses, infl = (H.inflation ?? 0) / 100;
-  const profil = profilPourMoteur();
-  const h = reglesFiscales(), annee = simFiscale.annee;
-  const cle = JSON.stringify([cacheProjection.cle, h, annee]);
-  let base, r;
-  try {
-    base = projectionCourante(true);
-    if (cacheFiscal.cle !== cle) {
-      r = projeter(plan, profil, { inclureAchat: true, fiscF: optionFiscale(plan, h, annee) });
-      // Sensibilité : chaque changement seul, scénario central (rapide)
-      const ref = projeterCentral(plan, profil, { inclureAchat: true });
-      const ecart = (pts, i) => pts.central[i] ? pts.central[i].financier - pts.central[i].impotPlacements - pts.central[i].impotPER : 0;
-      const sens = SCENARIOS_FISCAUX.filter((s) => !["noir", "baisse"].includes(s.id)).map((s) => {
-        const c = projeterCentral(plan, profil, { inclureAchat: true, fiscF: optionFiscale(plan, s.h, annee) });
-        return { s, retraite: ecart(c, ref.iR) - ecart(ref, ref.iR), fin: ecart(c, ref.dernier) - ecart(ref, ref.dernier), iR: ref.iR, dernier: ref.dernier };
-      }).sort((a, b) => a.retraite - b.retraite);
-      cacheFiscal = { cle, r, sens };
-    }
-    r = cacheFiscal.r;
-  } catch (e) { console.error(e); out.innerHTML = `<p class="erreur">Calcul impossible : ${echapper(e.message)}</p>`; return; }
-  const R0 = base.retraite, R1 = r.retraite;
-  if (!R0 || !R1) { out.innerHTML = '<p class="muted small">La retraite est hors de la période projetée : pas de comparaison possible.</p>'; return; }
-  const iR = R0.iR, iF = R0.dernier;
-  const reel = (v, i) => v / Math.pow(1 + infl, i);
-  const net = (pts, i) => pts.central[i].financier - pts.central[i].impotPlacements - pts.central[i].impotPER;
-  const ecartTxt = (a, b, unite = "") => { const d = b - a; return Math.abs(d) < 0.5 ? '<span class="muted">inchangé</span>' : `<span class="${d < 0 ? "ecart-moins" : "ecart-plus"}">${d < 0 ? "−" : "+"}${eur(Math.abs(d))}${unite}${a > 0 ? ` (${d < 0 ? "−" : "+"}${pct(Math.abs((100 * d) / a))})` : ""}</span>`; };
-  const tuiles = [
-    [`Placements après impôts à ${base.central[iR].age} ans (départ)`, reel(net(base, iR), iR), reel(net(r, iR), iR), ""],
-    ["Revenu possible sans entamer le capital", R0.revenuPreserve ?? 0, R1.revenuPreserve ?? 0, "/mois"],
-    [`Placements après impôts à ${base.central[iF].age} ans`, reel(net(base, iF), iF), reel(net(r, iF), iF), ""],
-  ];
-  const pctD = (x) => `${Math.round(x * 100)} %`;
-  const taux = comparerTaux(plan, h, tauxGains(plan, profilPourMoteur(), "scpi")).filter((l) => Math.abs(l.apres - l.avant) > 0.05 || l.avant > 0);
-  const sens = cacheFiscal.sens ?? [];
-  const pire = sens[0];
-  out.innerHTML = `<div class="tuiles">${tuiles.map(([k, a, b, u]) => `<div class="tuile"><span>${k}</span><b class="num">${eur(b)}${u}</b><span class="small">${ecartTxt(a, b, u)} par rapport aux règles actuelles (${eur(a)}${u})</span></div>`).join("")}
-      <div class="tuile"><span>Chances que l'argent dure jusqu'à ${base.central[iF].age} ans</span><b class="num">${pctD(R1.probaDure)}</b><span class="small">${Math.round(R1.probaDure * 100) === Math.round(R0.probaDure * 100) ? '<span class="muted">inchangé</span>' : `<span class="${R1.probaDure < R0.probaDure ? "ecart-moins" : "ecart-plus"}">${pctD(R0.probaDure)} avec les règles actuelles</span>`}</span></div></div>
-    <p class="note" style="margin:6px 0 0">En euros d'aujourd'hui, scénario central (rendements moyens) ; les chances viennent des ${r.simulations} scénarios tirés au hasard. Les nouvelles règles s'appliquent à partir de ${new Date().getFullYear() + simFiscale.annee} : aux ventes, aux retraits de la retraite, aux loyers, aux intérêts des livrets et aux versements sur le PER.</p>
-    <h3 style="margin:14px 0 4px">Ce qui change, produit par produit</h3>
-    <div class="table-wrap"><table><thead><tr><th>Produit</th><th class="m">Taux sur les gains aujourd'hui</th><th class="m">Dans ce scénario</th></tr></thead><tbody>
-      ${taux.map((l) => `<tr><td>${l.nom}</td><td class="m">${pct(l.avant)}</td><td class="m">${Math.abs(l.apres - l.avant) > 0.05 ? `<b class="${l.apres > l.avant ? "ecart-moins" : "ecart-plus"}">${pct(l.apres)}</b>` : pct(l.apres)}</td></tr>`).join("")}
-      ${(h.perDed ?? 100) !== 100 ? `<tr><td>PER : économie d'impôt sur les versements</td><td class="m">100 %</td><td class="m"><b class="ecart-moins">${h.perDed} %</b></td></tr>` : ""}
-      ${h.lmnp === false ? `<tr><td>Meublé (LMNP au réel) : amortissement</td><td class="m">Oui</td><td class="m"><b class="ecart-moins">Supprimé</b></td></tr>` : ""}
-    </tbody></table></div>
-    <h3 style="margin:14px 0 4px">Pour toi, quels changements pèseraient le plus ?</h3>
-    <p class="note" style="margin:0 0 6px">Chaque changement testé seul, à partir de ${new Date().getFullYear() + simFiscale.annee}, sur tes placements après impôts (scénario central, euros d'aujourd'hui).</p>
-    <div class="table-wrap"><table><thead><tr><th>Changement</th><th class="m">À ton départ</th><th class="m">À ${base.central[iF].age} ans</th></tr></thead><tbody>
-      ${sens.map((x) => `<tr><td>${echapper(x.s.nom)}</td><td class="m">${ecartTxt(0, reel(x.retraite, x.iR)).replace(/ \(.*\)/, "")}</td><td class="m">${ecartTxt(0, reel(x.fin, x.dernier)).replace(/ \(.*\)/, "")}</td></tr>`).join("")}
-    </tbody></table></div>
-    <ul class="points" style="margin-top:10px">
-      ${pire && pire.retraite < -1000 ? `<li>Ton plan est le plus sensible à : <b>${echapper(pire.s.nom.toLowerCase())}</b>. C'est le risque fiscal à surveiller à chaque loi de finances (en décembre).</li>` : `<li>Aucun changement testé seul ne pèse beaucoup sur ton plan : ta fiscalité est bien répartie.</li>`}
-      <li>Répartir son épargne entre plusieurs enveloppes (PEA, assurance-vie, PER, livrets) limite ce risque : une réforme touche rarement tout à la fois.</li>
-      <li>Les réformes épargnent souvent l'argent déjà placé : en 2017, la flat tax de l'assurance-vie n'a visé que les versements faits après le 27 septembre 2017. Ouvrir tôt un PEA et une assurance-vie, même avec peu, garde l'antériorité.</li>
-      <li>Ici, par prudence, les nouvelles règles s'appliquent à tout, y compris à l'argent déjà placé : c'est le pire cas.</li>
-    </ul>`;
-}
-$("#trajectoire").addEventListener("change", (e) => {
-  const t = e.target;
-  if (t.id === "fs-scenario") simFiscale.scenario = t.value;
-  else if (t.id === "fs-annee") simFiscale.annee = Number(t.value);
-  else if (t.dataset?.fs) {
-    const k = t.dataset.fs, P = simFiscale.perso;
-    if (k === "lmnpFin") P.lmnp = !t.checked;
-    else if (t.type === "checkbox") P[k] = t.checked;
-    else if (k === "perSortie") P.perSortie = t.value === "" ? null : Number(t.value);
-    else P[k] = t.value === "" ? NEUTRE[k] : Number(t.value);
-    simFiscale.scenario = "perso";
-  } else return;
-  memo.set("sim-fiscale", simFiscale);
-  rendreFiscal();
-});
-// ---------------------------------------------------------------- comparer des scénarios
-// Jusqu'à 3 scénarios figés (mémorisés dans ce navigateur et dans l'export), comparés au profil actuel.
-const MAX_SCENARIOS = 3, COULEURS_SC = ["--s2", "--s5", "--s7"];
-// Rangés par profil : chaque profil (l'exemple, le tien, ceux des proches) a ses propres scénarios
-const cleScenarios = () => `scenarios:${cleProfilCourant()}`;
-function scenariosGardes() {
-  let L = memo.get(cleScenarios());
-  if (!Array.isArray(L)) {
-    // Anciennes versions : une seule liste pour tout le navigateur, attribuée au premier profil qui l'ouvre
-    const ancien = memo.get("scenarios"), A = memo.get("scenario-A");
-    L = Array.isArray(ancien) ? ancien : A ? [A] : [];
-    memo.set(cleScenarios(), L);
-    try { localStorage.removeItem("scenarios"); localStorage.removeItem("scenario-A"); } catch {}
-  }
-  return L.slice(0, MAX_SCENARIOS);
-}
-const garderScenarios = (L) => memo.set(cleScenarios(), L.slice(0, MAX_SCENARIOS));
-function blocScenarios(r, reel) {
-  const H = etat.brouillon.hypotheses, infl = (H.inflation ?? 0) / 100;
-  const S = scenariosGardes();
-  const lettre = (k) => String.fromCharCode(65 + k);
-  const intro = `<h2>Comparer des scénarios</h2>
-    <p class="note" style="margin:4px 0 8px">Par exemple « locataire, 100 % ETF », « achat de ma résidence », « investissement locatif » ou « départ à 55 ans ». Fige le scénario actuel sous un nom, change ton profil, fige le suivant (3 au plus) : chaque courbe se superpose au profil actuel (patrimoine net, scénario central). Survole le graphique pour lire les écarts année par année.</p>
-    <div class="ligne-actions"><input id="ab-nom" type="text" class="texte" maxlength="40" placeholder="Nom du scénario (ex. Locataire, 100 % ETF)" style="max-width:280px"><button type="button" class="principal" id="ab-figer" ${S.length >= MAX_SCENARIOS ? "disabled" : ""}>Figer le scénario actuel${S.length ? ` (${lettre(S.length)})` : " (A)"}</button>${S.length >= MAX_SCENARIOS ? `<span class="small muted">3 scénarios au plus : supprimes-en un pour en figer un autre.</span>` : ""}</div>
-    ${S.length ? `<ul class="points" style="margin:8px 0 0">${S.map((x, k) => `<li><span class="trait" style="display:inline-block;width:18px;height:3px;vertical-align:middle;background:var(${COULEURS_SC[k]})"></span> <b>${lettre(k)} : ${echapper(x.nom || "sans nom")}</b> <span class="small muted">figé le ${new Date(x.date).toLocaleDateString("fr-FR")}</span> <button type="button" class="lien" data-suppr-sc="${k}">Supprimer</button></li>`).join("")}</ul>` : ""}`;
-  if (!S.length) return intro;
-  const B = r.central.map((p, i) => ({ age: p.age, v: p.net, i }));
-  const val = (x) => (reel ? x.v / Math.pow(1 + infl, x.i) : x.v);
-  const ages = B.map((b) => b.age);
-  const serie = (sc) => ages.map((a) => { const p = sc.points.find((q) => q.age === a); return p ? { age: a, v: p.net, i: p.i } : null; });
-  const series = S.map(serie);
-  const tous = [...B.map(val), ...series.flatMap((se) => se.filter(Boolean).map(val))];
-  const { W, H: Hh, g, d, h, b } = GEOM;
-  const ymax = echelle(Math.max(1, ...tous)), ymin = Math.min(0, ...tous);
-  const x = (i) => g + (i * (W - g - d)) / Math.max(1, ages.length - 1);
-  const y = (v) => Hh - b - ((v - ymin) * (Hh - b - h)) / (ymax - ymin || 1);
-  const chemin = (se) => se.map((p, i) => (p ? `${x(i).toFixed(1)},${y(val(p)).toFixed(1)}` : null)).filter(Boolean).join(" ");
-  let svg = `<svg class="graphe" viewBox="0 0 ${W} ${Hh}" role="img" aria-label="Patrimoine net des scénarios figés et du profil actuel selon l'âge">`;
-  for (let k = 0; k <= 4; k++) { const v = ymin + ((ymax - ymin) * k) / 4; svg += `<line class="grille-l" x1="${g}" x2="${W - d}" y1="${y(v)}" y2="${y(v)}"/><text x="${g - 8}" y="${y(v) + 4}" text-anchor="end">${keur(v)}</text>`; }
-  ages.forEach((a, i) => { if (i % 5 === 0 || i === ages.length - 1) svg += `<text x="${x(i)}" y="${Hh - 9}" text-anchor="middle">${a} ans</text>`; });
-  svg += `<line class="axe" x1="${g}" x2="${W - d}" y1="${Hh - b}" y2="${Hh - b}"/>`;
-  series.forEach((se, k) => { svg += `<polyline points="${chemin(se)}" fill="none" stroke="var(${COULEURS_SC[k]})" stroke-width="2" stroke-dasharray="6 4"/>`; });
-  svg += `<polyline points="${chemin(B)}" fill="none" stroke="var(--s1)" stroke-width="2.5"/>`;
-  svg += colonnesSurvol(ages, x, (i) => {
-    const vb = val(B[i]);
-    return `${ages[i]} ans\nActuel : ${eur(vb)}` + series.map((se, k) => (se[i] ? `\n${lettre(k)} (${S[k].nom || "sans nom"}) : ${eur(val(se[i]))} · actuel ${vb - val(se[i]) >= 0 ? "+" : "−"}${eur(Math.abs(vb - val(se[i])))}` : "")).join("");
-  }, "curseur-ab");
-  svg += `</svg>`;
-  const idx = ages.map((a, i) => i).filter((i) => i % 5 === 0 || i === ages.length - 1);
-  const lignes = idx.map((i) => `<tr><td>${ages[i]} ans</td><td class="m"><b>${eur(val(B[i]))}</b></td>${series.map((se) => { if (!se[i]) return '<td class="m muted">—</td>'; const dd = val(B[i]) - val(se[i]); return `<td class="m">${eur(val(se[i]))}<div class="small"><span class="${dd >= 0 ? "ecart-plus" : "ecart-moins"}">actuel ${dd >= 0 ? "+" : "−"}${eur(Math.abs(dd))}</span></div></td>`; }).join("")}</tr>`).join("");
-  return intro + `<div style="margin-top:10px">${svg}</div>
-    <div class="legende-g"><span><span class="trait" style="background:var(--s1)"></span>Profil actuel</span>${S.map((sc, k) => `<span><span class="trait" style="background:var(${COULEURS_SC[k]})"></span>${lettre(k)} : ${echapper(sc.nom || "sans nom")}</span>`).join("")}</div>
-    <div class="table-wrap" style="margin-top:8px"><table><thead><tr><th>Âge</th><th class="m">Actuel</th>${S.map((sc, k) => `<th class="m">${lettre(k)} : ${echapper(sc.nom || "sans nom")}</th>`).join("")}</tr></thead><tbody>${lignes}</tbody></table></div>
-    <p class="note" style="margin:8px 0 0">Patrimoine net (placements + immobilier − crédits), scénario central, ${reel ? "en euros d'aujourd'hui" : "en euros de l'époque"}. Les scénarios sont gardés dans ce navigateur et dans l'export de tes données.</p>`;
-}
-$("#trajectoire").addEventListener("click", (e) => {
-  const t = e.target;
-  if (t.id !== "ab-figer" && !t.dataset?.supprSc) return;
-  let r; try { r = projectionCourante(achatInclus()); } catch { return; }
-  const S = scenariosGardes();
-  if (t.id === "ab-figer" && S.length < MAX_SCENARIOS) S.push({ nom: $("#ab-nom")?.value?.trim() || "", date: new Date().toISOString(), points: r.central.map((p, i) => ({ age: p.age, net: p.net, i })) });
-  else if (t.dataset.supprSc) S.splice(Number(t.dataset.supprSc), 1);
-  garderScenarios(S);
-  $("#bloc-ab").innerHTML = blocScenarios(r, montantsReels());
-});
-$("#t-reel").addEventListener("change", rendreTrajectoire);
-
-// Crise rejouée : trois trajectoires (sans crise, en gardant le cap, en paniquant)
-const uiCrise = { id: memo.get("crise-id") ?? "2008", moment: memo.get("crise-moment") ?? "bientot" };
-function rendreCrise() {
-  const out = $("#crise-resultat"); if (!out) return;
-  const plan = etat.brouillon, H = plan.hypotheses;
-  const p = profilPourMoteur(), age0 = Math.round(normaliserProfil(p).age ?? 30);
-  const PRage = projectionCourante(achatInclus()).retraite?.age ?? H.ageRetraite ?? 64;
-  const ageDebut = uiCrise.moment === "bientot" ? age0 + 1 : uiCrise.moment === "avant" ? Math.max(age0 + 1, PRage - 5) : Math.max(age0 + 1, PRage);
-  let r;
-  try { r = simulerCrise(plan, p, { crise: uiCrise.id, ageDebut, inclureAchat: achatInclus() }); }
-  catch (e) { console.error(e); out.innerHTML = `<p class="erreur">Simulation impossible : ${echapper(e.message)}</p>`; return; }
-  const reel = montantsReels(), infl = (H.inflation ?? 0) / 100;
-  const defl = (i) => (reel ? Math.pow(1 + infl, -i) : 1);
-  const S = r.sans, G = r.garde, P = r.panique, d = r.debut, n = r.crise.annees.length;
-  const ages = S.map((pt) => pt.age);
-  // Pire moment, retour au niveau d'avant, écarts à la retraite
-  // Pire moment : le plus grand écart avec la même vie sans crise (achat et retraits compris des deux côtés)
-  let iMin = d; for (let i = d; i <= Math.min(S.length - 1, d + n + 2); i++) if (G[i].financier / (S[i].financier || 1) < G[iMin].financier / (S[iMin].financier || 1)) iMin = i;
-  const perte = S[iMin].financier - G[iMin].financier, avant = G[d].financier;
-  const iRetour = G.findIndex((pt, i) => i > d && i > iMin && pt.financier >= avant);
-  const iRet = Math.min(S.length - 1, d + 10);  // comparaison 10 ans après le début de la crise
-  const cmp = (a, b) => `${a >= b ? "+" : "−"}${eur(Math.abs(a - b))} (${a >= b ? "+" : "−"}${pct(Math.abs(100 * (a - b) / (b || 1)))})`;
-  const ymax = echelle(Math.max(...S.map((pt, i) => Math.max(pt.financier, G[i].financier, P[i].financier) * defl(i))));
-  const { x, y, s } = cadre(ages, ymax);
-  const ligne = (T, coul, larg, tiret) => `<path d="${T.map((pt, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(pt.financier * defl(i)).toFixed(1)}`).join("")}" fill="none" stroke="${coul}" stroke-width="${larg}"${tiret ? ' stroke-dasharray="5 4"' : ""} stroke-linejoin="round"/>`;
-  let svg = `<svg class="graphe" viewBox="0 0 ${GEOM.W} ${GEOM.H}" role="img" aria-label="Placements avec et sans crise">${s}`;
-  svg += `<rect x="${x(d)}" y="${GEOM.h}" width="${Math.max(2, x(Math.min(S.length - 1, d + n)) - x(d))}" height="${GEOM.H - GEOM.b - GEOM.h}" fill="var(--warn)" fill-opacity="0.08"/>`;
-  svg += ligne(S, "var(--muted)", 1.5, true) + ligne(P, "var(--s2)", 2) + ligne(G, "var(--s1)", 2.5);
-  svg += colonnesSurvol(ages, x, (i) => `${ages[i]} ans\nSans crise : ${eur(S[i].financier * defl(i))}\nCrise, en gardant le cap : ${eur(G[i].financier * defl(i))}\nCrise, en paniquant : ${eur(P[i].financier * defl(i))}`, "curseur-crise");
-  svg += `</svg><div class="legende-g"><span><span class="trait" style="background:var(--s1)"></span>Crise, en gardant le cap</span><span><span class="trait" style="background:var(--s2)"></span>Crise, en paniquant (tout vendu au plus bas, retour 2 ans plus tard)</span><span><span class="trait" style="background:var(--muted)"></span>Sans crise (pointillés)</span><span><span class="pastille" style="background:var(--warn);opacity:.3"></span>Années de crise</span></div>`;
-  const tuiles = [
-    [`Pire moment (${ages[iMin]} ans), par rapport à sans crise`, `−${eur(perte * defl(iMin))} (−${pct(100 * perte / (S[iMin].financier || 1))})`],
-    ["Retour au niveau d'avant la crise", iRetour > 0 ? `${iRetour - d} an(s) après le début` : "pas avant la fin de la projection"],
-    [`10 ans après (${ages[iRet]} ans), en gardant le cap`, cmp(G[iRet].financier * defl(iRet), S[iRet].financier * defl(iRet))],
-    [`10 ans après (${ages[iRet]} ans), en paniquant`, cmp(P[iRet].financier * defl(iRet), S[iRet].financier * defl(iRet))],
-  ];
-  out.innerHTML = `<p class="small" style="margin:0 0 8px"><b>${echapper(r.crise.libelle)}</b>, rejouée à partir de ${ages[d]} ans : ${echapper(r.crise.resume)}</p>
-    ${svg}
-    <div class="tuiles quatre">${tuiles.map(([k, v]) => `<div class="tuile"><span>${k}</span><b class="num">${v}</b></div>`).join("")}</div>
-    <ul class="points" style="margin-top:4px">
-      <li>${texteLie(`Dix ans après le début de la crise, garder le cap coûte ${eur(Math.max(0, (S[iRet].financier - G[iRet].financier) * defl(iRet)))} par rapport à une vie sans crise ; paniquer au plus bas coûte ${eur(Math.max(0, (G[iRet].financier - P[iRet].financier) * defl(iRet)))} de plus. Vendre après la baisse, c'est rendre la perte définitive et rater la remontée.`)}</li>
-      <li>${texteLie("Pendant la crise, l'épargne de chaque mois continue d'acheter, mais moins cher : c'est ce qui fait remonter le portefeuille plus vite que la bourse elle-même. C'est tout l'intérêt d'investir progressivement, chaque mois.")}</li>
-      <li>${texteLie("L'épargne de sécurité, l'assurance-vie, les obligations et l'or amortissent le choc : c'est pour ça que le plan ne met jamais tout en bourse, et devient plus prudent avec l'âge.")}</li>
-      <li>${texteLie("Une crise juste avant ou au début de la retraite fait plus mal : on vend pour vivre pendant que les prix sont bas. D'où la réserve sans risque de 2 à 3 ans de retraits (onglet Retraite).")}</li>
-    </ul>
-    <p class="note" style="margin:8px 0 0">Rendements de crise approximatifs (ordres de grandeur en euros : bourse 70 % S&amp;P 500, 30 % STOXX Europe 600 ; le bitcoin n'existant pas avant 2009, on lui applique une chute comparable à 2018 et 2022). Après la crise, les rendements moyens du plan s'appliquent. Montants ${reel ? "en euros d'aujourd'hui" : "en euros de l'époque"}.</p>`;
-}
-$("#trajectoire").addEventListener("change", (e) => {
-  if (e.target.id === "crise-choix") { uiCrise.id = e.target.value; memo.set("crise-id", uiCrise.id); rendreCrise(); }
-  if (e.target.id === "crise-moment") { uiCrise.moment = e.target.value; memo.set("crise-moment", uiCrise.moment); rendreCrise(); }
-});
-// Histoire réelle rejouée (fenêtres glissantes sur HISTORIQUE) et inflation persistante
-const uiHistorique = { longueur: Number(memo.get("hist-longueur")) === 20 ? 20 : 30, depart: memo.get("hist-depart") === "maintenant" ? "maintenant" : "retraite" };
-const uiInflation = { taux: [4, 5, 6].includes(Number(memo.get("infl-taux"))) ? Number(memo.get("infl-taux")) : 5 };
-let cacheHistorique = { cle: null, r: null };
-let cacheInflation = { cle: null, r: null };
-function rendreHistorique() {
-  const out = $("#hist-resultat"); if (!out) return;
-  if (!HISTORIQUE.annees?.length) { out.innerHTML = `<p class="note">Données historiques indisponibles.</p>`; return; }
-  const plan = etat.brouillon, p = profilPourMoteur();
-  const retraiteDeja = (Math.round(normaliserProfil(p).age ?? 0)) >= (projectionCourante(achatInclus()).retraite?.age ?? plan.hypotheses.ageRetraite ?? 64);
-  const depart = retraiteDeja ? "maintenant" : uiHistorique.depart;
-  const sel = $("#hist-depart"); if (sel) { sel.disabled = retraiteDeja; sel.value = depart; }
-  const cle = JSON.stringify([plan, etat.profil, achatInclus(), uiHistorique.longueur, depart]);
-  let r;
-  try {
-    if (cacheHistorique.cle === cle) r = cacheHistorique.r;
-    else { r = backtesterHistorique(plan, p, { series: HISTORIQUE.annees, longueur: uiHistorique.longueur, depart, inclureAchat: achatInclus(), estimations: HISTORIQUE.estimations }); cacheHistorique = { cle, r }; }
-  } catch (e) { console.error(e); out.innerHTML = `<p class="erreur">Simulation impossible : ${echapper(e.message)}</p>`; return; }
-  if (!r.fenetres.length) { out.innerHTML = `<p class="note">Données historiques indisponibles pour cette durée.</p>`; return; }
-  const S = r.synthese, ages = r.fenetres[0].trajectoireReelle.map((pt) => pt.age);
-  const ymax = echelle(Math.max(1, ...r.fenetres.map((f) => Math.max(...f.trajectoireReelle.map((pt) => pt.valeur)))));
-  const { x, y, s } = cadre(ages, ymax);
-  const trace = (f, coul, larg, op) => `<path d="${f.trajectoireReelle.map((pt, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(pt.valeur).toFixed(1)}`).join("")}" fill="none" stroke="${coul}" stroke-width="${larg}" stroke-opacity="${op}" stroke-linejoin="round"/>`;
-  const cible = (R) => r.fenetres.find((f) => R && f.debut === R.debut && f.fin === R.fin);
-  const fPire = cible(S.pire), fMed = cible(S.mediane);
-  let svg = `<svg class="graphe" viewBox="0 0 ${GEOM.W} ${GEOM.H}" role="img" aria-label="Trajectoires du capital selon toutes les périodes historiques">${s}`;
-  svg += r.fenetres.map((f) => trace(f, "var(--s1)", 1, 0.22)).join("");
-  if (fMed) svg += trace(fMed, "var(--s1)", 2.5, 1);
-  if (fPire) svg += trace(fPire, "var(--s2)", 2.5, 1);
-  svg += colonnesSurvol(ages, x, (i) => `${ages[i]} ans\nPire période (${S.pire.debut}–${S.pire.fin}) : ${eur(fPire?.trajectoireReelle[i]?.valeur ?? 0)}\nPériode médiane (${S.mediane.debut}–${S.mediane.fin}) : ${eur(fMed?.trajectoireReelle[i]?.valeur ?? 0)}`, "curseur-hist");
-  svg += `</svg><div class="legende-g"><span><span class="trait" style="background:var(--s1);opacity:.4"></span>Chaque période historique</span><span><span class="trait" style="background:var(--s1)"></span>Période médiane</span><span><span class="trait" style="background:var(--s2)"></span>Pire période</span></div>`;
-  const estimeesDe = (f) => {
-    const L = r.estimationsLibelles ?? {};
-    const t = ["scpi", "prudent", "bitcoin"].filter((c) => f?.anneesEstimees?.[c] > 0 && L[c]).map((c) => `${f.anneesEstimees[c]} ${f.anneesEstimees[c] > 1 ? "ans" : "an"} ${L[c]}`);
-    return t.join(", ");
-  };
-  const ligneS = (lib, R) => {
-    if (!R) return "";
-    const e = estimeesDe(cible(R));
-    return `<li>${lib} : ${R.debut}–${R.fin}, capital réel en fin de fenêtre <b class="num">${eur(R.capitalReelFinFenetre)}</b>${e ? ` <span class="small">(${echapper(e)})</span>` : ""}</li>`;
-  };
-  const nbMesurees = r.fenetres.filter((f) => !(f.anneesEstimees?.scpi > 0) && !(f.anneesEstimees?.prudent > 0)).length;
-  const detientBtc = r.fenetres.some((f) => f.anneesEstimees?.bitcoin > 0);
-  const trois = [...r.fenetres].sort((a, b) => a.capitalReelFinFenetre - b.capitalReelFinFenetre).slice(0, 3);
-  const substit = r.fenetres.some((f) => f.anneesEstimees?.bitcoin > 0);
-  const sources = Object.entries(HISTORIQUE.sources ?? {}).filter(([, v]) => v);
-  const fiabilite = Object.entries(HISTORIQUE.fiabilite ?? {}).filter(([, v]) => v);
-  out.innerHTML = `<p style="margin:0 0 6px"><b>Dans ${Math.round(100 * (S.tauxSucces ?? 0))} % des périodes historiques, ton capital aurait tenu</b> (${S.nb} périodes de ${r.longueur} ans, départ à ${r.ageDepart} ans).</p>
-    ${svg}
-    <ul class="points" style="margin-top:6px">${ligneS("Pire", S.pire)}${ligneS("Médiane", S.mediane)}${ligneS("Meilleure", S.meilleure)}
-      <li>Scénario central du plan, au même horizon (patrimoine financier en euros d'aujourd'hui) : <b class="num">${eur(r.centralReelFinFenetre)}</b></li></ul>
-    <p class="note" style="margin:6px 0 0">${nbMesurees} période${nbMesurees > 1 ? "s" : ""} sur ${S.nb} ${nbMesurees > 1 ? "reposent" : "repose"} uniquement sur des données mesurées${detientBtc ? " (hors bitcoin, remplacé par les actions avant 2018)" : ""}.</p>
-    <div class="table-wrap"><table><caption class="small" style="text-align:left">Les 3 pires périodes</caption><thead><tr><th>Période</th><th>Inflation moyenne</th><th>Capital réel en fin de période</th><th>Capital épuisé à</th><th>Données estimées</th></tr></thead><tbody>
-      ${trois.map((f) => `<tr><td>${f.debut}–${f.fin}</td><td>${pct(f.inflationMoyenne)}</td><td class="num">${eur(f.capitalReelFinFenetre)}</td><td>${f.ageEpuisement != null ? `${f.ageEpuisement} ans` : "—"}</td><td>${echapper(estimeesDe(f)) || "—"}</td></tr>`).join("")}</tbody></table></div>
-    ${substit ? `<p class="note" style="margin:8px 0 0">Avant 2018, le bitcoin n'était pas accessible de façon réaliste et liquide à un épargnant français : sa part est remplacée par des actions pour les années concernées.</p>` : ""}
-    ${sources.length ? `<details style="margin-top:8px"><summary class="small">Sources</summary><ul class="points">${sources.map(([k, v]) => `<li><b>${echapper(k)}</b> : ${echapper(v)}</li>`).join("")}${fiabilite.map(([k, v]) => `<li><b>${echapper(k)}</b> : Données estimées : ${echapper(v)}</li>`).join("")}</ul></details>` : ""}`;
-}
-function rendreInflation() {
-  const out = $("#infl-resultat"); if (!out) return;
-  const plan = etat.brouillon, p = profilPourMoteur();
-  const cle = JSON.stringify([plan, etat.profil, achatInclus(), uiInflation.taux]);
-  let r;
-  try {
-    if (cacheInflation.cle === cle) r = cacheInflation.r;
-    else { r = scenarioInflation(plan, p, { taux: uiInflation.taux, inclureAchat: achatInclus() }); cacheInflation = { cle, r }; }
-  } catch (e) { console.error(e); out.innerHTML = `<p class="erreur">Simulation impossible : ${echapper(e.message)}</p>`; return; }
-  const classes = [["securite", "Livrets"], ["prudent", "Fonds euros"], ["bourse", "Actions"], ["or", "Or"], ["scpi", "SCPI"], ["bitcoin", "Bitcoin"]];
-  const L = 680, ligneH = 26, gauche = 110, droite = 56, H = classes.length * ligneH + 22;
-  const finale = (k) => { const s = r.indicesReels[k]; return Array.isArray(s) && s.length ? s[s.length - 1] : 0; };
-  const vmax = Math.max(120, ...classes.map(([k]) => finale(k))) * 1.05;
-  const xv = (v) => gauche + (v / vmax) * (L - gauche - droite);
-  let svg = `<svg class="graphe" viewBox="0 0 ${L} ${H}" role="img" aria-label="Pouvoir d'achat final par classe d'actifs, base 100">`;
-  classes.forEach(([k, lib], i) => {
-    const v = finale(k), yy = 8 + i * ligneH;
-    svg += `<text x="${gauche - 8}" y="${yy + 14}" text-anchor="end">${lib}</text><rect x="${gauche}" y="${yy + 2}" width="${Math.max(1, xv(v) - gauche).toFixed(1)}" height="${ligneH - 8}" fill="${v >= 100 ? "var(--s1)" : "var(--s2)"}" fill-opacity="0.85"/><text x="${xv(v) + 6}" y="${yy + 14}">${Math.round(v)}</text>`;
-  });
-  svg += `<line x1="${xv(100)}" x2="${xv(100)}" y1="4" y2="${H - 14}" stroke="var(--fg)" stroke-width="1.5" stroke-dasharray="4 4"/><text x="${xv(100)}" y="${H - 2}" text-anchor="middle">100 = pouvoir d'achat d'aujourd'hui</text></svg>`;
-  const E = r.patrimoine, R = r.retraite;
-  const ageTxt = (a) => (a == null ? "pas d'épuisement" : `${a} ans`);
-  const effet = R.ageEpuisementCentral !== R.ageEpuisementScenario
-    ? `<li>Effet sur la retraite : capital épuisé à ${ageTxt(R.ageEpuisementScenario)} au lieu de ${ageTxt(R.ageEpuisementCentral)} dans le scénario central.</li>` : "";
-  const S = SCENARIO_INFLATION;
-  out.innerHTML = `${svg}
-    <ul class="points" style="margin-top:6px">
-      <li>Dans ${r.duree} ans, ton patrimoine financier réel (hors résidence) serait de <b class="num">${eur(E.scenarioReel)}</b> contre <b class="num">${eur(E.centralReel)}</b> dans le scénario central, soit <b class="num">${E.ecart >= 0 ? "+" : "−"}${eur(Math.abs(E.ecart))}</b> (${E.ecart >= 0 ? "+" : "−"}${pct(Math.abs(E.ecartPct))}).</li>${effet}${achatInclus() ? `<li>Ce résultat inclut ton projet d'achat : avec un crédit à taux fixe, les mensualités ne bougent pas alors que le loyer évité suit l'inflation, ce qui amortit le choc.</li>` : ""}</ul>
-    <details style="margin-top:8px"><summary class="small">Hypothèses du scénario</summary><ul class="points">
-      <li>Ce sont des hypothèses de travail, pas des données mesurées.</li>
-      <li>Inflation constante à ${r.taux} % pendant ${r.duree} ans, à partir d'aujourd'hui.</li>
-      <li>Livrets : taux de l'inflation moins ${S.ecartLivrets} point (au minimum ${S.plancherLivrets} %).</li>
-      <li>Fonds euros : le rendement monte de ${S.prudentHausseParAn} point par an, sans dépasser l'inflation moins ${S.prudentEcartPlafond} point.</li>
-      <li>Actions : rendement réel moyen du plan, moins ${Math.abs(S.bourseChocReel)} points les ${S.bourseAnneesChoc} premières années (hausse des taux).</li>
-      <li>Or : plus ${S.orPrimeReelle} points de rendement réel (valeur refuge). SCPI : moins ${Math.abs(S.scpiPrimeReelle)} point (loyers indexés avec retard). Bitcoin : rendement réel inchangé.</li></ul></details>`;
-}
-$("#trajectoire").addEventListener("change", (e) => {
-  if (e.target.id === "hist-longueur") { uiHistorique.longueur = Number(e.target.value) === 20 ? 20 : 30; memo.set("hist-longueur", uiHistorique.longueur); rendreHistorique(); }
-  if (e.target.id === "hist-depart") { uiHistorique.depart = e.target.value === "maintenant" ? "maintenant" : "retraite"; memo.set("hist-depart", uiHistorique.depart); rendreHistorique(); }
-  if (e.target.id === "infl-taux") { uiInflation.taux = Number(e.target.value); memo.set("infl-taux", uiInflation.taux); rendreInflation(); }
-});
-function choisirAgeAchat(v) {
-  etat.profil.projetRP ??= {};
-  etat.profil.projetRP.ageChoisi = v > 0 ? v : null;
-  memo.set("profil-v2", etat.profil);
-  rendreResultats(); rendreTrajectoire(); planifierSauvegardeProfil();
-}
-$("#achat-trajectoire").addEventListener("change", (e) => { if (e.target.id === "age-achat") choisirAgeAchat(Math.round(Number(e.target.value))); });
+monterTrajectoire(); // écouteurs de l'onglet Trajectoire (vues/trajectoire.js), attachés à cet endroit comme avant le découpage
 // Poche bourse : valeurs des ETF et montant du mois (recalcul quand on quitte le champ)
 $("#resultats").addEventListener("change", (e) => {
   const t = e.target;
@@ -1418,548 +736,11 @@ $("#resultats").addEventListener("click", (e) => {
   if (e.target.id === "dca-auto") { montantDCA = null; rendreResultats(); }
   if (e.target.id === "devises-defaut") { delete etat.profil.devisesBourse; memo.set("profil-v2", etat.profil); planifierSauvegardeProfil(); rendreResultats(); const d = document.querySelector("#poche-bourse details.devises-etf"); if (d) d.open = true; }
 });
-$("#achat-trajectoire").addEventListener("click", (e) => { if (e.target.id === "age-ideal") choisirAgeAchat(null); });
-$("#t-achat").addEventListener("change", rendreTrajectoire);
-
-// Tous les 5 ans : âge, salaire, épargne, placements et répartition ; les bascules du plan
-function basculesDuPlan(r) {
-  const plan = etat.brouillon, H = plan.hypotheses, C = r.central;
-  const p0 = normaliserProfil(etat.profil);
-  const R = profilRisque(plan, p0);
-  const ev = [];
-  const part = (pt, c) => (pt.financier > 0 ? (pt.classes?.[c] ?? 0) / pt.financier : 0);
-  const ENTREES = {
-    bitcoin: "Le bitcoin entre dans la répartition",
-    or: "L'or physique entre dans la répartition",
-    scpi: "L'immobilier (SCPI) entre dans la répartition",
-  };
-  for (const [c, texte] of Object.entries(ENTREES)) {
-    if (!plan.classes[c]) continue;
-    // Première apparition seulement (une classe déjà détenue aujourd'hui n'« entre » pas)
-    const y = C.findIndex((pt, k) => part(pt, c) >= 0.005 && C.slice(0, k).every((q) => part(q, c) < 0.005));
-    if (y > 0) ev.push({ y, court: texte.replace(" dans la répartition", ""), texte: `${texte} : le capital atteint environ ${keur(C[y].financier)}. Sa part monte ensuite progressivement, selon les paliers de capital du plan.` });
-  }
-  const debut = plan.age.ageDebut + (R.decalageAge ?? 0);
-  const y0 = debut - C[0].age;
-  if (y0 > 0 && y0 < C.length) ev.push({ y: y0, court: "Début de la prudence", texte: `Début du passage progressif vers la prudence (profil ${R.libelle ?? ""}) : chaque année, ${pct(plan.age.pointsParAn)} du capital passe des placements risqués vers l'assurance-vie et les obligations, jusqu'à ${pct(plan.age.maxPoints)} au total.` });
-  else if (y0 <= 0) ev.push({ y: 0, court: "Prudence en cours", texte: `Le passage progressif vers la prudence a déjà commencé (depuis ${debut} ans) : ${pct(plan.age.pointsParAn)} du capital par an vers l'assurance-vie et les obligations.` });
-  const iA = C.findIndex((pt) => pt.evenement === "achat");
-  if (iA >= 0 && r.achat) {
-    ev.push({ y: iA, court: "Achat de la résidence", texte: `Achat de la résidence principale (${eur(r.achat.prix)}) : ${eur(r.achat.apportRequis)} d'apport pris sur les placements, crédit de ${eur(r.achat.mensualite)} par mois pendant ${r.achat.duree} ans.` });
-    const fin = iA + r.achat.duree;
-    if (fin < C.length) ev.push({ y: fin, court: "Fin du crédit", texte: "Fin du crédit immobilier : la mensualité redevient de l'épargne." });
-  }
-  const yR = (r.retraite?.age ?? H.ageRetraite ?? 64) - C[0].age;
-  if (yR > 0 && yR < C.length) ev.push({ y: yR, court: "Retraite", texte: `Retraite : l'épargne s'arrête et tu te verses ${eur(r.retraite?.revenu ?? 0)} par mois (en euros d'aujourd'hui) pris sur tes placements. Détail dans l'onglet « 4. Retraite ».` });
-  // Investissement locatif
-  const iL = C.findIndex((p) => p.locatif);
-  if (iL >= 0) ev.push({ y: iL, court: "Locatif", texte: {
-    achat: "Achat du bien locatif : l'apport sort des placements, le crédit commence, les loyers arrivent.",
-    impossible: "Investissement locatif impossible : pas assez de placements pour l'apport à cet âge. Il n'est pas compté.",
-    refuse: `Investissement locatif refusé par la banque : avec ce crédit, l'endettement dépasserait ${A_MAX()} % (voir « Ton taux d'endettement » dans « Mon profil »). Il n'est pas compté.`,
-  }[C[iL].locatif] });
-  // Événements de vie saisis dans « Mon profil »
-  for (const e of etat.profil.evenements ?? []) {
-    const yE = Math.round(Number(e.age) || 0) - C[0].age;
-    if (!(yE >= 0 && yE < C.length)) continue;
-    const n = Math.max(1, Number(e.annees) || 1), lib = e.libelle || TYPES_EV.find(([v]) => v === e.type)?.[1] || "Événement";
-    ev.push({ y: yE, court: lib, texte: e.type === "pause" ? `${lib} : pas d'épargne pendant ${n} an(s).` : `${lib} : ${e.type === "entree" ? "+" : "−"}${eur(Number(e.montant) || 0)}${n > 1 ? ` par an pendant ${n} ans` : ""} (euros d'aujourd'hui).` });
-  }
-  return ev.sort((a, b) => a.y - b.y);
-}
-
-function blocTranches(r, defl, unite) {
-  const plan = etat.brouillon, C = r.central;
-  const ev = basculesDuPlan(r);
-  const pas = [0, 5, 10, 15, 20, 25, 30].filter((k) => k < C.length);
-  const lignes = pas.map((k, j) => {
-    const pt = C[k], f = defl(k);
-    const total = pt.financier || 1;
-    const classes = ORDRE.filter((c) => (pt.classes?.[c] ?? 0) > 0.5);
-    const barre = `<div class="mini-barre" data-bulle="${echapper(`À ${pt.age} ans · ${eur(pt.financier * f)}\n` + classes.map((c) => `${plan.classes[c].libelle} : ${eur(pt.classes[c] * f)} (${pct((100 * pt.classes[c]) / total)})`).join("\n"))}">${classes.map((c) => `<span style="flex-grow:${pt.classes[c]};background:var(${COULEUR[c]})"></span>`).join("")}</div>`;
-    const avant = j === 0 ? -1 : pas[j - 1];
-    const changes = ev.filter((e) => (j === 0 ? e.y === 0 : e.y > avant && e.y <= k));
-    return `<tr><td>${k === 0 ? "Aujourd'hui" : `Dans ${k} ans`}</td><td class="m">${pt.age} ans</td><td class="m">${pt.salaire > 0 ? eur(pt.salaire * f) : "retraite"}</td><td class="m">${eur(Math.max(0, pt.epargne ?? 0) * f)}</td><td class="m"><b>${eur(pt.financier * f)}</b></td><td>${barre}</td>
-      <td class="bascules">${changes.map((e) => `<div>${C[e.y].age} ans : ${echapper(e.court)}</div>`).join("") || "—"}</td></tr>`;
-  }).join("");
-  const legende = ORDRE.filter((c) => pas.some((k) => (C[k].classes?.[c] ?? 0) > 0.5)).map((c) => `<span><span class="pastille" style="background:var(${COULEUR[c]})"></span>${plan.classes[c].libelle}</span>`).join("");
-  const p0 = normaliserProfil(etat.profil);
-  const hausse = p0.salaireDans10Ans > 0 ? `selon ton salaire espéré dans 10 ans (${eur(p0.salaireDans10Ans)}), puis ta carrière` : `selon ta carrière : ${echapper((carriereDe(plan, p0).libelle ?? "").toLowerCase())}, en plus de l'inflation (${pct(plan.hypotheses.inflation ?? 0)})`;
-  return `<section class="panneau" id="tr-tranches" data-min="intermediaire"><h2>Tous les 5 ans</h2>
-    <p class="note" style="margin:4px 0 8px">Scénario central, en suivant le plan. Salaire ${hausse} ; l'épargne suit le salaire. Montants ${unite}. Survole une barre pour le détail.</p>
-    <div class="table-wrap"><table><thead><tr><th></th><th class="m">Âge</th><th class="m">Salaire net</th><th class="m">Épargne / mois</th><th class="m">Placements</th><th>Répartition</th><th>Ce qui change</th></tr></thead><tbody>${lignes}</tbody></table></div>
-    <div class="legende-g">${legende}</div>
-    ${ev.length ? `<h3 style="margin:16px 0 0">Les bascules du plan</h3><ul class="bascules">${ev.map((e) => `<li><b class="quand">${C[e.y].age} ans</b><span>${texteLie(e.texte)}</span></li>`).join("")}</ul>` : ""}
-  </section>`;
-}
-
 // ---------------------------------------------------------------- retraite
-// Liberté financière : capital qui suffit (règle des 4 %), et âge « Coast FIRE » à partir duquel
-// on pourrait ne plus rien épargner et atteindre quand même l'objectif à l'âge de la retraite
-function blocLiberte(r) {
-  const L = libertePatrimoine(r, etat.brouillon.hypotheses, etat.resultat?.alloc ?? {});
-  if (!L) return "";
-  const R = r.retraite, C = r.central;
-  const { besoinAn, objectif, rr, coast, fire, ageR, v0 } = L;
-  if (!(objectif > 0)) return `<section class="panneau" id="bloc-liberte" data-min="intermediaire"><h2>Liberté financière</h2><p class="small muted" style="margin:0">Ta retraite publique couvre l'objectif : pas besoin de capital pour le revenu visé.</p></section>`;
-  return `<section class="panneau" id="bloc-liberte" data-min="intermediaire"><h2>Liberté financière</h2>
-    <p class="note" style="margin:4px 0 8px">Règle des 4 % : un capital de 25 fois tes besoins annuels permet en général de retirer 4 % par an pendant 30 ans sans être à court. Tes besoins : ${eur(besoinAn / 12)} par mois${R.pension > 0 ? " (après la retraite publique comptée)" : ""}, soit un objectif de <b>${eur(objectif)}</b> en euros d'aujourd'hui.</p>
-    <div class="tuiles">
-      <div class="tuile"><span>Ton capital placé aujourd'hui</span><b class="num">${eur(v0)}</b><span class="small muted">${pct((100 * v0) / objectif)} de l'objectif</span></div>
-      <div class="tuile"><span>Coast FIRE (ne plus épargner)</span><b class="num">${coast ? (coast.age <= C[0].age ? "déjà atteint" : `à ${coast.age} ans`) : "pas avant la retraite"}</b><span class="small muted">rendement réel moyen ${pct(rr * 100)} par an</span></div>
-      <div class="tuile"><span>Liberté financière (tout de suite)</span><b class="num">${fire ? `à ${fire.age} ans` : `pas avant ${ageR} ans`}</b><span class="small muted">capital ≥ ${keur(objectif)}</span></div>
-    </div>
-    <p class="note" style="margin:8px 0 0">${coast ? `À partir de ${coast.age <= C[0].age ? "maintenant" : `${coast.age} ans`}, même sans épargner un euro de plus, ton capital (${eur(coast.v)}) grandirait jusqu'à environ ${eur(objectif)} à ${ageR} ans grâce aux seuls intérêts composés. Tu pourrais alors épargner moins, ou travailler moins, sans renoncer à ta retraite.` : `En suivant le plan, ton capital n'atteint pas ce seuil avant ${ageR} ans : il faut continuer d'épargner jusqu'à la retraite.`} Scénario central, en euros d'aujourd'hui, avant impôts sur les gains. La règle des 4 % vient d'études américaines ; en France, beaucoup visent plutôt 3,5 % (28 fois les besoins) par prudence.</p>
-  </section>`;
-}
-// ---- Retraite : ordre de retrait fiscalement optimal (décumulation, calculé par projection.js / pension.js)
-const POCHES_LIBELLES = { livrets: "Livrets", av_apres70: "Assurance-vie (versements après 70 ans)", av_avant70: "Assurance-vie (versements avant 70 ans)", pea: "PEA", cto: "Compte-titres", per: "PER", orPhysique: "Or physique", scpi: "SCPI", plateformeCrypto: "Bitcoin (plateforme)", coldWallet: "Bitcoin (cold wallet)" };
-const libellePoche = (id, plan) => POCHES_LIBELLES[id] ?? plan.enveloppes?.[id]?.libelle ?? plan.classes?.[id]?.libelle ?? id;
-function ordreRetraitsHtml(priorite, D) {
-  let ordreLiquides;
-  if (D?.ordreEtape3 === "ctoDabord") ordreLiquides = "Le compte-titres et les autres placements d'abord, puis le PEA : ton épargne sera consommée, autant laisser fructifier le PEA, moins taxé.";
-  else if (D?.ordreEtape3 === "peaDabord" && D.ageEpuisementOptimise == null) ordreLiquides = "Le PEA d'abord, puis le compte-titres : ton épargne ne sera pas épuisée, et les plus-values du compte-titres sont effacées au décès.";
-  else ordreLiquides = "Le PEA d'abord (moins taxé), puis le compte-titres et les autres placements.";
-  if (D?.gainOrdreReel >= 1) ordreLiquides += ` (environ ${eur(Math.round(D.gainOrdreReel / 10) * 10)} de plus transmis, après impôts au décès${D.gainOrdreApresDroits ? " et droits de succession" : ""}, en euros d'aujourd'hui, que l'ordre inverse)`;
-  const etapes = [
-    "Le PER est vidé progressivement sur les années qui restent, sans dépasser ta tranche d'imposition.",
-    "L'assurance-vie de plus de 8 ans est rachetée chaque année dans la limite de l'abattement (peu ou pas d'impôt sur le revenu).",
-    "Les livrets, au-delà d'une réserve de précaution.",
-    ordreLiquides,
-    "L'assurance-vie des versements après 70 ans, au-delà de l'abattement.",
-  ];
-  const perHors = "Le PER au-delà de la tranche d'imposition.", avAvant = "L'assurance-vie des versements avant 70 ans, gardée pour la transmission.";
-  const fin = priorite === "consommer" ? [avAvant, perHors] : [perHors, avAvant];
-  return [...etapes, ...fin, "En dernier : la réserve de livrets, puis l'or physique."].map((t) => `<li>${echapper(t)}</li>`).join("");
-}
-function exemplesRetraitsHtml(D, plan) {
-  if (!D?.exemples?.length) return "";
-  const lignes = D.exemples.map((e) => e.retraits.map((r, k) => `<tr>${k === 0 ? `<td rowspan="${e.retraits.length + 1}">${e.age} ans</td>` : ""}<td>${echapper(libellePoche(r.id, plan))}</td><td class="m">${eur(r.montant)}</td><td class="m">${eur(r.impot)}</td></tr>`).join("") + `<tr><td><b>Total</b></td><td class="m"><b>${eur(e.brut)}</b></td><td class="m"><b>${eur(e.impots)}</b></td></tr>`).join("");
-  return `<p class="note" style="margin:12px 0 6px">Exemples d'années : ce qui est retiré, compte par compte, et l'impôt payé (en euros de l'époque).</p>
-    <div class="table-wrap"><table><thead><tr><th>Âge</th><th>Compte</th><th class="m">Retiré</th><th class="m">Impôt</th></tr></thead><tbody>${lignes}</tbody></table></div>`;
-}
-function economieRetraitsHtml(D) {
-  if (!D || !(D.gainPatrimoineNetReel >= 1) || !(D.anneesComparees > 0)) return "";
-  const ageOpt = D.ageEpuisementOptimise, agePro = D.ageEpuisementProrata;
-  const epuise = ageOpt !== agePro && agePro != null ? ` Ton épargne tient aussi jusqu'à ${ageOpt == null ? "la fin de la projection" : `${ageOpt} ans`} au lieu de ${agePro} ans.` : "";
-  const dix = (x) => eur(Math.round(x / 10) * 10);
-  const impots = D.economieReel >= 1
-    ? ` dont <b class="num">${dix(D.economieReel)}</b> d'impôts en moins sur ${D.anneesComparees} ans.`
-    : " Les impôts payés sont un peu décalés dans le temps (moins au début, davantage plus tard), mais ton capital a plus longtemps travaillé.";
-  return `<section class="panneau" id="ret-economie-retraits" data-min="intermediaire"><h2>Retirer dans le bon ordre</h2>
-      <p style="margin:6px 0 0">Retirer dans le bon ordre te laisse environ <b class="num">${dix(D.gainPatrimoineNetReel)}</b> de plus à ${D.ageFinal} ans (en euros d'aujourd'hui) qu'un retrait au prorata, pour le même revenu.${impots}${epuise}</p>
-      <p class="note" style="margin:6px 0 0">Scénario central, en euros d'aujourd'hui, après les impôts dus au décès sur les plus-values (hors droits de succession).</p>
-    </section>`;
-}
-// Impôts au décès, droits de succession et net transmis, pour la stratégie choisie et pour le retrait au prorata (euros d'aujourd'hui)
-function blocDroitsSuccession(D, priorite) {
-  if (!D || D.droitsSuccessionOptimise == null || D.droitsSuccessionProrata == null) return "";
-  const ligne = (nom, brut, net, droits, apres) => `<tr><td>${nom}</td><td class="m">${eur(brut - net)}</td><td class="m">${eur(droits)}</td><td class="m"><b>${eur(apres)}</b></td></tr>`;
-  const nomStrategie = priorite === "consommer" ? "Ordre optimal, priorité « Consommer »" : "Ordre optimal, priorité « Transmettre »";
-  return `<h3 style="margin:14px 0 6px">Ce qui serait transmis en fin de projection</h3>
-    <div class="table-wrap"><table><thead><tr><th>Stratégie de retraits</th><th class="m">Impôts au décès</th><th class="m">Droits de succession</th><th class="m">Net transmis après droits</th></tr></thead><tbody>
-      ${ligne(nomStrategie, D.patrimoineFinalOptimiseReel, D.patrimoineFinalNetReel, D.droitsSuccessionOptimise, D.patrimoineFinalNetApresDroitsReel)}
-      ${ligne("Retrait au prorata", D.patrimoineFinalProrataReel, D.patrimoineFinalNetProrataReel, D.droitsSuccessionProrata, D.patrimoineFinalNetApresDroitsProrataReel)}
-    </tbody></table></div>
-    <p class="note" style="margin:6px 0 0">Droits estimés pour ta situation familiale, sur la part transmise par les placements ; la résidence principale n'y est pas imputée. <a class="lien-fiche" href="#transmission">Voir le détail dans l'onglet Transmission</a>.</p>`;
-}
-function rendreRetraite() {
-  if (niveauCourant() === "debutant") { rendreRetraiteDebutant(); return; }
-  const plan = etat.brouillon, H = plan.hypotheses;
-  let r;
-  try { r = projectionCourante(true); }
-  catch (e) { console.error(e); $("#retraite").innerHTML = `<div class="erreur">Calcul impossible : ${echapper(e.message)}.</div>`; return; }
-  const R = r.retraite, C = r.central, E = r.eventail;
-  const p0 = normaliserProfil(etat.profil);
-  const ageAuj = Math.ceil(p0.age ?? 0), ageLegal = H.ageRetraite ?? 64;
-  const ageDepart = R?.age ?? ageLegal;
-  // Repère : 70 à 80 % du dernier salaire (en euros d'aujourd'hui)
-  const iDernier = Math.max(0, (R?.iR ?? 0) - 1);
-  const dernierSalaire = C[iDernier]?.salaire ? C[iDernier].salaire / Math.pow(1 + (H.inflation ?? 0) / 100, iDernier) : 0;
-  const repere = dernierSalaire > 0 ? `Repère : on vise souvent 70 à 80 % de son dernier salaire. Le tien serait d'environ ${eur(dernierSalaire)} par mois (en euros d'aujourd'hui) à ${C[iDernier].age} ans, soit ${eur(Math.round(dernierSalaire * 0.7 / 50) * 50)} à ${eur(Math.round(dernierSalaire * 0.8 / 50) * 50)} par mois.` : "";
-  const optionsAge = Array.from({ length: Math.max(0, ageLegal - ageAuj + 1) }, (_, k) => ageAuj + k).map((a) => `<option value="${a}" ${a === ageDepart ? "selected" : ""}>${a} ans${a === ageLegal ? " (au plus tard)" : ""}</option>`).join("");
-  const aLoyers = !!((etat.profil.proprietaire && etat.profil.logement?.usage === "loue") || etat.profil.projetLocatif?.actif);
-  const saisie = `<section class="panneau" id="ret-hypotheses" data-min="intermediaire"><h2>Tes hypothèses</h2>
-    <div class="champs" style="max-width:600px;margin-top:10px">
-      <div class="champ"><label for="r-revenu"><b>Une retraite convenable pour toi</b>, par mois, après impôt, en euros d'aujourd'hui</label><div class="saisie"><input id="r-revenu" type="number" min="0" step="100" value="${p0.retraite?.revenu ?? ""}" placeholder="${plan.retraite?.revenuMensuelDefaut ?? 2000}"><span>€/mois</span></div></div>
-      ${repere ? `<p class="note" style="margin:-4px 0 0">${repere}</p>` : ""}
-      ${optionsAge ? `<div class="champ"><label for="r-age">Âge où tu arrêtes de travailler</label><select id="r-age">${optionsAge}</select></div>` : ""}
-      <div class="champ"><label for="r-mode">Retraite publique</label><select id="r-mode">${[["auto", "Estimée automatiquement (suit l'âge d'arrêt)"], ["manuel", "Montant que j'indique"], ["zero", "Ne pas la compter (prudence)"]].map(([v, l]) => `<option value="${v}" ${(etat.profil.retraite?.modePension ?? "auto") === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
-      <div class="champ"><label for="r-pension">Retraite publique comptée (nette après impôt, en euros d'aujourd'hui)</label><div class="saisie"><input id="r-pension" type="number" min="0" step="10" value="${p0.retraite?.pension ?? ""}" placeholder="0" ${(etat.profil.retraite?.modePension ?? "auto") === "manuel" ? "" : "disabled"}><span>€/mois</span></div></div>
-      <p class="note" style="margin:-4px 0 0">${(etat.profil.retraite?.modePension ?? "auto") === "auto" ? `Calculée pour un arrêt à ${ageDepart} ans${(Number(p0.retraite?.pension) || 0) > 0 ? `, versée à partir de ${R?.agePension ?? ageLegal} ans` : ""} : elle change toute seule quand tu changes l'âge d'arrêt (moins de trimestres = retraite plus basse). Détail plus bas, dans « Estimer ta retraite publique ».` : (Number(p0.retraite?.pension) || 0) > 0 ? `Versée à partir de ${R?.agePension ?? ageLegal} ans.` : "Aucune retraite publique comptée : tout vient de tes placements."}</p>
-      ${aLoyers ? `<label class="coche" data-min="avance"><input type="checkbox" id="r-loyers" ${etat.profil.retraite?.compterLoyers !== false ? "checked" : ""}> Compter les loyers nets de mes biens loués dans mes revenus à la retraite</label>
-      <p class="note" data-min="avance" style="margin:-4px 0 0">${etat.profil.retraite?.compterLoyers !== false ? "Oui, ils sont comptés : chaque année, les loyers nets (après charges, impôt et crédit) rejoignent tes placements, ce qui réduit ce que tu dois y puiser. Décoche pour voir ta retraite sans eux (bien vendu, travaux, vacance…)." : "Non comptés : à partir de ta retraite, les loyers nets ne servent plus à financer ton revenu (le crédit encore en cours, lui, reste payé)."}</p>` : ""}
-    </div>
-    <p class="note" style="margin:8px 0 0">${(Number(p0.retraite?.pension) || 0) > 0 ? `Tes placements complètent la retraite publique à partir de ${R?.agePension ?? ageLegal} ans, et paient tout avant.` : "Par prudence, le plan compte 0 € de retraite publique : tout vient de tes placements. Pour l'estimer, voir « Estimer ta retraite publique » plus bas."} Tu arrêtes de travailler et d'épargner à ${ageDepart} ans (${ageLegal} ans au plus tard), puis tu te verses ce revenu jusqu'à ${R?.ageFin ?? ageLegal + (plan.retraite?.dureeAnnees ?? 30)} ans, relevé chaque année de l'inflation (${pct(H.inflation ?? 0)} par an)${R ? ` : ${eur(R.revenu)} d'aujourd'hui vaudront environ ${eur(R.revenu * Math.pow(1 + (H.inflation ?? 0) / 100, R.iR))} par mois en ${new Date().getFullYear() + R.iR}` : ""}.</p>
-  </section>`;
-  if (!R) {
-    $("#retraite").innerHTML = saisie + `<section class="panneau"><p class="muted" style="margin:0">${(p0.age ?? 0) >= (H.ageRetraite ?? 64) ? "Ce profil a déjà l'âge de la retraite : la simulation part de la situation actuelle." : "Retraite hors de la période projetée."}</p></section>`;
-    return;
-  }
-  const infl = (H.inflation ?? 0) / 100;
-  const reel = (v, i) => v / Math.pow(1 + infl, i);
-  const iR = R.iR, iF = R.dernier;
-  const capR = reel(C[iR].financier, iR), capF = reel(C[iF].financier, iF);
-  const medF = reel(E[iF].p50, iF), p10F = reel(E[iF].p10, iF);
-  const probaTxt = `${Math.round(100 * R.probaDure)} %`;
-  const tuiles = [
-    [`Capital à ${C[iR].age} ans (central)`, eur(capR)],
-    [`Capital à ${C[iR].age} ans (médiane)`, eur(reel(E[iR].p50, iR))],
-    ["Revenu possible sans entamer le capital", R.revenuPreserve != null ? `${eur(R.revenuPreserve)}/mois` : "—"],
-    [`Revenu possible en consommant tout d'ici ${C[iF].age} ans`, R.revenuConsomme != null ? `${eur(R.revenuConsomme)}/mois` : "—"],
-    [`Chances que l'argent dure jusqu'à ${C[iF].age} ans`, probaTxt],
-    [`À transmettre à ${C[iF].age} ans (médiane)`, eur(Math.max(0, medF))],
-  ];
-  const ok = R.probaDure >= SEUIL_TENABLE, moyen = R.probaDure >= SEUIL_FRAGILE;
-  const verdict = `<p class="verdict ${ok ? "ok" : "ko"}"><b>${ok ? "Objectif tenable." : moyen ? "Objectif fragile." : "Objectif risqué."}</b> Avec ${eur(R.revenu)} par mois (en euros d'aujourd'hui)${R.pension > 0 ? `, dont ${eur(R.pension)} de retraite publique` : ""}, l'argent dure jusqu'à ${C[iF].age} ans dans ${probaTxt} des scénarios.${R.epuiseA ? ` Dans le scénario central, les placements sont épuisés à ${R.epuiseA} ans.` : ` Dans le scénario central, il reste ${eur(Math.max(0, capF))} (en euros d'aujourd'hui) à ${C[iF].age} ans.`}${R.revenuPreserve != null ? ` Pour transmettre au moins le capital de départ (${eur(capR)}), le revenu possible est d'environ ${eur(R.revenuPreserve)} par mois.` : ""}${ok ? "" : " Leviers : épargner plus, partir plus tard, viser un revenu plus bas, ou garder une part de bourse plus importante à la retraite."}</p>`;
-
-  // Évolution pendant la retraite (en euros d'aujourd'hui)
-  const defl = (i) => Math.pow(1 + infl, -(i + iR));
-  const graphe = graphiqueEventail(C.slice(iR), E.slice(iR), defl);
-  const idx = [...new Set(C.map((p, i) => i).filter((i) => i >= iR && ((i - iR) % 5 === 0 || i === iF)))];
-  const lignes = idx.map((i) => {
-    const p = C[i];
-    return `<tr><td>${p.age} ans</td><td class="m">${p.retraitNet > 0 ? `${eur(reel(p.retraitNet, i))}<div class="small muted">${eur(p.retraitNet)} de l'époque</div>` : "—"}</td>
-      <td class="m">${eur(reel(E[i].p10, i))}</td><td class="m">${eur(reel(E[i].p50, i))}</td><td class="m">${eur(reel(E[i].p90, i))}</td><td class="m"><b>${eur(reel(p.financier, i))}</b></td></tr>`;
-  }).join("");
-
-  // La première année : d'où vient l'argent, et la réserve sans risque
-  const pR = C[iR], tot = pR.financier || 1;
-  const brut1 = pR.brutRetraits ?? 12 * R.besoin * Math.pow(1 + infl, iR);
-  const tauxPremiereAnnee = brut1 > 0 ? (100 * (pR.impotRetraits ?? 0)) / brut1 : 0;
-  const D = r.decumulation, priorite = etat.profil.retraite?.priorite === "consommer" ? "consommer" : "transmettre";
-  const classes = ORDRE.filter((c) => (pR.classes?.[c] ?? 0) > 0.5);
-  // L'or physique est gardé (sauf si la case « vendre aussi mon or » est cochée) : le retrait se répartit sur le reste
-  const vendreOr = !!etat.profil.retraite?.vendreOr || !(plan.reequilibrage?.jamaisVendre ?? []).includes("orPhysique");
-  const totVendable = classes.filter((c) => vendreOr || c !== "or").reduce((t, c) => t + pR.classes[c], 0) || 1;
-  const lignesVentes = classes.map((c) => { const garde = !vendreOr && c === "or"; return `<tr><td><span class="pastille" style="background:var(${COULEUR[c]})"></span>${plan.classes[c].libelle}${garde ? '<div class="small muted">gardé : ni vendu, ni rééquilibré</div>' : ""}</td><td class="m">${eur(reel(pR.classes[c], iR))}</td><td class="m">${pct((100 * pR.classes[c]) / tot)}</td><td class="m">${garde ? "0 €" : eur(reel((brut1 * pR.classes[c]) / totVendable, iR))}</td></tr>`; }).join("");
-  const aDeLOr = (pR.classes?.or ?? 0) > 0.5;
-  const sansRisque = ["securite", "projet", "prudent"].reduce((t, c) => t + (pR.classes?.[c] ?? 0), 0);
-  const anneesReserve = brut1 > 0 ? sansRisque / brut1 : null;
-  const tauxRetrait = pR.financier > 0 ? (100 * brut1) / pR.financier : 0;
-
-  const centralAge = agePossibleCentral();
-  const cleP = clePessimiste();
-  const P = pessimiste.cle === cleP ? pessimiste : null;
-  const fmtAge = (a, enCours) => (enCours ? '<span class="muted small">calcul en cours…</span>' : a == null ? `pas avant ${ageLegal} ans` : `${a} ans`);
-  const blocAge = `<section class="panneau" id="ret-age" data-min="intermediaire"><h2>À quel âge peux-tu t'arrêter ?</h2>
-    <p class="note" style="margin:4px 0 0">Le plus tôt possible pour te verser ${eur(R.revenu)} par mois jusqu'à ${R.ageFin} ans <b>en transmettant à ${R.ageFin} ans tout le capital que tu avais en arrêtant</b> (en euros d'aujourd'hui). À ${ageLegal} ans, on s'arrête quoi qu'il arrive.</p>
-    <div class="tuiles" style="grid-template-columns:repeat(2,minmax(0,1fr))">
-      <div class="tuile"><span>Scénario central (rendements moyens)</span><b class="num">${fmtAge(centralAge)}</b></div>
-      <div class="tuile"><span>Scénario pessimiste (ça marche dans 9 cas sur 10)</span><b class="num" id="age-pessimiste">${fmtAge(P?.age, !P)}</b></div>
-    </div>
-    <div class="ligne-actions" id="actions-age">${boutonsAge(centralAge, P?.age, ageDepart, ageLegal)}</div>
-    <p class="note" style="margin:8px 0 0">Pessimiste : on rejoue 200 scénarios de marchés tirés au hasard (krachs compris) ; l'âge retenu est celui où le capital est transmis intact dans au moins 9 scénarios sur 10. C'est la version prudente à retenir.</p>
-  </section>`;
-  $("#retraite").innerHTML = saisie + blocObjectifs(r, 'id="ret-objectifs" data-min="intermediaire"') + blocAge + blocLiberte(r) + blocPension(p0) + `
-    <section class="panneau" id="ret-resultat" data-min="intermediaire"><h2>Ce que ça donne</h2>
-      <div class="tuiles">${tuiles.map(([k, v]) => `<div class="tuile"><span>${k}</span><b class="num">${v}</b></div>`).join("")}</div>
-      <div class="tuiles" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:0">
-        <div class="tuile"><span>Pessimiste (9 cas sur 10) : revenu possible sans entamer le capital</span><b class="num" id="pess-preserve">${P ? `${eur(P.revenuPreserve)}/mois` : '<span class="muted small">calcul en cours…</span>'}</b></div>
-        <div class="tuile"><span>Pessimiste (9 cas sur 10) : revenu possible en consommant tout d'ici ${C[iF].age} ans</span><b class="num" id="pess-consomme">${P ? `${eur(P.revenuConsomme)}/mois` : '<span class="muted small">calcul en cours…</span>'}</b></div>
-      </div>
-      ${verdict}
-      <p class="note" style="margin:10px 0 0">Tous les montants sont en euros d'aujourd'hui (inflation déduite). Les revenus possibles sont calculés dans le scénario central (rendements moyens), impôts sur les ventes compris : environ ${pct(tauxPremiereAnnee)} de chaque retrait la première année, puis plus ensuite, car la part de gains dans ce qu'il reste augmente (le capital restant continue de rapporter). Chaque scénario tiré au hasard est taxé avec ses propres gains. L'abattement annuel de l'assurance-vie de plus de 8 ans (${eur(ABATTEMENT_AV.seul)} de gains, ${eur(ABATTEMENT_AV.couple)} pour un couple marié ou pacsé) est utilisé chaque année.</p>
-    </section>
-${economieRetraitsHtml(D)}
-    <section class="panneau" id="ret-capital" data-min="intermediaire"><h2>Ton capital pendant la retraite</h2>
-      <p class="note" style="margin:4px 0 8px">Chaque année, le revenu est pris sur les placements, et le reste continue d'être placé selon le plan (de plus en plus prudent avec l'âge). En euros d'aujourd'hui.</p>
-      ${graphe}
-      <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Âge</th><th class="m">Revenu versé / mois</th><th class="m">Pessimiste</th><th class="m">Médiane</th><th class="m">Optimiste</th><th class="m">Central</th></tr></thead><tbody>${lignes}</tbody></table></div>
-    </section>
-    <section class="panneau" id="ret-decaissement" data-min="avance"><h2>Comment se verser ce revenu</h2>
-      <ol class="points" style="margin-top:10px">
-        <li>${texteLie(`Une fois par an (en janvier, par exemple), retirer 12 mois de revenu : environ ${eur(reel(brut1, iR))} la première année (en euros d'aujourd'hui), impôts compris, soit ${pct(tauxRetrait)} du capital. On le met sur le compte courant ou un livret, et on se fait un virement automatique chaque mois.`)}</li>
-        <li>${texteLie(`Garder une réserve sans risque (livrets, fonds euros, obligations) d'au moins 2 à 3 ans de retraits. Avec le plan, elle représente ${anneesReserve != null ? `environ ${String(Math.round(anneesReserve * 10) / 10).replace(".", ",")} années de retraits` : "—"} au départ.`)}</li>
-        <li>${texteLie("Les bonnes années, vendre surtout ce qui dépasse sa cible (c'est le rééquilibrage du plan). Les années de forte baisse de la bourse, puiser dans la réserve sans risque plutôt que vendre des actions au plus bas, puis la reconstituer quand la bourse remonte.")}</li>
-        <li>${texteLie("Garder le reste investi selon le plan : à 64 ans, il reste plus de 25 ans à tenir, et une part de bourse est ce qui permet au capital de durer et d'être transmis.")}</li>
-      </ol>
-      <h3 style="margin:16px 0 4px">Dans quel ordre retirer</h3>
-      <div class="champ" style="max-width:420px" data-min="avance"><label for="r-priorite">Priorité</label><select id="r-priorite" data-min="avance"><option value="transmettre" ${priorite === "transmettre" ? "selected" : ""}>Transmettre (garder l'assurance-vie pour mes héritiers)</option><option value="consommer" ${priorite === "consommer" ? "selected" : ""}>Consommer (profiter de mon épargne)</option></select></div>
-      <ol class="points" style="margin-top:10px">${ordreRetraitsHtml(priorite, D)}</ol>
-      <div id="ret-ordre-retraits" data-min="avance">${exemplesRetraitsHtml(D, plan)}</div>
-      <h3 style="margin:16px 0 4px">D'où vient l'argent la première année</h3>
-      <p class="note" style="margin:0 0 6px">La simulation retire l'argent dans un ordre qui limite l'impôt, puis ajuste tes familles de placements pour rester proche du plan${aDeLOr && !vendreOr ? " (sauf l'or physique, gardé)" : ""}. Répartition des placements à l'âge du départ, en euros d'aujourd'hui :</p>
-      ${aDeLOr ? `<p class="${vendreOr ? "verdict ko" : "note"}" style="margin:0 0 6px">${vendreOr ? "<b>Tu as choisi de vendre aussi ton or physique.</b> C'est possible, mais déconseillé : " : "<b>Ton or physique n'est pas vendu.</b> "}${vendreOr ? "l'or" : "L'or"} physique n'est pas fait pour financer la retraite : il protège contre les crises graves et se transmet (pièces et lingots, avec une fiscalité de transmission comme le reste du patrimoine). Mieux vaut le garder et puiser dans la bourse, l'assurance-vie et l'épargne. Il ne serait vendu qu'en dernier recours, si tout le reste était épuisé. <a class="lien-fiche" href="#mon-profil">Changer ce choix (« Ta retraite » dans Mon profil)</a></p>` : ""}
-      <div class="table-wrap"><table><thead><tr><th>Placement</th><th class="m">Montant à ${pR.age} ans</th><th class="m">Part</th><th class="m">À vendre dans l'année</th></tr></thead><tbody>${lignesVentes}</tbody></table></div>
-    </section>
-    <section class="panneau" id="ret-impots" data-min="avance"><h2>Impôts et transmission</h2>
-      <ul class="points" style="margin-top:10px">
-        <li>${texteLie(`Assurance-vie de plus de 8 ans : l'abattement annuel (${eur(ABATTEMENT_AV.seul)} de gains, ${eur(ABATTEMENT_AV.couple)} pour un couple marié ou pacsé) est utilisé chaque année par des rachats partiels ; au-delà, les gains paient ${pct(PRELEVEMENTS.IR_AV_8ANS)} d'impôt (${pct(PRELEVEMENTS.IR_PFU)} sur la part des contrats dépassant ${eur(SEUIL_PRIMES_AV)} de versements) et ${pct(PRELEVEMENTS.PS_PATRIMOINE)} de prélèvements sociaux.`)}</li>
-        <li>${texteLie("PEA de plus de 5 ans : retraits sans impôt sur le revenu, seulement 18,6 % de prélèvements sociaux sur la part de gains. Il est consommé avant le compte-titres, imposé à 31,4 % sur la part de gains de chaque vente.")}</li>
-        <li>${texteLie("PER : la sortie en capital est lissée sur les années restantes, en restant dans ta tranche d'imposition (les versements déduits sont imposés au barème, les gains à 31,4 %), pour éviter une grosse facture d'un seul coup.")}</li>
-        <li>${texteLie("Pour transmettre, l'assurance-vie est l'outil le plus avantageux : les sommes versées avant 70 ans sont transmises jusqu'à 152 500 € par bénéficiaire sans droits de succession ; après 70 ans, 30 500 € de versements au total (les gains sont exonérés). Le PEA, lui, est fermé au décès et entre dans la succession.")}</li>
-        <li>${reserveAVTransmissible(etat.profil) > 0 ? texteLie(`L'assurance-vie des versements faits avant 70 ans est gardée pour la fin : elle se transmet jusqu'à 152 500 € par bénéficiaire sans droits de succession, soit ${eur(reserveAVTransmissible(etat.profil))} mis de côté pour ta situation (choix « Consommer » pour l'utiliser plus tôt). À faire valider par un conseiller ou un notaire selon ta situation.`) : `L'assurance-vie n'est pas mise de côté pour la transmission : ton conjoint ou partenaire est bénéficiaire de la clause et déjà exonéré de droits. Pour profiter de l'abattement de 152 500 € par bénéficiaire, désigne tes enfants dans la clause (réglage dans l'onglet <a class="lien-fiche" href="#transmission">Transmission</a>), puis l'assurance-vie sera gardée pour la fin.`}</li>
-        <li>Droits de succession, abattements, donations : <a class="lien-fiche" href="#fiche-heritage">tout sur l'héritage</a>. Pour aller plus loin : <a class="lien-fiche" href="#fiche-optimisation-fiscale">optimisation fiscale</a>.</li>
-      </ul>
-      ${blocDroitsSuccession(D, priorite)}
-      <p class="note" style="margin:10px 0 0">Limites : simulation fondée sur les rendements du plan ; elle ne compte ni la dépendance (maison de retraite), ni une éventuelle retraite publique si tu la laisses à 0 €. Les droits de succession sont une estimation (barèmes 2026, euros d'aujourd'hui) : le détail et les hypothèses sont dans l'onglet Transmission.</p>
-    </section>`;
-  majPension();
-  lancerPessimiste();
-}
-// ---- Retraite, niveau Débutant : une seule question, « Est-ce que ma retraite tient ? ».
-// Mêmes tirages et mêmes seuils que « Ce que ça donne » (projeter en version allégée) : aucun écart entre les deux niveaux.
-const SEUIL_TENABLE = 0.9, SEUIL_FRAGILE = 0.7;
-const verdictRetraite = (proba) => (proba >= SEUIL_TENABLE ? "tenable" : proba >= SEUIL_FRAGILE ? "fragile" : "pas-tenable");
-let cacheNecessaire = { cle: null, r: null };
-let suggestionRetraite = { cle: null, res: null };
-let jetonSuggestion = 0;
-function htmlSuggestionRetraite(s) {
-  if (!s) return `<p class="small muted" style="margin:0">Je cherche la solution la plus simple… calcul en cours.</p>`;
-  const { age, revenu } = s;
-  if (age == null && revenu == null) return `<p class="note" style="margin:0">Aucun départ plus tardif ni revenu plus bas ne suffit avec ce plan. Pour aller plus loin, épargne davantage dans « Mon profil » : le détail est dans le niveau Intermédiaire.</p>`;
-  const phrase = age != null && revenu != null ? `En t'arrêtant à ${age} ans, ou avec un revenu de ${eur(revenu)} par mois, ça tient.`
-    : age != null ? `En t'arrêtant à ${age} ans, ça tient.` : `Avec un revenu de ${eur(revenu)} par mois, ça tient.`;
-  return `<p style="margin:0 0 8px"><b>${phrase}</b></p>
-    <div class="ligne-actions">${age != null ? `<button type="button" class="principal" data-age-depart="${age}">Arrêter à ${age} ans</button>` : ""}${revenu != null ? `<button type="button" ${age == null ? 'class="principal" ' : ""}data-revenu-retraite="${revenu}">Viser ${eur(revenu)} par mois</button>` : ""}</div>`;
-}
-// Cherche le départ le plus proche, et le revenu le plus proche, pour lesquels le verdict devient « Tenable ».
-// Recherche rapide (moins de tirages), puis confirmation avec les tirages du verdict : la suggestion appliquée donne bien « Tenable ».
-async function chercherSuggestionRetraite(R, ageLegal, jeton, cle) {
-  const RAPIDE = 200;
-  const proba = async (modif, tirages) => {
-    await pause();
-    if (jeton !== jetonSuggestion) throw new Error("annulé");
-    const p = normaliserProfil({ ...etat.profil, retraite: { ...(etat.profil.retraite ?? {}), ...modif } });
-    return projeter(etat.brouillon, p, { inclureAchat: true, legere: true, tirages })?.retraite?.probaDure ?? 0;
-  };
-  try {
-    const okAge = async (a, t) => (await proba({ ageDepart: a >= ageLegal ? null : a }, t)) >= SEUIL_TENABLE;
-    let age = null;
-    const de = R.age + 1;
-    if (de <= ageLegal && await okAge(ageLegal, RAPIDE)) {
-      let bas = de, haut = ageLegal;
-      while (bas < haut) { const m = Math.floor((bas + haut) / 2); if (await okAge(m, RAPIDE)) haut = m; else bas = m + 1; }
-      age = haut;
-      while (age <= ageLegal && !(await okAge(age))) age++;
-      if (age > ageLegal) age = null;
-    }
-    const PAS = 50;
-    const okRevenu = async (k, t) => (await proba({ revenu: k * PAS }, t)) >= SEUIL_TENABLE;
-    let revenu = null;
-    const kMax = Math.ceil(R.revenu / PAS) - 1;
-    if (kMax >= 1) {
-      let bas = 0, haut = kMax;
-      while (bas < haut) { const m = Math.ceil((bas + haut) / 2); if (await okRevenu(m, RAPIDE)) bas = m; else haut = m - 1; }
-      let k = bas;
-      while (k > 0 && !(await okRevenu(k))) k--;
-      revenu = k > 0 ? k * PAS : null;
-    }
-    if (jeton !== jetonSuggestion) return;
-    suggestionRetraite = { cle, res: { age, revenu } };
-    const el = $("#ret-suggestion");
-    if (el) el.innerHTML = htmlSuggestionRetraite(suggestionRetraite.res);
-  } catch (e) {
-    if (e.message !== "annulé") { console.error(e); const el = $("#ret-suggestion"); if (el) el.innerHTML = ""; }
-  }
-}
-function rendreRetraiteDebutant() {
-  const plan = etat.brouillon, H = plan.hypotheses;
-  let r;
-  try { r = projectionCourante(true, { legere: true }); }
-  catch (e) { console.error(e); $("#retraite").innerHTML = `<div class="erreur">Calcul impossible : ${echapper(e.message)}.</div>`; return; }
-  const R = r.retraite, C = r.central;
-  const p0 = normaliserProfil(etat.profil);
-  const ageAuj = Math.ceil(p0.age ?? 0), ageLegal = H.ageRetraite ?? 64, ageDepart = R?.age ?? ageLegal;
-  const optionsAge = Array.from({ length: Math.max(0, ageLegal - ageAuj + 1) }, (_, k) => ageAuj + k).map((a) => `<option value="${a}" ${a === ageDepart ? "selected" : ""}>${a} ans${a === ageLegal ? " (au plus tard)" : ""}</option>`).join("");
-  const reglages = `<section class="panneau" id="ret-simple" data-seul="debutant"><h2>Ta retraite en 2 questions</h2>
-    <div class="champs" style="max-width:600px;margin-top:10px">
-      ${optionsAge ? `<div class="champ"><label for="r-age">Âge où tu veux arrêter de travailler</label><select id="r-age">${optionsAge}</select></div>` : ""}
-      <div class="champ"><label for="r-revenu">Revenu voulu par mois, après impôt, en euros d'aujourd'hui</label><div class="saisie"><input id="r-revenu" type="number" min="0" step="100" value="${p0.retraite?.revenu ?? ""}" placeholder="${plan.retraite?.revenuMensuelDefaut ?? 2000}"><span>€/mois</span></div></div>
-    </div>
-  </section>`;
-  if (!R) {
-    $("#retraite").innerHTML = reglages + `<section class="panneau" data-seul="debutant"><p class="muted" style="margin:0">${(p0.age ?? 0) >= ageLegal ? "Ce profil a déjà l'âge de la retraite : la simulation part de la situation actuelle." : "Retraite hors de la période projetée."}</p></section>`;
-    return;
-  }
-  const infl = (H.inflation ?? 0) / 100, reel = (v, i) => v / Math.pow(1 + infl, i);
-  const mode = etat.profil.retraite?.modePension ?? "auto";
-  const lignePension = mode === "zero" ? "Retraite publique : non comptée (réglage prudent, modifiable en niveau Intermédiaire)."
-    : R.pension > 0 ? `Retraite publique ${mode === "auto" ? "estimée" : "comptée (montant saisi en niveau Intermédiaire)"} : ${eur(R.pension)}/mois à partir de ${R.agePension} ans.`
-    : "Retraite publique : pas encore estimée (indique ton salaire dans « Mon profil »). Pour l'instant, tes placements paient tout.";
-  const proba = R.probaDure, k = verdictRetraite(proba);
-  const titre = { tenable: "Tenable", fragile: "Fragile", "pas-tenable": "Pas tenable" }[k];
-  const probaTxt = `${Math.round(100 * proba)} %`;
-  const capR = reel(C[R.iR].financier, R.iR);
-  const cle = JSON.stringify([etat.brouillon, etat.profil]);
-  if (cacheNecessaire.cle !== cle) cacheNecessaire = { cle, r: capitalNecessaire(etat.brouillon, profilPourMoteur(), { inclureAchat: true }) };
-  const nec = cacheNecessaire.r ? reel(cacheNecessaire.r.capital, R.iR) : null;
-  const ecart = nec == null ? "" : capR >= nec
-    ? (k === "tenable" ? "" : ` Avec des rendements moyens, ton capital suffirait ; mais quelques mauvaises années de bourse au mauvais moment suffisent à le vider : c'est ce qui rend le résultat ${k === "fragile" ? "fragile" : "risqué"}.`)
-    : ` Il manque environ ${eur(nec - capR)} pour tenir avec des rendements moyens.`;
-  const verdict = `<p class="verdict ${k === "tenable" ? "ok" : "ko"}" id="ret-verdict"><b>${titre}.</b> Avec ${eur(R.revenu)} par mois (en euros d'aujourd'hui), ton argent dure jusqu'à ${R.ageFin} ans dans ${probaTxt} des cas simulés (bonnes et mauvaises années de bourse).${k === "tenable" ? "" : " Plus ce chiffre est bas, plus tu risques de manquer d'argent."}${ecart}</p>`;
-  let suggestion = "";
-  if (k !== "tenable") {
-    const memoire = suggestionRetraite.cle === cle ? suggestionRetraite.res : null;
-    suggestion = `<div id="ret-suggestion" style="margin-top:10px">${htmlSuggestionRetraite(memoire)}</div>`;
-    if (!memoire) { const jeton = ++jetonSuggestion; chercherSuggestionRetraite(R, ageLegal, jeton, cle); }
-  } else jetonSuggestion++;
-  const tuiles = [
-    [`Capital nécessaire à ${R.age} ans`, nec != null ? eur(nec) : "—", `pour que l'argent dure jusqu'à ${R.ageFin} ans (rendements moyens)`],
-    [`Capital prévu à ${R.age} ans`, eur(capR), "ce que ton plan aura mis de côté (rendements moyens)"],
-  ];
-  $("#retraite").innerHTML = reglages + `<section class="panneau" id="ret-verdict-bloc" data-seul="debutant"><h2>Est-ce que ma retraite tient ?</h2>
-      ${verdict}
-      ${suggestion}
-      <div class="tuiles" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px">${tuiles.map(([t, v, sous]) => `<div class="tuile"><span>${t}</span><b class="num">${v}</b><span class="small muted">${sous}</span></div>`).join("")}</div>
-      <p class="note" style="margin:10px 0 0">${lignePension} <a class="lien-fiche" href="#fiche-retraite-publique">Comment elle est estimée</a></p>
-      <p class="note" style="margin:6px 0 0">Tous les montants sont en euros d'aujourd'hui (inflation déduite). Tu arrêtes de travailler et d'épargner à ${R.age} ans ; tu te verses ensuite ce revenu jusqu'à ${R.ageFin} ans, pris sur tes placements.</p>
-    </section>`;
-}
-// Chances de réussite de chaque objectif (parmi les scénarios tirés au hasard)
-function blocObjectifs(r, attrs = "") {
-  const R = r.retraite, n = r.simulations, E = r.eventail;
-  const items = [];
-  if (r.achat) items.push([`Acheter ta résidence principale (${eur(r.achat.prix)}) à ${r.achat.age} ans`, 1 - r.achatsRates / n]);
-  if (R) {
-    items.push([`À ${R.age} ans, avoir plus que tout l'argent que tu as mis`, E[R.iR].probaGain]);
-    items.push([`Arrêter de travailler à ${R.age} ans et te verser ${eur(R.revenu)} par mois jusqu'à ${R.ageFin} ans sans être à court`, R.probaDure]);
-    items.push([`Transmettre à ${R.ageFin} ans au moins le capital que tu avais à ${R.age} ans`, R.probaTransmet]);
-  }
-  if (!items.length) return "";
-  const niveau = (p) => (p >= 0.9 ? ["Très probable", "var(--s3)"] : p >= 0.7 ? ["Probable", "var(--s4)"] : p >= 0.5 ? ["Incertain", "var(--s2)"] : ["Peu probable", "var(--s2)"]);
-  return `<section class="panneau"${attrs ? ` ${attrs}` : ""}><h2>Tes objectifs : chances de réussite</h2>
-    <p class="note" style="margin:4px 0 10px">En suivant le plan, sur ${n} scénarios de marchés tirés au hasard (bonnes et mauvaises années, krachs compris).</p>
-    <ul class="objectifs">${items.map(([t, p]) => { const [l, c] = niveau(p); const v = Math.round(100 * p); return `<li><span>${echapper(t)}</span><span class="jauge" role="img" aria-label="${v} %"><span style="width:${v}%;background:${c}"></span></span><b class="num">${p >= 0.995 && p < 1 ? "> 99" : v} %</b><span class="small muted">${l}</span></li>`; }).join("")}</ul>
-  </section>`;
-}
-
-// Estimation de la retraite publique (base + complémentaire)
-function blocPension(p0) {
-  const plan = etat.brouillon, RP = plan.retraitePublique ?? {};
-  const rr = p0.retraite ?? {};
-  const ages = Array.from({ length: 70 - 62 + 1 }, (_, k) => 62 + k);
-  return `<section class="panneau" id="bloc-pension" data-min="intermediaire"><h2>Estimer ta retraite publique</h2>
-    <p class="note" style="margin:4px 0 10px">Estimation simplifiée pour un salarié du privé, à partir de ton salaire et de ta carrière (voir la fiche <a class="lien-fiche" href="#fiche-retraite-publique">Retraite publique</a>). Ton relevé officiel est sur info-retraite.fr.</p>
-    <div class="estimateur" style="max-width:640px">
-      <div class="champ"><label for="pp-debut">Âge de ton premier emploi</label><div class="saisie"><input id="pp-debut" type="number" min="14" max="40" step="1" value="${rr.ageDebutCarriere ?? ""}" placeholder="${RP.ageDebutCarriere ?? 22}"><span>ans</span></div></div>
-      <div class="champ"><label for="pp-trim">Trimestres déjà validés (sur ton relevé, facultatif)</label><div class="saisie"><input id="pp-trim" type="number" min="0" max="200" step="1" value="${rr.trimestresDeja ?? ""}" placeholder="estimés"><span>trim.</span></div></div>
-      <div class="champ"><label for="pp-enf">Trimestres pour enfants (jusqu'à 8 par enfant, en général pour la mère)</label><div class="saisie"><input id="pp-enf" type="number" min="0" max="80" step="1" value="${rr.trimestresEnfants ?? ""}" placeholder="0"><span>trim.</span></div></div>
-      <div class="champ"><label for="pp-demande">Âge où tu la demandes</label><select id="pp-demande">${ages.map((a) => `<option value="${a}" ${Number(rr.ageDemande) === a ? "selected" : ""}>${a} ans</option>`).join("")}</select></div>
-    </div>
-    <div id="pension-resultat" style="margin-top:12px"></div>
-  </section>`;
-}
-function majPension() {
-  const out = $("#pension-resultat"); if (!out) return;
-  const plan = etat.brouillon, RP = plan.retraitePublique ?? {};
-  const p0 = normaliserProfil(etat.profil), rr = p0.retraite ?? {};
-  const PR = projectionCourante(true).retraite;
-  const ageArret = PR?.age ?? plan.hypotheses.ageRetraite ?? 64;
-  let est;
-  try { est = estimerPension(plan, p0, { ageDebut: rr.ageDebutCarriere, trimestresDeja: rr.trimestresDeja, ageArret, ageDemande: rr.ageDemande, trimestresEnfants: rr.trimestresEnfants }); }
-  catch (e) { console.error(e); out.innerHTML = `<p class="erreur">Estimation impossible : ${echapper(e.message)}</p>`; return; }
-  const sel = $("#pp-demande");
-  if (sel && !rr.ageDemande) sel.value = String(Math.ceil(Math.max(est.regles.ageLegal, ageArret)));
-  if ($("#pp-trim") && !(rr.trimestresDeja >= 0 && rr.trimestresDeja !== null && rr.trimestresDeja !== "")) $("#pp-trim").placeholder = `≈ ${est.passes}`;
-  const lignes = [[`À l'âge légal (${ageEnTexte(est.regles.ageLegal)})`, est.auLegal], [`À ${RP.ageTauxPlein ?? 67} ans (taux plein automatique)`, est.aTauxPlein]];
-  const demande = est.demande;
-  if (![est.auLegal.age, est.aTauxPlein.age].includes(demande.age)) lignes.push([`À ${ageEnTexte(demande.age)} (ton choix)`, demande]);
-  const tab = lignes.map(([l, x]) => `<tr><td>${l}</td><td class="m">${pct(x.taux)}${x.decote ? `<div class="small muted">décote de ${x.decote} trim.</div>` : ""}${x.surcote > 0 ? `<div class="small muted">surcote +${pct(x.surcote)}</div>` : ""}${x.majEnfants ? `<div class="small muted">+${x.majEnfants} % (3 enfants)</div>` : ""}</td><td class="m">${eur(x.base)}</td><td class="m">${eur(x.complementaire)}</td><td class="m">${eur(x.net)}</td><td class="m"><b>${eur(x.apres)}</b></td></tr>`).join("");
-  const manque = Math.max(0, est.regles.trimestres - est.trimestres);
-  const agePension = Math.ceil(demande.age);
-  const actuel = Number(rr.pension) || 0;
-  out.innerHTML = `
-    <p class="small" style="margin:0 0 8px">Né(e) vers ${est.naissance} : âge légal <b>${ageEnTexte(est.regles.ageLegal)}</b>, <b>${est.regles.trimestres} trimestres</b> pour le taux plein. Avec un premier emploi à ${est.debut} ans et un arrêt à ${ageArret} ans : <b>${est.trimestres} trimestres</b>${manque ? `, soit ${manque} de moins que le taux plein` : ", assez pour le taux plein"}. ${est.regime === "ssi" ? "Revenu annuel moyen cotisé (25 meilleures années, plafonné au PASS)" : "Salaire annuel moyen retenu (25 meilleures années, brut, plafonné)"} : ${eur(est.sam)} ; ${est.points.toLocaleString("fr-FR")} points de complémentaire (${est.libelleComplementaire ?? "Agirc-Arrco"}).</p>
-    ${est.alertes?.length ? `<ul class="note attention" style="margin:0 0 8px">${est.alertes.map((a) => `<li>${echapper(a)}</li>`).join("")}</ul>` : ""}
-    ${ageArret < est.regles.ageLegal ? `<p class="verdict ko" style="margin:0 0 8px"><b>Tu arrêtes à ${ageArret} ans : la retraite publique n'est versée qu'à partir de ${ageEnTexte(est.regles.ageLegal)} au plus tôt.</b> Entre les deux, tes placements doivent tout payer, et tu ne valides plus de trimestres.</p>` : ""}
-    <div class="table-wrap"><table><thead><tr><th>Si tu la demandes</th><th class="m">Taux</th><th class="m">Base (net)</th><th class="m">${est.libelleComplementaire ?? "Agirc-Arrco"} (net)</th><th class="m">Total net / mois</th><th class="m">Après impôt</th></tr></thead><tbody>${tab}</tbody></table></div>
-    <p class="note" style="margin:8px 0 0">En euros d'aujourd'hui. Approximations : ${est.regime === "ssi" ? `trimestres validés selon le revenu (150 h au SMIC = ${eur(Math.round(((RP.independants?.smicHoraire ?? 12.02) * (RP.independants?.heuresParTrimestre ?? 150))))} par trimestre)` : "4 trimestres par année travaillée"}, salaires passés déduits de ton profil de carrière, trimestres pour enfants seulement si tu les indiques, pas de trimestres pour chômage ou maladie, complémentaire réduite comme la base en cas de décote. Surcote de 1,25 % par trimestre travaillé après l'âge légal au-delà de la durée requise ; +10 % sur la base et la complémentaire avec au moins 3 enfants (champ « Enfants à charge » de « Mon profil » ; compte aussi les enfants élevés, même plus à charge) ; plus de malus Agirc-Arrco depuis décembre 2023. « Après impôt » : barème 2026 pour une personne seule, abattement de 10 % compris (<a class="lien-fiche" href="#fiche-net-impot">net avant ou après impôt ?</a>). Les règles peuvent encore changer d'ici ta retraite.</p>
-    <div class="ligne-actions" style="margin-top:10px">
-      ${(rr.modePension ?? "auto") === "auto"
-        ? `<span class="small"><b>✓ Comptée automatiquement</b> : ${eur(Math.round(demande.apres / 10) * 10)} par mois à partir de ${agePension} ans, recalculée si tu changes l'âge d'arrêt.</span><button type="button" class="lien" data-pension="0" data-age-pension="">Ne pas la compter (prudence)</button>`
-        : `<button type="button" class="principal" data-pension="auto" data-age-pension="">Revenir au calcul automatique (${eur(Math.round(demande.apres / 10) * 10)} par mois)</button>${actuel > 0 ? `<button type="button" class="lien" data-pension="0" data-age-pension="">Revenir à 0 € (prudence)</button><span class="small muted">Actuellement compté : ${eur(actuel)} à partir de ${PR?.agePension ?? agePension} ans.</span>` : ""}`}
-    </div>`;
-}
-$("#vue-retraite").addEventListener("input", (e) => {
-  const map = { "pp-debut": "ageDebutCarriere", "pp-trim": "trimestresDeja", "pp-enf": "trimestresEnfants" };
-  const k = map[e.target.id]; if (!k) return;
-  etat.profil.retraite ??= {};
-  etat.profil.retraite[k] = e.target.value === "" ? null : Number(e.target.value);
-  memo.set("profil-v2", etat.profil); planifierSauvegardeProfil();
-  majPension();
-});
-// Retraite publique automatique : les trimestres et l'âge de départ saisis changent le montant compté
-$("#vue-retraite").addEventListener("change", (e) => {
-  if (!["pp-debut", "pp-trim", "pp-enf"].includes(e.target.id) || (etat.profil.retraite?.modePension ?? "auto") !== "auto") return;
-  syncRetraite0(); rendreRetraite(); planifierTrajectoire();
-});
-$("#vue-retraite").addEventListener("change", (e) => {
-  if (e.target.id !== "pp-demande") return;
-  etat.profil.retraite ??= {};
-  etat.profil.retraite.ageDemande = Number(e.target.value);
-  memo.set("profil-v2", etat.profil); planifierSauvegardeProfil();
-  majPension();
-  if ((etat.profil.retraite?.modePension ?? "auto") === "auto") { syncRetraite0(); rendreRetraite(); planifierTrajectoire(); }
-});
-$("#vue-retraite").addEventListener("click", (e) => {
-  const b = e.target.closest?.("[data-pension]"); if (!b) return;
-  etat.profil.retraite ??= {};
-  etat.profil.retraite.modePension = b.dataset.pension === "auto" ? "auto" : Number(b.dataset.pension) > 0 ? "manuel" : "zero";
-  etat.profil.retraite.pension = Number(b.dataset.pension) || null;
-  etat.profil.retraite.agePension = Number(b.dataset.agePension) || null;
-  syncRetraite0();
-  memo.set("profil-v2", etat.profil); planifierSauvegardeProfil();
-  rendreRetraite();
-});
-
-// Âge de départ possible et revenus « pessimistes » (9 scénarios sur 10)
-const clePessimiste = () => { const r = { ...(etat.profil.retraite ?? {}) }; delete r.ageDebutCarriere; delete r.trimestresDeja; delete r.ageDemande; return JSON.stringify([etat.brouillon, { ...etat.profil, retraite: r }]); };
-let pessimiste = { cle: null };
-let jetonPessimiste = 0;
-function agePossibleCentral() {
-  const ctx = contexteRetraite(etat.brouillon, profilPourMoteur());
-  const { PR, profil } = ctx;
-  const ok = (a) => !!evaluerRetraite(ctx, { age: a })?.preserve;
-  return chercherAge(ok, Math.ceil(profil.age), PR.ageLegal);
-}
-function chercherAge(ok, de, a) {
-  if (a < de || !ok(a)) return null;
-  let bas = de, haut = a;
-  while (bas < haut) { const m = Math.floor((bas + haut) / 2); if (ok(m)) haut = m; else bas = m + 1; }
-  return haut;
-}
-function boutonsAge(central, pess, actuel, legal) {
-  const b = [];
-  if (pess != null && pess !== actuel) b.push(`<button type="button" class="principal" data-age-depart="${pess}">Simuler un départ à ${pess} ans (pessimiste)</button>`);
-  if (central != null && central !== actuel && central !== pess) b.push(`<button type="button" data-age-depart="${central}">Simuler un départ à ${central} ans (central)</button>`);
-  if (actuel !== legal) b.push(`<button type="button" class="lien" data-age-depart="${legal}">Revenir à ${legal} ans</button>`);
-  return b.join("");
-}
-const pause = () => new Promise((r) => setTimeout(r, 0));
-async function lancerPessimiste() {
-  const cle = clePessimiste();
-  if (pessimiste.cle === cle) return;
-  const jeton = ++jetonPessimiste;
-  const ctx = contexteRetraite(etat.brouillon, profilPourMoteur());
-  const { PR, profil } = ctx;
-  const N = 200;
-  const ok = async (a, revenu, critere) => { await pause(); if (jeton !== jetonPessimiste) throw new Error("annulé"); return !!evaluerRetraite(ctx, { age: a, revenu, scenarios: N })?.[critere]; };
-  try {
-    // Âge le plus tôt où le capital est transmis intact dans 9 cas sur 10
-    let age = null;
-    const de = Math.ceil(profil.age), a = PR.ageLegal;
-    if (a >= de && await ok(a, PR.revenu, "preserve")) {
-      let bas = de, haut = a;
-      while (bas < haut) { const m = Math.floor((bas + haut) / 2); if (await ok(m, PR.revenu, "preserve")) haut = m; else bas = m + 1; }
-      age = haut;
-    }
-    if (jeton !== jetonPessimiste) return;
-    $("#age-pessimiste") && ($("#age-pessimiste").innerHTML = age == null ? `pas avant ${PR.ageLegal} ans` : `${age} ans`);
-    // Revenus possibles à l'âge de départ choisi, dans 9 cas sur 10
-    const chercher = async (critere) => { let bas = 0, haut = 20000; for (let k = 0; k < 13; k++) { const m = (bas + haut) / 2; if (await ok(PR.age, m, critere)) bas = m; else haut = m; } return bas; };
-    const revenuPreserve = await chercher("preserve");
-    if ($("#pess-preserve")) $("#pess-preserve").textContent = `${eur(revenuPreserve)}/mois`;
-    const revenuConsomme = await chercher("dure");
-    if ($("#pess-consomme")) $("#pess-consomme").textContent = `${eur(revenuConsomme)}/mois`;
-    pessimiste = { cle, age, revenuPreserve, revenuConsomme };
-    if ($("#actions-age")) $("#actions-age").innerHTML = boutonsAge(agePossibleCentral(), age, PR.age, PR.ageLegal);
-  } catch (e) { if (e.message !== "annulé") console.error(e); }
-}
+monterRetraite(); // écouteurs de l'onglet Retraite (vues/retraite.js), attachés à cet endroit comme avant le découpage
 // PER et PEA pour un même effort de 100 € par mois pendant n ans à 6 % par an, sortie en capital
 // tauxEffectif : taux réel d'économie d'impôt du versement (économie exacte ÷ versement) ; à défaut, la tranche
-function comparerPERPEA(tmi, tret, n = 20, tauxEffectif = tmi) {
+export function comparerPERPEA(tmi, tret, n = 20, tauxEffectif = tmi) {
   const r = 0.06 / 12, F = (Math.pow(1 + r, 12 * n) - 1) / r;
   const taux = Number.isFinite(Number(tauxEffectif)) ? Math.min(Math.max(Number(tauxEffectif), 0), 90) : tmi;
   const m = 100 / (1 - taux / 100), cap = m * F, verse = m * 12 * n;
@@ -2036,7 +817,7 @@ function planifierSync(delai = 4000) {
   SYNC.minuteur = setTimeout(() => lancerSync(false), delai);
 }
 // Toute écriture locale de données synchronisables date la modification (départage les scénarios) et programme un envoi
-hookEcriture = (k) => {
+crochets.ecriture = (k) => {
   if (!syncActive() || !estCleSynchronisable(k)) return;
   SYNC.cfg = { ...SYNC.cfg, modifieLe: new Date().toISOString() };
   try { localStorage.setItem("sync-config", JSON.stringify(SYNC.cfg)); } catch { /* quota : sans effet bloquant */ }
@@ -2250,8 +1031,8 @@ setTimeout(() => { if (memo.get("discret")) appliquerDiscret(true); }, 0);
 // ---------------------------------------------------------------- niveaux de lecture (règles dans niveaux.js)
 // Le niveau ne change que l'affichage : jamais etat.profil, jamais les calculs.
 // Produit le HTML d'un panneau seulement s'il est visible au niveau courant (rendreResultats est rappelée à chaque changement de niveau)
-function siNiveau(min, fn) { return visible(min, niveauCourant()) ? fn() : ""; }
-function niveauCourant() { const n = document.documentElement.dataset.niveau; return NIVEAUX.includes(n) ? n : "avance"; }
+export function siNiveau(min, fn) { return visible(min, niveauCourant()) ? fn() : ""; }
+export function niveauCourant() { const n = document.documentElement.dataset.niveau; return NIVEAUX.includes(n) ? n : "avance"; }
 // Libellés des onglets, des bandeaux « Étape N » et des boutons : une seule table (niveaux.js), les ancres ne changent pas
 function majLibelles() {
   const n = niveauCourant();
@@ -2327,7 +1108,6 @@ const MODELES_EV = {
   sabbatique: { libelle: "Année sabbatique", type: "pause", montant: 0, annees: 1, dans: 5 },
   autre: { libelle: "", type: "depense", montant: 0, annees: 1, dans: 1 },
 };
-const TYPES_EV = [["entree", "Rentrée d'argent"], ["depense", "Dépense"], ["pause", "Pause d'épargne"]];
 function rendreEvenements() {
   const L = etat.profil.evenements ?? [];
   $("#liste-evenements").innerHTML = L.length ? L.map((e, i) => `<div class="evenement">
@@ -2382,12 +1162,12 @@ function majAideFrais() {
     : "Tes frais sont au niveau de la référence du plan : rien à retirer.";
 }
 // Garde les champs « Ta retraite » de « Mon profil » à jour quand on change l'onglet 4
-function syncRetraite0() {
+export function syncRetraite0() {
   const rr = etat.profil.retraite ?? {};
   for (const [id, k] of [["#r0-revenu", "revenu"], ["#r0-age", "ageDepart"], ["#r0-pension", "pension"]]) { const el = $(id); if (el && document.activeElement !== el) el.value = rr[k] ?? ""; }
   majAideRetraite0();
 }
-function choisirAgeDepart(a) {
+export function choisirAgeDepart(a) {
   etat.profil.retraite ??= {};
   etat.profil.retraite.ageDepart = a >= (etat.brouillon.hypotheses.ageRetraite ?? 64) ? null : a;
   memo.set("profil-v2", etat.profil);
@@ -2395,41 +1175,6 @@ function choisirAgeDepart(a) {
   planifierSauvegardeProfil();
   rendreRetraite();
 }
-$("#vue-retraite").addEventListener("click", (e) => { const b = e.target.closest?.("[data-age-depart]"); if (b) choisirAgeDepart(Number(b.dataset.ageDepart)); });
-$("#vue-retraite").addEventListener("click", (e) => {
-  const b = e.target.closest?.("[data-revenu-retraite]"); if (!b) return;
-  etat.profil.retraite ??= {};
-  etat.profil.retraite.revenu = Number(b.dataset.revenuRetraite);
-  memo.set("profil-v2", etat.profil);
-  syncRetraite0();
-  planifierSauvegardeProfil();
-  rendreRetraite();
-});
-$("#vue-retraite").addEventListener("change", (e) => {
-  if (e.target.id === "r-age") choisirAgeDepart(Number(e.target.value));
-  if (e.target.id === "r-mode" || e.target.id === "r-loyers" || e.target.id === "r-priorite") {
-    etat.profil.retraite ??= {};
-    if (e.target.id === "r-mode") etat.profil.retraite.modePension = e.target.value;
-    else if (e.target.id === "r-priorite") etat.profil.retraite.priorite = e.target.value === "consommer" ? "consommer" : "transmettre";
-    else etat.profil.retraite.compterLoyers = e.target.checked;
-    memo.set("profil-v2", etat.profil); syncRetraite0(); planifierSauvegardeProfil(); rendreRetraite(); planifierTrajectoire();
-  }
-});
-$("#vue-retraite").addEventListener("input", (e) => {
-  if (e.target.id !== "r-revenu" && e.target.id !== "r-pension") return;
-  etat.profil.retraite ??= {};
-  const v = e.target.value === "" ? null : Math.max(0, Number(e.target.value));
-  if (e.target.id === "r-revenu") etat.profil.retraite.revenu = v; else etat.profil.retraite.pension = v;
-  memo.set("profil-v2", etat.profil);
-  syncRetraite0();
-  planifierSauvegardeProfil();
-  clearTimeout(minuteurTrajectoire);
-  minuteurTrajectoire = setTimeout(() => {
-    const actif = document.activeElement?.id;
-    rendreRetraite();
-    if (actif) { const el = document.getElementById(actif); if (el) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch {} } }
-  }, 400);
-});
 
 // ---------------------------------------------------------------- profil
 function rendreChoixEtablissements() {
@@ -2604,7 +1349,7 @@ const NOM_DEVISE_COMPTE = { ...NOM_DEVISE, CAD: "Dollar canadien (CAD)" };
 const nomDevise = (d) => NOM_DEVISE_COMPTE[d] ?? d;
 const ORIGINE_TAUX = { manuel: "saisi", jour: "du jour", reference: "de référence" };
 const nouvelIdCompteEtranger = () => `ce-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-function creerChampCE(balise, attrs) { const e = document.createElement(balise); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; }
+export function creerChampCE(balise, attrs) { const e = document.createElement(balise); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; }
 function ligneCompteEtranger(c) {
   const ligne = creerChampCE("div", { class: "ligne-ce", "data-ce-id": c.id });
   const type = creerChampCE("select", { "data-ce": "type", "aria-label": "Type de compte étranger" });
@@ -2982,10 +1727,10 @@ function afficherSuggestions(input) {
   input.setAttribute("aria-expanded", String(!ul.hidden));
 }
 function choisirCommune(base, code) {
-  const d = prixCharges(), c = d?.communes?.[code]; if (!c) return;
+  const dep = departementDe({ codeInsee: code }); if (!dep) return;
   const lieu = (etat.profil[base] ??= {});
-  lieu.codeInsee = code; lieu.commune = libelleCommune(code); lieu.departement = c[1];
-  $(`#${base}-commune`).value = lieu.commune; $(`#${base}-dep`).value = c[1];
+  lieu.codeInsee = code; lieu.commune = libelleCommune(code); lieu.departement = dep;
+  $(`#${base}-commune`).value = lieu.commune; $(`#${base}-dep`).value = dep;
   fermerSuggestions();
   apresSaisieProfil(); majEstimations();
 }
@@ -3037,6 +1782,11 @@ function majEstimations() {
       chargerPrix().then(majEstimations).catch((e) => { out.innerHTML = `<span class="small">Prix indisponibles ici (${echapper(e.message)}) : indique le montant toi-même.</span>`; });
       continue;
     }
+    if (!departementCharge(departementDe(lieu))) {
+      out.innerHTML = '<span class="muted small">Chargement des prix…</span>';
+      chargerDepartement(departementDe(lieu)).then(majEstimations).catch((e) => { out.innerHTML = `<span class="small">Prix indisponibles ici (${echapper(e.message)}) : indique le montant toi-même.</span>`; });
+      continue;
+    }
     if (depListe[base] !== lieu.departement + "|" + lieu.commune) {
       depListe[base] = lieu.departement + "|" + lieu.commune;
       const inp = $(`#${base}-commune`);
@@ -3046,7 +1796,8 @@ function majEstimations() {
     const surfaceDeduite = (base === "projetLocatif" || base === "projetRP") && !(Number(lieu.surface) > 0) && est?.m2 && Number(etat.profil[base]?.prix) > 0 ? Math.round(Number(etat.profil[base].prix) / est.m2) : null;
     const loy = base === "projetLocatif" || base === "projetRP" ? estimerLoyer(lieu, surfaceDeduite) : null;
     const morceaux = [];
-    if (!est || est.introuvable) morceaux.push(`<span class="small">Pas de données de ventes ici (l'Alsace-Moselle et Mayotte ne sont pas couvertes) : indique le prix toi-même.</span>`);
+    if (est?.horsDvf) morceaux.push(`<span class="small">Pas de prix DVF pour ce département : l'Alsace-Moselle et Mayotte relèvent du livre foncier. Saisis le prix du bien toi-même.</span>`);
+    else if (!est || est.introuvable) morceaux.push(`<span class="small">Pas de données de ventes ici : indique le prix toi-même.</span>`);
     else {
       const ou = est.echelle === "commune" ? `à ${echapper(est.commune)}` : codeCommune(lieu) ? "dans le département (pas assez de ventes dans cette commune)" : "dans tout le département";
       const source = `prix médian des ventes ${est.type === "maison" ? "de maisons" : "d'appartements"} ${ou}, de juillet 2024 à juin 2026`;
@@ -3109,7 +1860,7 @@ function saisieGroupeDebutant(el) {
   majAideRetraite0(); majAideFrais();
   apresSaisieProfil();
 }
-function remplirProfil() {
+export function remplirProfil() {
   (etat.profil.foyer ??= {}).situation = situationDe(etat.profil);
   if (etat.profil.foyer.actif && etat.profil.foyer.statut === "concubin" && !etat.profil.foyer.vue) etat.profil.foyer.vue = "foyer"; // anciens profils : épargne saisie pour le couple
   document.querySelectorAll("#profil [data-p]").forEach((el) => {
@@ -3300,7 +2051,7 @@ function majVisibiliteProfil() {
   $("#p-futur-age").disabled = $("#p-futur-cap").disabled = $("#p-futur-sal").disabled = $("#p-futur-ep").disabled = !p.futur?.actif;
   $("#p-rp-h").disabled = !rp || !p.projetRP?.imperatif;
 }
-function apresSaisieProfil() {
+export function apresSaisieProfil() {
   memo.set("profil-v2", etat.profil);
   majCtaDecouverte();
   majVisibiliteProfil();
@@ -3412,18 +2163,11 @@ $("#profil").addEventListener("submit", (e) => e.preventDefault());
 // ---------------------------------------------------------------- profils des proches
 // profils/{id}      : profils créés par l'auteur du plan (lus et modifiés par lui seul)
 // situations/{id}   : la situation qu'un proche enregistre lui-même (lue par lui et par l'auteur)
-const proches = {
-  liste: [], situations: [], auteur: false, moi: null, mode: "local", // local | partage | lecture
-  courant: memo.get("profil-courant") ?? { col: "exemple", id: "exemple" },
-  reference: null, statut: "", zone: null, minuteur: null, enCours: false,
-};
-const cle = (c) => `${c.col}:${c.id}`;
-const docCourant = () => (proches.courant.col === "profils" ? proches.liste : proches.courant.col === "situations" ? proches.situations : []).find((d) => d.id === proches.courant.id);
 const profilModifie = () => !horsSauvegarde() && proches.courant.col !== "exemple" && proches.reference && JSON.stringify(etat.profil) !== JSON.stringify(proches.reference);
 const nouvelId = () => (etat.db ? etat.db.collection("profils").doc().id : `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
 
 // Stockage : base partagée si disponible, sinon ce navigateur
-async function ecrireDoc(col, id, data) {
+export async function ecrireDoc(col, id, data) {
   if (etat.db) return etat.db.doc(`${col}/${id}`).set(data);
   const tout = memo.get(`local-${col}`) ?? {}; tout[id] = data; memo.set(`local-${col}`, tout); chargerLocal();
 }
@@ -3468,7 +2212,7 @@ function choisirProfil(c) {
   etat.partage = null; etat.simulation = null;
   retirerParamPartage();
   proches.courant = c; memo.set("profil-courant", c);
-  brouillonReleve = null; moisReleve = null;
+  reinitialiserBrouillonReleve();
   proches.zone = null;
   if (c.col === "exemple") { proches.reference = null; chargerDansFormulaire(clone(PROFIL_EXEMPLE)); }
   else { const d = docCourant(); proches.reference = fusion(PROFIL_VIDE, d?.profil); chargerDansFormulaire(proches.reference); }
@@ -3477,7 +2221,7 @@ function choisirProfil(c) {
   document.dispatchEvent(new CustomEvent("profil:change")); // l'assistant recharge l'historique de ce profil
 }
 
-function planifierSauvegardeProfil() {
+export function planifierSauvegardeProfil() {
   if (proches.courant.col === "exemple" || proches.mode === "lecture" || horsSauvegarde()) { rendreEtatProfil(); return; }
   proches.statut = "Modifications en cours…"; rendreEtatProfil();
   clearTimeout(proches.minuteur);
@@ -3751,558 +2495,7 @@ $("#decouverte").addEventListener("click", (e) => { if (e.target.id === "decouve
 $("#btn-decouverte").addEventListener("click", ouvrirDecouverte);
 $("#cta-decouverte-bouton").addEventListener("click", ouvrirDecouverte);
 
-// ---------------------------------------------------------------- calendrier des échéances
-const calendrier = { vue: "profil", complet: false, message: "" };
-const LIB_TYPE = { action: "À faire", fiscal: "Fiscalité", projet: "Projet", suivi: "Suivi", marche: "Marché" };
-
-function evenementsCalendrier() {
-  const plan = etat.brouillon;
-  let ev = [];
-  if (calendrier.vue === "tous" && proches.auteur) {
-    for (const d of [...proches.liste, ...proches.situations]) {
-      try {
-        const p = normaliserProfil(fusion(PROFIL_VIDE, d.profil));
-        ev.push(...echeancesProfil(plan, p, { releves: d.suivi?.releves ?? [] }).map((e) => ({ ...e, qui: d.nom })));
-      } catch (err) { console.error(err); }
-    }
-  } else {
-    const { suivi } = suiviCourant();
-    ev.push(...echeancesProfil(plan, profilPourMoteur(), { releves: suivi?.releves ?? [] }));
-  }
-  ev.push(...echeancesGenerales(plan));
-  return ev.sort((a, b) => a.date - b.date || (a.qui ?? "").localeCompare(b.qui ?? ""));
-}
-
-function blocCalendrier() {
-  let ev;
-  try { ev = evenementsCalendrier(); } catch (e) { console.error(e); return `<section class="panneau"><h2>Prochaines échéances</h2><div class="erreur">Calendrier indisponible : ${echapper(e.message)}.</div></section>`; }
-  const visibles = calendrier.complet ? ev : ev.slice(0, 8);
-  const parAnnee = new Map();
-  for (const e of visibles) { const a = e.date.getFullYear(); if (!parAnnee.has(a)) parAnnee.set(a, []); parAnnee.get(a).push(e); }
-  const quand = (e) => (e.approx ? `vers ${e.date.toLocaleDateString("fr-FR", { month: "short", year: "numeric" })}` : e.date.toLocaleDateString("fr-FR", { month: "long", year: "numeric" }));
-  const liste = [...parAnnee].map(([annee, es]) => `<h3 class="annee">${annee}</h3><ul class="echeances">${es.map((e) => `<li>
-      <span class="quand num">${quand(e)}</span>
-      <div><span class="etiquette ${e.type}">${LIB_TYPE[e.type] ?? ""}</span> <b>${echapper(e.titre)}</b>${e.qui ? ` <span class="qui">${echapper(e.qui)}</span>` : ""}
-        <div class="note">${echapper(e.detail)}${e.fiche ? ` ${lienFiche(e.fiche)}` : ""}</div></div></li>`).join("")}</ul>`).join("");
-  const choix = proches.auteur && proches.liste.length + proches.situations.length > 0
-    ? `<label for="cal-vue" class="small">Afficher</label><select id="cal-vue" style="width:auto"><option value="profil" ${calendrier.vue === "profil" ? "selected" : ""}>Ce profil</option><option value="tous" ${calendrier.vue === "tous" ? "selected" : ""}>Tous mes proches</option></select>` : "";
-  const exporter = `<button type="button" id="cal-export">Exporter pour un agenda (CSV)</button>`;
-  return `<section class="panneau"><h2>Prochaines échéances</h2>
-    <p class="note" style="margin:4px 0 10px">Dates clés des ${etat.brouillon.calendrier?.horizonAnnees ?? 15} prochaines années. « Vers » : date estimée à partir de l'âge.</p>
-    ${choix || exporter ? `<div class="ligne-actions" style="margin-bottom:8px">${choix}${exporter}</div>` : ""}
-    ${calendrier.message ? `<p class="small" style="margin:0 0 8px">${echapper(calendrier.message)}</p>` : ""}
-    ${liste || '<p class="muted small">Aucune échéance à venir.</p>'}
-    ${ev.length > 8 ? `<button type="button" class="lien" id="cal-tout">${calendrier.complet ? "Afficher moins" : `Voir les ${ev.length} échéances`}</button>` : ""}
-  </section>`;
-}
-
-$("#suivi").addEventListener("change", (e) => { if (e.target.id === "cal-vue") { calendrier.vue = e.target.value; calendrier.message = ""; rendreSuivi(); } });
-$("#suivi").addEventListener("click", async (e) => {
-  if (e.target.id === "cal-tout") { calendrier.complet = !calendrier.complet; rendreSuivi(); }
-  if (e.target.id === "cal-export") {
-    try {
-      await telechargerFichier("echeances-plan-patrimoine.csv", new Blob(["﻿" + versCSV(evenementsCalendrier())], { type: "text/csv" }));
-      calendrier.message = "Fichier enregistré. Dans Google Agenda : Paramètres > Importer et exporter > Importer ; dans Outlook : Fichier > Ouvrir et exporter > Importer.";
-    } catch (err) {
-      calendrier.message = err?.code === "declined" ? "Export annulé." : `Export impossible ici (${err?.code ?? "erreur"}).`;
-    }
-    rendreSuivi();
-  }
-});
-
-// ---------------------------------------------------------------- suivi dans le temps
-// Stocké dans le document du profil : suivi = { reference: { date, points }, releves: [{ date, placements, total }] }
-const moisCourant = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
-const ajouterMois = (a, n) => { const [y, m] = a.split("-").map(Number); const t = y * 12 + (m - 1) + n; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`; };
-const libMois = (a) => { const [y, m] = a.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }); };
-const totalPlacements = (pl) => Object.values(pl ?? {}).reduce((s, x) => s + (Number(x) || 0), 0);
-
-// Familles de comptes pour le graphique « évolution par compte »
-const FAMILLES = [
-  { nom: "Livrets et PEL", comptes: ["livretA", "ldds", "lep", "livretJeune", "livretBancaire", "pel"], couleur: "--s6" },
-  { nom: "Assurance-vie", comptes: ["assuranceVie", "assuranceVieUC"], couleur: "--s7" },
-  { nom: "Bourse (PEA, CTO)", comptes: ["pea", "cto"], couleur: "--s1" },
-  { nom: "PER", comptes: ["per"], couleur: "--s5" },
-  { nom: "SCPI", comptes: ["scpi"], couleur: "--s3" },
-  { nom: "Or", comptes: ["orPhysique"], couleur: "--s4" },
-  { nom: "Bitcoin", comptes: ["plateformeCrypto", "coldWallet"], couleur: "--s2" },
-];
-function familleDe(id) { return FAMILLES.find((f) => f.comptes.includes(id)) ?? { nom: "Autres comptes", couleur: "--faint" }; }
-function parFamille(placements) {
-  const out = new Map();
-  for (const [id, v] of Object.entries(placements ?? {})) {
-    const f = familleDe(id); out.set(f.nom, (out.get(f.nom) ?? 0) + (Number(v) || 0));
-  }
-  return out;
-}
-
-// Relevés de test : profil « Exemple », ou profil qu'on ne peut pas enregistrer.
-// Gardés en mémoire le temps de la visite, jamais enregistrés.
-const suivisTest = new Map();
-const RISQUES = new Set(["pea", "cto", "assuranceVieUC", "per", "plateformeCrypto", "coldWallet", "orPhysique", "scpi"]);
-function genererSuiviExemple() {
-  // 12 mois de relevés fictifs, tous les 2 mois, qui finissent sur les montants du profil
-  const fin = clone(etat.profil.placements ?? {});
-  const debut = ajouterMois(moisCourant(), -12);
-  const releves = [];
-  for (let k = 0; k <= 6; k++) {
-    const t = k / 6;
-    const placements = Object.fromEntries(Object.entries(fin).map(([e, v], i) => {
-      const bruit = RISQUES.has(e) && k < 6 ? 0.07 * Math.sin(k * 1.3 + i) : 0;
-      return [e, Math.round((Number(v) || 0) * (0.74 + 0.26 * t) * (1 + bruit))];
-    }));
-    releves.push({ date: ajouterMois(debut, 2 * k), placements, total: totalPlacements(placements) });
-  }
-  return { reference: { date: debut, points: referenceDepuis(releves[0].placements), exemple: true }, releves };
-}
-
-function suiviCourant() {
-  const k = cle(proches.courant);
-  if (proches.courant.col === "exemple") {
-    if (!suivisTest.has(k)) suivisTest.set(k, genererSuiviExemple());
-    return { suivi: suivisTest.get(k), test: true, exemple: true, doc: null };
-  }
-  const d = docCourant();
-  if (d && proches.mode !== "lecture") return { suivi: d.suivi ?? null, test: false, exemple: false, doc: d };
-  return { suivi: suivisTest.get(k) ?? null, test: true, exemple: false, doc: d };
-}
-
-async function ecrireSuivi(d, suivi) {
-  d.suivi = suivi;
-  const profil = clone(etat.profil);
-  await ecrireDoc(proches.courant.col, proches.courant.id, { nom: d.nom, profil, suivi, majLe: new Date().toISOString() });
-  proches.reference = profil;
-}
-
-function referenceDepuis(placements) {
-  return referenceSuivi(etat.brouillon, { ...profilPourMoteur(), placements: clone(placements) });
-}
-
-let messageSuivi = "";
-let tousLesComptes = false;
-let brouillonReleve = null;
-let moisReleve = null; // montants en cours de saisie dans « Noter un relevé »
-let brouillonPRU = null; // capital versé (et solde du PEA-PME) lus dans un fichier importé, en attente du relevé
-let importFichier = null; // { nom, resultat } : fichier CSV / Excel lu, en attente de validation par l'utilisateur
-let minuterieApercu = null;
-
-// Montants du profil, remplacés par ceux du brouillon de relevé en cours de saisie
-function placementsBrouillon() {
-  const p = { ...clone(etat.profil.placements ?? {}), ...(brouillonReleve ?? {}) };
-  for (const k of Object.keys(p)) p[k] = Math.max(0, Number(p[k]) || 0);
-  return p;
-}
-function aBrouillon() {
-  const base = etat.profil.placements ?? {};
-  return Object.entries(brouillonReleve ?? {}).some(([k, v]) => !(Math.abs((Number(v) || 0) - (Number(base[k]) || 0)) <= 0.5));
-}
-
-function appliquerPlacements(placements) {
-  etat.profil.placements = clone(placements);
-  memo.set("profil-v2", etat.profil);
-  remplirProfil();
-  rendreResultats();
-  planifierTrajectoire();
-}
-
-async function actionSuivi(e) {
-  const t = e.target;
-  if (t.id === "releve-tous") { tousLesComptes = !tousLesComptes; rendreSuivi(); return; }
-  if (t.id === "btn-exemple-reset") {
-    etat.profil.placements = clone(PROFIL_EXEMPLE.placements);
-    suivisTest.delete(cle(proches.courant));
-    brouillonReleve = null; brouillonPRU = null; importFichier = null;
-    appliquerPlacements(etat.profil.placements);
-    messageSuivi = "Exemple remis à zéro.";
-    rendreSuivi(); return;
-  }
-  if (t.id === "btn-fichier-annuler") { importFichier = null; messageSuivi = ""; rendreSuivi(); return; }
-  if (t.id === "btn-fichier-ok") {
-    if (!importFichier) return;
-    const { montants, pru } = releveDepuisImport(importFichier.resultat.comptes);
-    brouillonReleve = { ...(brouillonReleve ?? {}), ...montants };
-    brouillonPRU = { ...(brouillonPRU ?? {}), ...pru };
-    if (montants.pea !== undefined && !pru.peaPme) delete brouillonPRU.peaPme; // le solde du PEA importé ne contient plus de PEA-PME
-    if (Object.keys(montants).some((k) => !((Number(etat.profil.placements?.[k]) || 0) > 0))) tousLesComptes = true;
-    messageSuivi = `${Object.keys(montants).length} compte(s) rempli(s) depuis le fichier${Object.keys(pru).length ? " (capital versé inclus)" : ""}. Vérifie l'aperçu ci-dessous puis note le relevé.`;
-    importFichier = null;
-    rendreSuivi(); return;
-  }
-  if (t.id === "btn-coller") {
-    const r = lireReleveColle($("#releve-colle")?.value ?? "");
-    brouillonReleve = { ...(brouillonReleve ?? {}), ...r.montants };
-    if (Object.keys(r.montants).some((k) => !((Number(etat.profil.placements?.[k]) || 0) > 0))) tousLesComptes = true;
-    messageSuivi = Object.keys(r.montants).length
-      ? `${Object.keys(r.montants).length} compte(s) rempli(s) : ${Object.entries(r.montants).map(([k, v]) => `${etat.brouillon.enveloppes[k]?.libelle ?? k} ${eur(v)}`).join(", ")}.${r.ignores.length ? ` Lignes non reconnues : ${r.ignores.slice(0, 5).join(" ; ")}${r.ignores.length > 5 ? "…" : ""}.` : ""} Vérifie l'aperçu ci-dessous puis note le relevé.`
-      : "Aucune ligne reconnue. Écris une ligne par compte : le nom du compte puis le montant (ex. « Livret A ; 12 345,67 »).";
-    rendreSuivi(); return;
-  }
-  const { suivi: actuel, test, doc: d } = suiviCourant();
-  const suivi = clone(actuel ?? { releves: [] });
-  try {
-    if (t.id === "btn-releve") {
-      const date = $("#suivi-mois").value || moisCourant();
-      const placements = placementsBrouillon();
-      const plusRecent = !suivi.releves.some((r) => r.date > date);
-      const note = ($("#releve-note")?.value ?? "").trim().slice(0, 140);
-      const pru = {};
-      for (const id of COMPTES_PRU) {
-        const e = brouillonPRU?.[id]; if (!e) continue;
-        const entree = {};
-        if (Number.isFinite(e.verse) && e.verse >= 0) entree.verse = e.verse;
-        if (id === "peaPme" && Number.isFinite(e.solde) && e.solde >= 0) entree.solde = Math.min(e.solde, placements.pea ?? 0);
-        if (Object.keys(entree).length) pru[id] = entree;
-      }
-      suivi.releves = suivi.releves.filter((r) => r.date !== date).concat([{ date, placements, total: totalPlacements(placements), ...(Object.keys(pru).length ? { pru } : {}), ...(note ? { note } : {}) }]).sort((a, b) => a.date.localeCompare(b.date));
-      if (!suivi.reference) suivi.reference = { date: suivi.releves[0].date, points: referenceDepuis(suivi.releves[0].placements) };
-      brouillonReleve = null; moisReleve = null; brouillonPRU = null; importFichier = null;
-      if (plusRecent) appliquerPlacements(placements);
-      messageSuivi = `Relevé de ${libMois(date)} noté${test ? " (test, non enregistré)" : ""}.${plusRecent ? " Tes montants de « Mon profil » sont mis à jour : les versements du mois prochain sont recalculés ci-dessous." : ""}`;
-    } else if (t.dataset.supprReleve) {
-      suivi.releves = suivi.releves.filter((r) => r.date !== t.dataset.supprReleve);
-      if (!suivi.releves.length) suivi.reference = null;
-      messageSuivi = "Relevé supprimé.";
-    } else if (t.id === "btn-recaler") {
-      const der = suivi.releves[suivi.releves.length - 1];
-      if (!der) return;
-      suivi.reference = { date: der.date, points: referenceDepuis(der.placements) };
-      messageSuivi = `Prévision recalée sur ${libMois(der.date)} avec le plan actuel.`;
-    } else return;
-    if (test) suivisTest.set(cle(proches.courant), suivi);
-    else await ecrireSuivi(d, suivi);
-  } catch (err) {
-    messageSuivi = `Enregistrement impossible (${err?.code ?? "erreur"}). Réessaie dans un instant.`;
-  }
-  rendreSuivi();
-}
-
-$("#suivi").addEventListener("change", (e) => { if (e.target.id === "suivi-mois") { moisReleve = e.target.value || null; planifierApercuSuivi(); } });
-
-// Import d'un fichier CSV / Excel : lu dans le navigateur (FileReader), 2 Mo maximum, jamais envoyé au serveur
-async function lireFichierDepose(fichier) {
-  if (!fichier) return;
-  importFichier = null;
-  try {
-    if (fichier.size > TAILLE_MAX_FICHIER) throw new Error(`Fichier trop volumineux (${(fichier.size / 1048576).toFixed(1).replace(".", ",")} Mo) : 2 Mo maximum.`);
-    const buffer = await new Promise((ok, ko) => {
-      const lecteur = new FileReader();
-      lecteur.onload = () => ok(lecteur.result);
-      lecteur.onerror = () => ko(new Error("Lecture du fichier impossible."));
-      lecteur.readAsArrayBuffer(fichier);
-    });
-    importFichier = { nom: String(fichier.name).slice(0, 120), resultat: await lireFichierReleve(fichier.name, new Uint8Array(buffer)) };
-    messageSuivi = "";
-  } catch (err) {
-    messageSuivi = err instanceof Error && err.message ? err.message : "Fichier illisible.";
-  }
-  rendreSuivi();
-}
-$("#suivi").addEventListener("change", (e) => {
-  if (e.target.id !== "releve-fichier") return;
-  const fichier = e.target.files?.[0];
-  e.target.value = "";
-  lireFichierDepose(fichier);
-});
-const zoneDepot = (e) => e.target.closest?.("#depot-releve");
-$("#suivi").addEventListener("dragover", (e) => { const z = zoneDepot(e); if (z) { e.preventDefault(); z.classList.add("survol"); } });
-$("#suivi").addEventListener("dragleave", (e) => zoneDepot(e)?.classList.remove("survol"));
-$("#suivi").addEventListener("drop", (e) => {
-  const z = zoneDepot(e); if (!z) return;
-  e.preventDefault(); z.classList.remove("survol");
-  lireFichierDepose(e.dataTransfer?.files?.[0]);
-});
-// Un fichier lâché à côté de la zone ferait quitter l'appli : on l'ignore sur l'onglet Suivi
-for (const ev of ["dragover", "drop"]) window.addEventListener(ev, (e) => { if (!$("#vue-suivi").hidden && e.dataTransfer?.types?.includes("Files") && !zoneDepot(e)) e.preventDefault(); });
-
-// Aperçu du fichier lu : construit en DOM avec textContent (les libellés viennent du fichier, jamais d'innerHTML)
-function monterApercuImport() {
-  const cible = $("#import-apercu"); if (!cible) return;
-  cible.replaceChildren();
-  if (!importFichier) return;
-  const { nom, resultat: r } = importFichier;
-  const el = (balise, texte, classe) => { const n = document.createElement(balise); if (texte != null) n.textContent = texte; if (classe) n.className = classe; return n; };
-  cible.append(el("p", `Fichier lu : ${nom}`, "small"));
-  cible.append(el("p", `Colonnes ${r.devine ? "devinées (aucun en-tête reconnu)" : "détectées"} : libellé « ${r.colonnes.libelle} », solde « ${r.colonnes.solde} », ${r.colonnes.verse ? `versements cumulés « ${r.colonnes.verse} »` : "pas de colonne de versements cumulés (le capital versé sera estimé)"}.`, "small muted"));
-  const ids = Object.keys(r.comptes);
-  if (ids.length) {
-    const table = el("table"), tete = el("tr"), corps = el("tbody");
-    for (const [titre, classe] of [["Compte reconnu"], ["Solde", "m"], ["Capital versé", "m"]]) tete.append(el("th", titre, classe));
-    table.append(el("thead")); table.firstChild.append(tete);
-    for (const id of ids) {
-      const ligne = el("tr");
-      ligne.append(el("td", id === "peaPme" ? "PEA-PME" : (etat.brouillon.enveloppes[id]?.libelle ?? id)));
-      ligne.append(el("td", eur(r.comptes[id].solde), "m"));
-      ligne.append(el("td", r.comptes[id].verse == null ? "—" : eur(r.comptes[id].verse), "m"));
-      corps.append(ligne);
-    }
-    table.append(corps);
-    const enveloppe = el("div", null, "table-wrap"); enveloppe.append(table); cible.append(enveloppe);
-  } else cible.append(el("p", "Aucun compte reconnu dans ce fichier : vérifie que les libellés contiennent le nom du compte (PEA, compte-titres, assurance vie, PER…).", "small"));
-  if (r.ignores.length) {
-    const detail = el("details"), liste = el("ul", null, "small muted");
-    detail.append(el("summary", `${r.ignores.length}${r.ignores.length >= 50 ? " ou plus" : ""} ligne(s) non reconnue(s), ignorée(s)`, "small"));
-    for (const l of r.ignores.slice(0, 8)) liste.append(el("li", l.slice(0, 80)));
-    detail.append(liste); cible.append(detail);
-  }
-  const actions = el("div", null, "ligne-actions");
-  if (ids.length) { const ok = el("button", "Utiliser ces montants", "principal"); ok.type = "button"; ok.id = "btn-fichier-ok"; actions.append(ok); }
-  const annuler = el("button", "Annuler", "lien"); annuler.type = "button"; annuler.id = "btn-fichier-annuler"; actions.append(annuler);
-  cible.append(actions);
-}
-$("#suivi").addEventListener("input", (e) => {
-  const id = e.target.dataset?.releve; if (!id) return;
-  brouillonReleve ??= {};
-  brouillonReleve[id] = e.target.value === "" ? 0 : Number(e.target.value);
-  const total = totalPlacements({ ...(etat.profil.placements ?? {}), ...brouillonReleve });
-  const el = $("#releve-total"); if (el) el.textContent = eur(total);
-  planifierApercuSuivi();
-});
-
-function planifierApercuSuivi() {
-  clearTimeout(minuterieApercu);
-  minuterieApercu = setTimeout(() => {
-    const a = $("#releve-apercu"); if (a) a.innerHTML = htmlApercuReleve();
-    const m = $("#suivi-mois-prochain"); if (m) m.innerHTML = htmlMoisProchain();
-  }, 400);
-}
-
-function graphiqueSuivi(ref, releves) {
-  const { W, H, g, d, h, b } = GEOM;
-  const dernier = releves.length ? moisEntre(ref.date, releves[releves.length - 1].date) : 0;
-  const N = Math.max(12, Math.min((ref.points.length - 1) * 12, Math.ceil((dernier + 12) / 6) * 6));
-  const prev = Array.from({ length: N + 1 }, (_, m) => prevuA(ref, m));
-  const pts = releves.map((r) => ({ m: moisEntre(ref.date, r.date), v: r.total, date: r.date, note: r.note })).filter((p) => p.m >= 0 && p.m <= N);
-  const ymax = echelle(Math.max(...prev.map((p) => p?.p90 ?? 0), ...pts.map((p) => p.v)));
-  const x = (m) => g + (m * (W - g - d)) / N;
-  const y = (v) => H - b - (Math.max(0, v) * (H - b - h)) / ymax;
-  let svg = `<svg class="graphe" viewBox="0 0 ${W} ${H}" role="img" aria-label="Placements réels comparés à la prévision">`;
-  for (let k = 0; k <= 4; k++) { const v = (ymax * k) / 4; svg += `<line class="grille-l" x1="${g}" x2="${W - d}" y1="${y(v)}" y2="${y(v)}"/><text x="${g - 8}" y="${y(v) + 4}" text-anchor="end">${keur(v)}</text>`; }
-  const pasX = N <= 24 ? 3 : N <= 60 ? 6 : 12;
-  for (let m = 0; m <= N; m += pasX) svg += `<text x="${x(m)}" y="${H - 9}" text-anchor="middle">${libMois(ajouterMois(ref.date, m))}</text>`;
-  svg += `<line class="axe" x1="${g}" x2="${W - d}" y1="${H - b}" y2="${H - b}"/>`;
-  const bande = prev.map((p, m) => `${x(m).toFixed(1)},${y(p.p90).toFixed(1)}`).concat(prev.map((p, m) => `${x(m).toFixed(1)},${y(p.p10).toFixed(1)}`).reverse()).join(" ");
-  svg += `<polygon points="${bande}" fill="var(--s1)" fill-opacity="0.13"/>`;
-  svg += `<path d="${prev.map((p, m) => `${m ? "L" : "M"}${x(m).toFixed(1)},${y(p.c).toFixed(1)}`).join("")}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
-  if (pts.length > 1) svg += `<path d="${pts.map((p, i) => `${i ? "L" : "M"}${x(p.m).toFixed(1)},${y(p.v).toFixed(1)}`).join("")}" fill="none" stroke="var(--s2)" stroke-width="2" stroke-linejoin="round"/>`;
-  for (const p of pts) svg += `<circle cx="${x(p.m)}" cy="${y(p.v)}" r="4.5" fill="var(--s2)" stroke="var(--surface)" stroke-width="2"/>${p.note ? `<text x="${x(p.m)}" y="${y(p.v) - 10}" text-anchor="middle" font-size="12" fill="var(--warn)">✎</text>` : ""}`;
-  svg += colonnesSurvol(Array.from({ length: N + 1 }, (_, m) => m), x, (m) => {
-    const p = prev[m], r = pts.find((q) => q.m === m);
-    return `${libMois(ajouterMois(ref.date, m))}\n${r ? `Relevé : ${eur(r.v)}\n${r.note ? `Note : ${r.note}\n` : ""}` : ""}Prévu (central) : ${eur(p.c)}\nFourchette : ${eur(p.p10)} – ${eur(p.p90)}`;
-  }, "curseur-suivi");
-  svg += `</svg>`;
-  return svg + `<div class="legende-g"><span><span class="pastille" style="background:var(--s2);border-radius:50%"></span>Tes relevés</span><span><span class="trait" style="background:var(--muted)"></span>Prévision du plan (pointillés)</span><span><span class="pastille" style="background:var(--s1);opacity:.35"></span>Fourchette normale : 8 scénarios sur 10</span></div>`;
-}
-
-// Barres empilées : chaque relevé, découpé par famille de comptes
-function graphiqueComptes(releves) {
-  const liste = releves.slice(-12);
-  const { W, H, g, d, h, b } = GEOM;
-  const familles = [...FAMILLES, { nom: "Autres comptes", couleur: "--faint" }].filter((f) => liste.some((r) => (parFamille(r.placements).get(f.nom) ?? 0) > 0.5));
-  const ymax = echelle(Math.max(...liste.map((r) => r.total), 1));
-  const pas = (W - g - d) / liste.length;
-  const larg = Math.min(46, pas * 0.62);
-  const y = (v) => H - b - (v * (H - b - h)) / ymax;
-  let svg = `<svg class="graphe" viewBox="0 0 ${W} ${H}" role="img" aria-label="Montant de chaque famille de comptes à chaque relevé">`;
-  for (let k = 0; k <= 4; k++) { const v = (ymax * k) / 4; svg += `<line class="grille-l" x1="${g}" x2="${W - d}" y1="${y(v)}" y2="${y(v)}"/><text x="${g - 8}" y="${y(v) + 4}" text-anchor="end">${keur(v)}</text>`; }
-  liste.forEach((r, i) => {
-    const cx = g + pas * (i + 0.5), x0 = cx - larg / 2;
-    const pf = parFamille(r.placements);
-    let cumul = 0;
-    for (const f of familles) {
-      const v = pf.get(f.nom) ?? 0; if (v <= 0.5) continue;
-      const y1 = y(cumul + v), y0 = y(cumul);
-      const haut = Math.max(0, y0 - y1 - 2);
-      if (haut > 0) svg += `<rect x="${x0.toFixed(1)}" y="${(y1).toFixed(1)}" width="${larg.toFixed(1)}" height="${haut.toFixed(1)}" rx="2" fill="var(${f.couleur})"/>`;
-      cumul += v;
-    }
-    if (liste.length <= 8 || (liste.length - 1 - i) % 2 === 0) svg += `<text x="${cx}" y="${H - 9}" text-anchor="middle">${libMois(r.date)}</text>`;
-    const detail = familles.map((f) => [f.nom, pf.get(f.nom) ?? 0]).filter(([, v]) => v > 0.5).map(([n, v]) => `${n} : ${eur(v)}`).join("\n");
-    svg += `<rect x="${(cx - pas / 2).toFixed(1)}" y="${h}" width="${pas.toFixed(1)}" height="${H - b - h}" fill="transparent" data-bulle="${echapper(`${libMois(r.date)} · total ${eur(r.total)}\n${detail}`)}"/>`;
-  });
-  svg += `<line class="axe" x1="${g}" x2="${W - d}" y1="${H - b}" y2="${H - b}"/></svg>`;
-  return svg + `<div class="legende-g">${familles.map((f) => `<span><span class="pastille" style="background:var(${f.couleur})"></span>${f.nom}</span>`).join("")}</div>`;
-}
-
-function resultatSuivi() {
-  let res = etat.resultat;
-  try { if (etat.futur) res = analyser(etat.brouillon, profilPourMoteur()); } catch (e) { console.error(e); }
-  return res;
-}
-
-function htmlApercuReleve() {
-  if (!aBrouillon()) return "";
-  const c = comparerReleve(etat.profil.placements ?? {}, placementsBrouillon());
-  const lib = (id) => echapper(etat.brouillon.enveloppes[id]?.libelle ?? id);
-  const signe = c.ecartTotal < 0 ? "−" : "+";
-  let h = `<p class="small" style="margin:10px 0 4px"><b>Ce relevé change ${c.nbChanges} compte(s)</b> : total ${eur(c.totalAvant)} → <b class="num">${eur(c.totalApres)}</b> (${signe}${eur(Math.abs(c.ecartTotal))}).</p>`;
-  if (c.nbAVerifier) h += `<ul class="small" style="margin:0 0 4px">${c.lignes.filter((l) => l.aVerifier).map((l) => `<li><span class="niveau alerte">À vérifier</span> ${lib(l.id)} : ${eur(l.avant)} → ${eur(l.apres)} (${echapper(l.motif)})</li>`).join("")}</ul>`;
-  return h + `<p class="note" style="margin:0">Les virements et achats d'ETF recalculés sur ces montants sont plus bas, dans « Si tu notes ce relevé ».</p>`;
-}
-
-function htmlMoisProchain() {
-  const plan = etat.brouillon;
-  const env = (id) => plan.enveloppes[id]?.libelle ?? id;
-  const releves = suiviCourant().suivi?.releves ?? [];
-  let res = null, provisoire = false;
-  // Un relevé daté avant le dernier ne met pas à jour le profil : pas d'aperçu des virements dans ce cas
-  const moisSaisi = moisReleve ?? moisCourant();
-  if (aBrouillon() && !releves.some((r) => r.date > moisSaisi)) {
-    try { res = analyser(plan, { ...profilPourMoteur(), placements: placementsBrouillon() }); provisoire = true; } catch (e) { console.error(e); return ""; }
-  } else {
-    res = resultatSuivi();
-    if (!res || !releves.length) return "";
-  }
-  const mvts = res.mouvements;
-  const libMvt = (m) => m.sens === "arbitrage" ? `${m.transfert ? "Transférer de" : "Arbitrer de"} ${env(m.enveloppe)} vers ${env(m.vers)}` : `${m.sens === "retrait" ? (m.annuel ? "Vendre une fois cette année sur" : "Retirer de") : "Verser sur"} ${env(m.enveloppe)}`;
-  const titre = provisoire ? `Si tu notes ce relevé · ${eur(res.profil.epargneMensuelle)} à répartir` : `Le mois prochain · ${eur(res.profil.epargneMensuelle)} à répartir`;
-  const note = provisoire ? "Calculé sur les montants saisis ci-dessus, relevé pas encore noté : virements du mois et achats d'ETF qui en découlent." : "D'après ton dernier relevé, voici les virements qui rapprochent chaque compte de sa cible.";
-  return `<section class="panneau"><h2>${titre}</h2>
-      <p class="note" style="margin:4px 0 8px">${note}</p>
-      <div class="table-wrap"><table><tbody>${mvts.map((m) => `<tr><td>${texteLie(libMvt(m))}${m.note ? `<div class="note">${texteLie(m.note)}</div>` : ""}</td><td class="m"><span class="${m.sens === "retrait" ? "ecart-moins" : m.sens === "versement" ? "ecart-plus" : "muted"}">${m.sens === "retrait" ? "−" : m.sens === "versement" ? "+" : "⇄ "}${eur(m.montant)}</span></td></tr>`).join("") || '<tr><td class="muted">Aucun mouvement.</td></tr>'}</tbody></table></div>
-      <p class="small" style="margin:8px 0 0"><a class="lien-fiche" href="#reequilibrage">Voir le détail et les actions dans « ${nomVue("reequilibrage", niveauCourant())} » →</a></p></section>`;
-}
-
-function rendreSuivi() {
-  clearTimeout(minuterieApercu);
-  const plan = etat.brouillon;
-  const { suivi, test, exemple, doc } = suiviCourant();
-  const nom = exemple ? "Exemple" : doc?.nom ?? "ce profil";
-  const releves = suivi?.releves ?? [];
-  const ref = suivi?.reference;
-  const der = releves[releves.length - 1], avant = releves[releves.length - 2];
-  const resAuj = resultatSuivi();
-  const env = (id) => plan.enveloppes[id]?.libelle ?? id;
-
-  // Comptes proposés dans la saisie : ceux qui ont un montant, ou tous sur demande
-  const montants = { ...(etat.profil.placements ?? {}), ...(brouillonReleve ?? {}) };
-  const ids = Object.keys(plan.enveloppes).filter((id) => id !== "comptesEtrangers").filter((id) => tousLesComptes || (Number(montants[id]) || 0) > 0 || (der?.placements?.[id] ?? 0) > 0);
-  const lignesSaisie = ids.map((id) => `<tr><td>${lienFiche(plan.enveloppes[id].fiche, env(id)) || echapper(env(id))}</td>
-    <td class="m muted">${der ? eur(der.placements?.[id] ?? 0) : "—"}</td>
-    <td class="m"><div class="saisie"><input type="number" min="0" step="10" data-releve="${id}" value="${Number(montants[id]) || 0}" aria-label="Solde ${echapper(env(id))}"><span>€</span></div></td></tr>`).join("");
-
-  let html = `<div class="etape" style="margin:0"><p><b>Le suivi, chaque mois.</b> Tu recopies le solde de chaque compte ; le site compare au plan et te dit quoi verser le mois suivant.</p></div>
-  <section class="panneau"><h2>Comment ça marche</h2>
-    <ol class="mode">
-      <li>Une fois par mois (ou par trimestre), ouvre l'appli de chaque banque et recopie le solde de chaque compte dans « Noter un relevé » ci-dessous.</li>
-      <li>Le site met à jour tes montants dans « Mon profil » et recalcule les versements du mois suivant pour continuer le ${lierTermes("rééquilibrage")}.</li>
-      <li>Les graphiques montrent si ton patrimoine avance comme prévu, et comment chaque famille de comptes évolue.</li>
-    </ol>
-    ${test ? `<p class="small" style="margin:12px 0 0"><span class="mode-test">Mode test</span> ${exemple
-      ? "Profil « Exemple » : 12 mois de relevés fictifs sont déjà notés. Modifie les montants, note un relevé, supprime-en : rien n'est enregistré."
-      : "Ces relevés ne sont pas enregistrés (profil non enregistré ou accès en lecture seule) : ils disparaîtront en quittant la page."}
-      ${exemple ? `<button type="button" class="lien" id="btn-exemple-reset">Recommencer l'exemple</button>` : ""}</p>` : ""}
-  </section>
-  <section class="panneau"><h2>Noter un relevé · ${echapper(nom)}</h2>
-    <p class="small" style="margin:4px 0 6px">${(() => {
-      const er = etatReleve(releves, plan.calendrier?.frequenceReleveMois ?? 3, moisCourant());
-      if (!er.dernier) return '<span class="niveau info">Premier relevé</span> Il servira de point de départ pour comparer au plan.';
-      if (er.du && er.retardMois === 0) return `<span class="niveau info">À faire</span> Relevé de ${libMois(er.prochain)} attendu ce mois-ci.`;
-      if (er.du) return `<span class="niveau alerte">En retard</span> Relevé attendu depuis ${libMois(er.prochain)} (${er.retardMois} mois de retard ; dernier relevé : ${libMois(er.dernier)}).`;
-      return `<span class="muted">Prochain relevé conseillé : ${libMois(er.prochain)}.</span>`;
-    })()}</p>
-    <p class="note" style="margin:4px 0 10px">Les montants sont pré-remplis avec ceux de ton profil : corrige ceux qui ont changé, puis note le relevé.</p>
-    <div class="ligne-actions" style="margin-bottom:8px"><label for="suivi-mois" class="small">Mois du relevé</label><input type="month" id="suivi-mois" value="${moisReleve ?? moisCourant()}" style="width:auto"></div>
-    <div class="table-wrap"><table class="saisie-releve"><thead><tr><th>Compte</th><th class="m">${der ? `Relevé de ${libMois(der.date)}` : "Dernier relevé"}</th><th class="m">Solde aujourd'hui</th></tr></thead>
-      <tbody>${lignesSaisie || '<tr><td colspan="3" class="muted">Aucun compte avec un montant : affiche tous les comptes.</td></tr>'}</tbody>
-      <tfoot><tr><td><b>Total</b></td><td class="m muted">${der ? eur(der.total) : "—"}</td><td class="m"><b class="num" id="releve-total">${eur(totalPlacements(montants))}</b></td></tr></tfoot></table></div>
-    <div class="champ" style="margin-top:10px"><label for="releve-note">Note (facultatif) : ce qui explique un saut</label><input id="releve-note" type="text" class="texte" maxlength="140" placeholder="Ex. prime d'intéressement versée, achat d'une voiture 8 000 €, baisse des marchés"></div>
-    <div id="depot-releve" class="depot">
-      <p style="margin:0 0 6px"><b>Importer un fichier</b> (CSV ou Excel .xlsx, 2 Mo maximum) : glisse-le ici ou choisis-le.</p>
-      <input type="file" id="releve-fichier" accept=".csv,.tsv,.txt,.xlsx" aria-label="Choisir un fichier de relevé (CSV ou Excel)">
-      <p class="small muted" style="margin:6px 0 0">Export de BoursoBank, Trade Republic, Fortuneo, Linxea… Colonnes reconnues : libellé du compte, solde (valorisation) et, si elles existent, versements cumulés (capital investi). Le fichier est lu dans ton navigateur et n'est jamais envoyé. Ancien format .xls : enregistre-le d'abord en .xlsx ou en .csv.</p>
-      <div id="import-apercu"></div>
-    </div>
-    <details style="margin-top:10px"><summary class="small"><b>Coller un relevé</b> (texte, Excel ou export CSV : une ligne par compte)</summary>
-      <textarea id="releve-colle" rows="5" style="width:100%;margin-top:6px" placeholder="Livret A ; 12 345,67&#10;LDDS ; 8 100&#10;PEA Trade Republic ; 31 250,40 €&#10;Assurance vie fonds euros ; 25 000"></textarea>
-      <div class="ligne-actions" style="margin-top:6px"><button type="button" id="btn-coller">Remplir les montants</button><span class="small muted">Le nom du compte est reconnu par mots-clés (Livret A, LDDS, PEA, compte-titres, assurance vie, PER, SCPI, bitcoin…).</span></div>
-    </details>
-    <div id="releve-apercu" aria-live="polite">${htmlApercuReleve()}</div>
-    <div class="ligne-actions" style="margin-top:10px">
-      <button type="button" class="principal" id="btn-releve">Noter ce relevé</button>
-      <button type="button" class="lien" id="releve-tous">${tousLesComptes ? "Masquer les comptes vides" : "Afficher tous les comptes"}</button>
-    </div>
-    ${messageSuivi ? `<p class="small" style="margin:8px 0 0">${echapper(messageSuivi)}</p>` : ""}
-  </section>`;
-
-  html += `<div id="suivi-mois-prochain">${htmlMoisProchain()}</div>`;
-
-  if (releves.length && ref) {
-    const prem = releves[0];
-    const p = prevuA(ref, moisEntre(ref.date, der.date));
-    const mois = moisEntre(prem.date, der.date);
-    const epargneEst = (etat.profil.epargneMensuelle ?? 0) * mois;
-    const variation = der.total - prem.total;
-    let statut = null;
-    if (p) {
-      const ecart = der.total - p.c;
-      statut = der.total > p.p90 ? ["info", "Au-dessus de la fourchette : mieux que prévu"] : der.total < p.p10 ? ["alerte", "Sous la fourchette : moins bien que prévu, vérifie l'épargne versée"] : ecart >= 0 ? ["info", "En avance sur la prévision"] : ["info", "Dans la fourchette, un peu sous la prévision : rien d'inquiétant"];
-      statut.push(ecart);
-    }
-    const tuiles = [
-      [`Dernier relevé · ${libMois(der.date)}`, eur(der.total)],
-      ["Prévu par le plan à cette date", p ? eur(p.c) : "hors prévision"],
-      ["Écart", p ? `${statut[2] >= 0 ? "+" : "−"}${eur(Math.abs(statut[2]))} (${statut[2] >= 0 ? "+" : "−"}${pct(Math.abs((100 * statut[2]) / (p.c || 1)))})` : "—"],
-      [`Depuis ${libMois(prem.date)}`, `${variation >= 0 ? "+" : "−"}${eur(Math.abs(variation))}`],
-    ];
-    html += `<section class="panneau"><h2>Où tu en es par rapport au plan</h2>
-      ${statut ? `<p class="small" style="margin:8px 0 0"><span class="niveau ${statut[0]}">${statut[0] === "alerte" ? "Attention" : "Bien"}</span> ${statut[1]}.</p>` : ""}
-      <div class="tuiles quatre">${tuiles.map(([k, v]) => `<div class="tuile"><span>${k}</span><b class="num">${v}</b></div>`).join("")}</div>
-      ${mois > 0 ? `<p class="note" style="margin:0 0 10px">Sur ${mois} mois : environ ${eur(epargneEst)} venus de ton épargne (${eur(etat.profil.epargneMensuelle ?? 0)} par mois) et ${variation - epargneEst >= 0 ? "+" : "−"}${eur(Math.abs(variation - epargneEst))} de gains ou pertes des placements (estimation).</p>` : ""}
-      ${graphiqueSuivi(ref, releves)}</section>`;
-
-    // Prix de revient (PRU) et plus-values latentes : PEA, PEA-PME, CTO, assurance-vie, PER
-    const versProgrammes = {};
-    for (const m of resAuj?.mouvements ?? []) if (m.sens === "versement") versProgrammes[m.enveloppe] = (versProgrammes[m.enveloppe] ?? 0) + (Number(m.montant) || 0);
-    const pruRes = calculerPRU(releves, versProgrammes);
-    if (pruRes.comptes.length) {
-      const libPRU = (id) => (id === "peaPme" ? "PEA-PME" : env(id));
-      const fmtPV = (x) => (x == null ? '<span class="muted">—</span>' : `<span class="${x >= 0 ? "ecart-plus" : "ecart-moins"}">${x >= 0 ? "+" : "−"}${eur(Math.abs(x))}</span>`);
-      const fmtPct = (x) => (x == null ? "—" : `${x >= 0 ? "+" : "−"}${pct(Math.abs(x))}`);
-      const lignesPRU = pruRes.comptes.map((c) => `<tr><td>${echapper(libPRU(c.id))}</td><td class="m">${eur(c.solde)}</td>
-        <td class="m">${c.verse == null ? '<span class="muted" title="Il faut un fichier avec les versements cumulés, ou au moins deux relevés">inconnu</span>' : `${eur(c.verse)}${c.estime ? ' <span class="small muted">estimé</span>' : ""}`}</td>
-        <td class="m">${fmtPV(c.pv)}</td><td class="m">${fmtPct(c.pvPct)}</td></tr>`).join("");
-      const T = pruRes.total;
-      html += `<section class="panneau"><h2>Prix de revient et plus-values latentes</h2>
-        <p class="note" style="margin:4px 0 8px">Part de ton argent versé (le capital) et gains ou pertes non réalisés sur tes comptes de bourse et d'assurance-vie.</p>
-        <div class="table-wrap"><table><thead><tr><th>Compte</th><th class="m">Valeur actuelle</th><th class="m">Capital versé</th><th class="m">Plus-value latente</th><th class="m">%</th></tr></thead><tbody>${lignesPRU}</tbody>
-        ${T ? `<tfoot><tr><td><b>Total${T.complet ? "" : " (comptes connus)"}</b></td><td class="m">${eur(T.solde)}</td><td class="m">${eur(T.verse)}</td><td class="m"><b>${fmtPV(T.pv)}</b></td><td class="m">${fmtPct(T.pvPct)}</td></tr></tfoot>` : ""}</table></div>
-        <p class="note" style="margin:8px 0 0">Le capital versé est celui de ton fichier (colonne « versements cumulés ») quand il existe. Sinon il est <b>estimé</b> : solde du premier relevé, plus les versements prévus par le plan depuis. Importe un fichier avec les versements cumulés pour un chiffre exact. Gains avant impôt et prélèvements sociaux.</p></section>`;
-    }
-
-    // Évolution par compte
-    const cibles = new Map((resAuj?.reeq.comptes ?? []).map((c) => [c.enveloppe, c.cible]));
-    const idsTable = Object.keys(plan.enveloppes).filter((id) => (der.placements?.[id] ?? 0) > 0.5 || (avant?.placements?.[id] ?? 0) > 0.5 || (cibles.get(id) ?? 0) > 0.5);
-    const lignesComptes = idsTable.map((id) => {
-      const v = der.placements?.[id] ?? 0, a = avant?.placements?.[id] ?? 0, c = cibles.get(id) ?? 0;
-      const fmt = (x) => (Math.abs(x) < 0.5 ? '<span class="muted">0 €</span>' : `<span class="${x > 0 ? "ecart-plus" : "ecart-moins"}">${x > 0 ? "+" : "−"}${eur(Math.abs(x))}</span>`);
-      return `<tr><td><span class="pastille" style="background:var(${familleDe(id).couleur})"></span>${lienFiche(plan.enveloppes[id].fiche, env(id)) || echapper(env(id))}</td>
-        ${avant ? `<td class="m">${eur(a)}</td>` : ""}<td class="m">${eur(v)}</td>${avant ? `<td class="m">${fmt(v - a)}</td>` : ""}<td class="m">${eur(c)}</td><td class="m">${fmt(c - v)}</td></tr>`;
-    }).join("");
-    html += `<section class="panneau"><h2>Évolution compte par compte</h2>
-      <p class="note" style="margin:4px 0 8px">Chaque barre est un relevé, découpée par famille de comptes. Survole une barre pour le détail.</p>
-      ${graphiqueComptes(releves)}
-      <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Compte</th>${avant ? `<th class="m">${libMois(avant.date)}</th>` : ""}<th class="m">${libMois(der.date)}</th>${avant ? '<th class="m">Variation</th>' : ""}<th class="m">Cible du plan</th><th class="m">Reste à faire</th></tr></thead><tbody>${lignesComptes}</tbody></table></div>
-      <p class="note" style="margin:8px 0 0">« Reste à faire » : ce qu'il manque (+) ou ce qu'il y a en trop (−) sur chaque compte par rapport à la cible d'aujourd'hui. L'épargne des prochains mois le comble petit à petit.</p></section>`;
-
-    const lignes = releves.slice().reverse().map((r) => {
-      const q = prevuA(ref, moisEntre(ref.date, r.date));
-      const e = q ? r.total - q.c : null;
-      return `<tr><td>${libMois(r.date)}${r.note ? `<div class="small muted">✎ ${echapper(r.note)}</div>` : ""}</td><td class="m">${eur(r.total)}</td><td class="m">${q ? eur(q.c) : "—"}</td>
-        <td class="m">${e == null ? "—" : `<span class="${e >= 0 ? "ecart-plus" : "ecart-moins"}">${e >= 0 ? "+" : "−"}${eur(Math.abs(e))}</span>`}</td>
-        <td class="m"><button type="button" class="lien" data-suppr-releve="${r.date}" aria-label="Supprimer le relevé de ${libMois(r.date)}">Supprimer</button></td></tr>`;
-    }).join("");
-    html += `<section class="panneau"><h2>Tous les relevés</h2>
-        <div class="table-wrap" style="margin-top:8px"><table><thead><tr><th>Mois</th><th class="m">Total réel</th><th class="m">Prévu</th><th class="m">Écart</th><th></th></tr></thead><tbody>${lignes}</tbody></table></div>
-        <p class="note" style="margin:10px 0 0">La prévision part du relevé de ${libMois(ref.date)}, avec le plan de l'époque. Après un changement de plan ou un gros événement (achat, héritage), recale-la sur le dernier relevé.
-        <button type="button" class="lien" id="btn-recaler">Recaler la prévision sur le dernier relevé</button></p>
-      </section>`;
-  } else {
-    html += `<section class="panneau"><p class="muted" style="margin:0">Aucun relevé pour l'instant. Le premier relevé fixe le point de départ de la prévision ; les suivants montrent si ton patrimoine avance comme prévu.</p></section>`;
-  }
-  $("#suivi").innerHTML = html + blocCalendrier();
-  monterApercuImport();
-}
-$("#suivi").addEventListener("click", actionSuivi);
+monterSuivi(); // écouteurs de la vue Suivi et du calendrier (vues/suivi.js), attachés à cet endroit comme avant le découpage
 
 // ---------------------------------------------------------------- réglages du plan
 const GROUPES = [
@@ -4588,682 +2781,11 @@ $("#btn-enregistrer").addEventListener("click", async () => {
   rendreStatut();
 });
 
-// ---------------------------------------------------------------- fiches mémo
-// Fiche risques : chaque famille de comptes du profil face à sa garantie
-function blocRisques(res) {
-  const plan = etat.brouillon, pl = res.profil.placements ?? {}, n = res.profil.personnes ?? 1;
-  const G = plan.garanties ?? {};
-  const somme = (ids) => ids.reduce((t, id) => t + (Number(pl[id]) || 0), 0);
-  const ok = '<span class="ecart-plus">✓ Couvert</span>', ko = (t) => `<span class="ecart-moins">⚠ ${t}</span>`, neutre = (t) => `<span class="muted">${t}</span>`;
-  const lignes = [
-    ["Livret A, LDDS, LEP, Livret Jeune", somme(["livretA", "ldds", "lep", "livretJeune"]), "Garantie à part (en plus des 100 000 €)", ok],
-    ["Livret bancaire et PEL", somme(["livretBancaire", "pel"]), `${eur((G.depotsParBanque ?? 100000) * n)} par banque${n > 1 ? " (couple)" : ""}, compte courant compris`, (v) => (v > (G.depotsParBanque ?? 100000) * n ? ko("Au-dessus : répartir entre banques") : ok)],
-    ["Assurance-vie", somme(["assuranceVie", "assuranceVieUC"]), `${eur((G.assuranceParAssureur ?? 70000) * n)} par assureur${n > 1 ? " (couple)" : ""}`, (v) => (v > (G.assuranceParAssureur ?? 70000) * n ? ko("Au-dessus : 2e assureur") : ok)],
-    ["PEA et compte-titres", somme(["pea", "cto"]), "Titres à ton nom, rendus en cas de faillite (70 000 € s'ils sont introuvables)", neutre("Pas de garantie contre la baisse")],
-    ["PER", somme(["per"]), "Selon le contrat : comme un compte-titres, ou avec tes assurances-vie s'il est assuré", neutre("À vérifier")],
-    ["Or physique", somme(["orPhysique"]), "Aucune : ne dépend d'aucun établissement", neutre("Le ranger en lieu sûr")],
-    ["Bitcoin sur la plateforme", somme(["plateformeCrypto"]), "Aucune", (v) => (v > 5000 ? ko("Au-dessus de 5 000 € : cold wallet") : neutre("Garder peu"))],
-    ["Bitcoin sur cold wallet", somme(["coldWallet"]), "Aucune : dépend de tes mots de récupération", neutre("Les garder en lieu sûr")],
-    ["SCPI", somme(["scpi"]), "Aucune : capital non garanti, revente parfois lente", neutre("Diversifier")],
-  ].filter(([, v]) => v > 0.5).map(([nom, v, g, st]) => `<tr><td>${texteLie(nom)}</td><td class="m">${eur(v)}</td><td>${echapper(g)}</td><td class="m">${typeof st === "function" ? st(v) : st}</td></tr>`).join("");
-  return lignes ? `<div class="table-wrap"><table><thead><tr><th>Comptes</th><th class="m">Montant</th><th>Garantie en cas de faillite</th><th class="m">Statut</th></tr></thead><tbody>${lignes}</tbody></table></div>
-    <p class="note" style="margin:8px 0 0">Le site ne sait pas dans quelle banque ou chez quel assureur est chaque compte : il suppose le pire (tout au même endroit). Fais le calcul par établissement avec les étapes ci-dessous.</p>` : '<p class="small muted" style="margin:0">Aucun placement saisi pour ce profil.</p>';
-}
+monterFiches(); // écouteurs des vues Fiches / Épargne idéale (vues/fiches.js), attachés à cet endroit comme avant le découpage
 
-// Fiche PER : ce que le PER rapporterait au proche, pour un même effort
-function blocCalculPER(res) {
-  const plan = etat.brouillon, p = res.profil, per = res.per ?? {};
-  const tmi = per.tmi ?? (p.tmi !== "" && p.tmi != null ? Number(p.tmi) : null);
-  if (tmi == null) return '<p class="small" style="margin:0">Indique ta tranche d\'imposition (TMI) dans « Mon profil » pour voir ce qu\'un PER te rapporterait.</p>';
-  const n = Math.max(1, (plan.hypotheses.ageRetraite ?? 64) - (p.agePrincipal ?? p.age ?? 30));
-  const tret = plan.per?.tmiRetraite ?? 11, r = 0.06 / 12, F = (Math.pow(1 + r, 12 * n) - 1) / r;
-  const effort = 100, tauxPER = per.exact ? per.tauxEffectif : tmi, mPER = effort / (1 - tauxPER / 100);
-  const capPER = mPER * F, versePER = mPER * 12 * n, netPER = capPER - (versePER * tret) / 100 - (capPER - versePER) * (PFU / 100);
-  const cap = effort * F, verse = effort * 12 * n, netPEA = cap - (cap - verse) * (PRELEVEMENTS.PS_CAPITAL / 100), netCTO = cap - (cap - verse) * (PFU / 100);
-  const gain = (100 * (netPER / netPEA - 1));
-  const ab = res.abondement;
-  const ligneAb = ab?.mensuel > 0.5 ? `<p class="verdict ok" style="margin:0 0 8px"><b>Abondement :</b> en versant ${eur(ab.mensuel)} par mois sur ton ${ab.surPER ? "PER d'entreprise" : "PEE"}, ton employeur ajoute ${eur(ab.abondementAn)} par an. C'est la première chose à faire.</p>` : "";
-  return ligneAb + `<p class="small" style="margin:0 0 8px">Ta tranche : <b>${tmi} %</b>. Chaque 100 € versé sur un PER te fait économiser <b>${eur(tauxPER)}</b> d'impôt${per.exact ? " (taux réel de ton versement prévu, décote et changement de tranche compris)" : " (estimation à ta tranche)"}.${per.actif ? ` Le plan prévoit ${eur(per.mensuel)} par mois, soit <b>${eur(per.economie)} d'impôt en moins par an</b>${per.exact ? `, soit ${Math.round(per.tauxEffectif)} % du versement` : " (estimation à ta tranche)"}.` : per.raison === "refus" && per.economiePossible > 0.5 ? ` Tu as refusé le PER : environ ${eur(per.economiePossible)} d'impôt par an laissés de côté.` : ""}</p>
-    <div class="table-wrap"><table><thead><tr><th>Pour 100 € par mois de ta poche pendant ${n} ans</th><th class="m">À la retraite, après impôts</th></tr></thead><tbody>
-      <tr><td>PER (${eur(mPER)} placés par mois grâce à l'économie d'impôt)</td><td class="m"><b>${eur(netPER)}</b></td></tr>
-      <tr><td>PEA</td><td class="m">${eur(netPEA)}</td></tr>
-      <tr><td>Compte-titres</td><td class="m">${eur(netCTO)}</td></tr>
-    </tbody></table></div>
-    <p class="small" style="margin:8px 0 0">${gain > 5 ? `<b>Le PER fait ${pct(gain)} de mieux que le PEA</b> pour le même effort.` : `Avec ta tranche, l'avantage sur le PEA est faible (${pct(gain)}) : le PEA, disponible, est plus intéressant.`} Hypothèses : 6 % par an, tranche à la retraite de ${tret} %, sortie en capital, montants de l'époque.</p>`;
-}
-
-function blocDansTonPlan(f, res) {
-  if (f.id === "risques") return blocRisques(res);
-  if (f.id === "per") return blocCalculPER(res) + '<div style="margin-top:12px"></div>' + blocDansTonPlanCommun(f, res);
-  if (f.id === "net-impot") return blocNetImpot();
-  if (f.id === "frais") return blocFrais();
-  if (f.id === "epargne-salariale") return blocEpargneSalariale(res) + blocDansTonPlanCommun(f, res);
-  return blocDansTonPlanCommun(f, res);
-}
-function blocFrais() {
-  const p = normaliserProfil(etat.profil), P = p.placements ?? {}, out = [];
-  const avTot = (P.assuranceVie ?? 0) + (P.assuranceVieUC ?? 0);
-  const avType = p.assuranceVie?.type ?? "";
-  if (p.assuranceVie?.ouverte) {
-    const cher = ["Banque traditionnelle", "Assureur ou mutuelle", "Gestion pilotée en ligne"].includes(avType);
-    out.push(`<li><b>Assurance-vie</b> (${echapper(avType || "type non précisé")}${avTot > 0 ? `, ${eur(avTot)}` : ""}) : ${cher ? `frais probablement élevés. Retrouve sur ton relevé annuel les frais de gestion et ceux des fonds ; si le total dépasse 1,5 % par an, continue d'alimenter plutôt un contrat en ligne (garde l'ancien s'il a plus de 8 ans). À 1,5 % de frais de plus, ${eur(avTot)} sur 20 ans, c'est environ ${eur(avTot * (Math.pow(1.055, 20) - Math.pow(1.04, 20)))} de moins.` : "type de contrat généralement peu cher. Vérifie quand même les frais des supports."}</li>`);
-  }
-  if (p.pea?.ouvert) {
-    const cher = p.pea.etablissement === "Banque traditionnelle";
-    out.push(`<li><b>PEA</b> (${echapper(p.pea.etablissement || "établissement non précisé")}) : ${cher ? "les banques traditionnelles prennent souvent 0,5 % ou plus par ordre et parfois des frais de garde. Un transfert vers un courtier en ligne coûte au plus 150 € et garde l'ancienneté du PEA." : "courtier en ligne : frais de courtage faibles. Choisis des ETF à 0,1 à 0,3 % par an."}</li>`);
-  }
-  if ((P.per ?? 0) > 0) out.push(`<li><b>PER</b> : vérifie 0 % sur versement et environ 0,5 % par an ; la gestion pilotée « à horizon » ajoute souvent des frais.</li>`);
-  if ((P.epargneSalariale ?? 0) > 0) out.push(`<li><b>Épargne salariale</b> : compare les frais courants des FCPE proposés ; préfère un fonds indiciel actions monde.</li>`);
-  return out.length ? `<ul class="points" style="margin:0">${out.join("")}</ul>` : `<p class="small muted" style="margin:0">Indique tes contrats dans « Mon profil » (type d'assurance-vie, établissement du PEA) pour voir ce qu'il faut vérifier.</p>`;
-}
-function blocNetImpot() {
-  const p = normaliserProfil(etat.profil), n = Number(p.salaireNetMensuel) || 0;
-  if (!(n > 0)) return `<p class="small muted" style="margin:0">Indique ton salaire net après impôt dans « Mon profil » pour voir le détail.</p>`;
-  const ff = foyerFiscal(p), d = decomposerSalaire(n, { ...ff, netSurBrut: etat.brouillon.retraitePublique?.netSurBrutSalaire ?? 78 });
-  const tmiSaisie = p.tmi !== "" && p.tmi != null ? Number(p.tmi) : null;
-  return `<div class="table-wrap"><table><tbody>
-      <tr><td>Salaire brut (estimé, salarié non cadre)</td><td class="m">≈ ${eur(d.brut)}</td></tr>
-      <tr><td>Cotisations sociales</td><td class="m">≈ − ${eur(d.brut - d.netAvant)}</td></tr>
-      <tr><td><b>Net avant impôt</b></td><td class="m"><b>≈ ${eur(d.netAvant)}</b></td></tr>
-      <tr><td>Impôt prélevé à la source (taux moyen ≈ ${pct(d.tauxPAS)})</td><td class="m">≈ − ${eur(d.impotMensuel)}</td></tr>
-      <tr><td><b>Net après impôt</b> (ce que tu as saisi)</td><td class="m"><b>${eur(n)}</b></td></tr>
-    </tbody></table></div>
-    <p class="small" style="margin:8px 0 0">${ff.commun ? "Imposition commune avec ton conjoint (2 parts). " : "Personne seule (1 part). "}Tranche marginale estimée : <b>${d.tmi} %</b>${tmiSaisie == null ? ` : tu peux la saisir dans « Mon profil », bloc « Tes impôts » (vérifie-la sur ton avis d'impôt).` : tmiSaisie !== d.tmi ? `, alors que tu as saisi ${tmiSaisie} % : ton avis d'impôt fait foi (enfants, autres revenus, réductions…).` : `, comme celle que tu as saisie.`} Si le brut estimé est loin de ta fiche de paie, vérifie que tu as bien saisi le net <i>après</i> impôt.</p>`;
-}
-function blocEpargneSalariale(res) {
-  const A = etat.profil.abondement ?? {}, acces = A.acces ?? "?", ab = res.abondement;
-  const etatAcces = { "?": "Tu n'as pas encore indiqué si ton entreprise propose une épargne salariale : c'est la première chose à vérifier.", non: "Tu as indiqué que ton entreprise ne propose pas d'épargne salariale (ou que tu n'es pas salarié).", pee: "Ton entreprise propose un PEE.", per: "Ton entreprise propose un PER d'entreprise.", les2: "Ton entreprise propose un PEE et un PER d'entreprise." }[acces] ?? "";
-  let html = `<p class="small" style="margin:0 0 8px">${etatAcces} <a class="lien-fiche" href="#mon-profil">Modifier dans « Mon profil », bloc « Ton employeur »</a></p>`;
-  if (ab) html += `<p class="verdict ok" style="margin:0 0 8px"><b>Argent offert par ton employeur :</b> ${eur(ab.abondementAn)} par an (${eur(ab.net)} après CSG et CRDS)${ab.mensuel > 0.5 ? `, en versant ${eur(ab.mensuel)} par mois${ab.interessement > 0 ? " et en plaçant ton intéressement" : ""}` : ab.interessement > 0 ? ", grâce à ton intéressement placé" : ""}. Sur 10 ans, cela fait ${eur(ab.net * 10)} sans compter les gains.</p>`;
-  else if (acces !== "?" && acces !== "non") html += `<p class="small" style="margin:0 0 8px">Pas d'abondement indiqué. Si ton entreprise en verse un, coche « Mon employeur abonde mes versements » et indique le taux.</p>`;
-  return html;
-}
-function blocDansTonPlanCommun(f, res) {
-  const plan = etat.brouillon;
-  const ids = [f.id, ...(f.couvre ?? [])];
-  const vise = (env) => ids.includes(plan.enveloppes[env]?.fiche);
-  const comptes = res.reeq.comptes.filter((c) => vise(c.enveloppe));
-  const cons = res.consignes.filter((c) => ids.includes(c.fiche));
-  let html = "";
-  if (comptes.length) html += `<div class="table-wrap"><table><thead><tr><th>Compte</th><th class="m">Actuel</th><th class="m">Cible</th></tr></thead><tbody>${comptes.map((c) => `<tr><td>${f.couvre ? lienFiche(plan.enveloppes[c.enveloppe].fiche, echapper(plan.enveloppes[c.enveloppe].libelle)) : echapper(plan.enveloppes[c.enveloppe].libelle)}<div class="statut-compte">${echapper(c.texte)}</div></td><td class="m">${eur(c.actuel)}</td><td class="m">${eur(c.cible)}</td></tr>`).join("")}</tbody></table></div>`;
-  const mvts = res.mouvements.filter((m) => vise(m.enveloppe) || (m.vers && vise(m.vers)));
-  if (mvts.length) html += `<p class="small" style="margin:8px 0 0"><b>Ce mois-ci :</b> ${mvts.map((m) => `${m.sens === "retrait" ? "retirer" : m.sens === "arbitrage" ? "arbitrer" : "verser"} ${eur(m.montant)} ${m.sens === "versement" ? "sur" : "de"} ${echapper(plan.enveloppes[m.enveloppe].libelle)}${m.vers ? ` vers ${echapper(plan.enveloppes[m.vers].libelle)}` : ""}`).join(" ; ")}.</p>`;
-  if (f.id === "residence" && res.achat) {
-    const i = res.achat.ideal;
-    html += `<p class="small" style="margin:0">${i ? `Âge idéal pour un bien à ${eur(res.achat.prix)} : <b>${i.age} ans</b> (apport ${eur(i.apportRequis)}, prêt ${eur(i.pret)} sur ${i.duree} ans, ${eur(i.mensualite)} par mois).` : `Bien à ${eur(res.achat.prix)} : hors de portée avant la limite du plan.`}</p>`;
-  }
-  if (cons.length) html += `<ul class="consignes" style="margin-top:10px">${cons.map((c) => `<li><span class="niveau ${c.niveau}">${{ action: "À faire", info: "Bon à savoir", alerte: "Attention" }[c.niveau]}</span><span>${texteLie(c.texte, f.id)}</span></li>`).join("")}</ul>`;
-  return html || `<p class="small muted" style="margin:0">Ce placement n'apparaît pas dans la répartition actuelle du profil.</p>`;
-}
-
-// ---------------------------------------------------------------- épargne idéale
-// Les placements à avoir, dans l'ordre où les remplir, et où tu en es pour chacun.
-// statut : fait | afaire | verifier | non (pas pour toi) | plustard
-const PASTILLES = { fait: "C'est fait", afaire: "À faire", verifier: "À vérifier", non: "Pas pour toi", plustard: "Plus tard" };
-function produitsIdeaux(res) {
-  const plan = etat.brouillon, p = normaliserProfil(etat.profil), P = p.placements ?? {};
-  const H = plan.hypotheses ?? {}, A = p.abondement ?? {}, acces = A.acces ?? "?";
-  const cible = (envs) => res.reeq.comptes.filter((c) => envs.includes(c.enveloppe)).reduce((t, c) => t + c.cible, 0);
-  const tmi = p.tmi !== "" && p.tmi != null ? Number(p.tmi) : null;
-  const age = Number(p.age) || 30;
-  const L = [];
-
-  // 1. Le coussin de sécurité
-  const lep = P.lep ?? 0;
-  L.push({ etape: 1, id: "lep", nom: "LEP (livret d'épargne populaire)", fiche: "lep", badge: "Si tu y as droit",
-    pourquoi: "Le meilleur livret de France : plus rapporteur que le Livret A, sans risque, sans impôt, disponible à tout moment.",
-    chips: ["2,5 % par an", "0 impôt", "Plafond 10 000 €", "Revenus modestes"],
-    ...(!p.eligibleLEP ? { statut: "non", texte: "Réservé aux revenus modestes. Si tes revenus baissent, pense à lui : c'est le premier à remplir." }
-      : lep >= 9999 ? { statut: "fait", texte: `Rempli (${eur(lep)}).` }
-      : { statut: "afaire", texte: lep > 0 ? `${eur(lep)} sur 10 000 € : à compléter en premier.` : "Tu y as droit : ouvre-le et remplis-le en premier." }) });
-  if (age <= 25) L.push({ etape: 1, id: "livret-jeune", nom: "Livret Jeune", fiche: "livret-jeune", badge: "De 12 à 25 ans",
-    pourquoi: "Un petit livret réservé aux jeunes, souvent mieux payé que le Livret A, sans impôt.",
-    chips: ["Taux ≥ Livret A", "0 impôt", "Plafond 1 600 €"],
-    ...((P.livretJeune ?? 0) >= 1599 ? { statut: "fait", texte: "Rempli." } : { statut: "afaire", texte: `Tu y as droit jusqu'à tes 25 ans${(P.livretJeune ?? 0) > 0 ? ` : ${eur(P.livretJeune)} sur 1 600 €` : ""}.` }) });
-  const SEC = ["lep", "livretJeune", "livretA", "ldds", "livretBancaire"];
-  const secA = SEC.reduce((t, e) => t + (P[e] ?? 0), 0), secC = res.alloc?.securite ?? cible(SEC), apport = res.alloc?.projet ?? 0;
-  L.push({ etape: 1, id: "livret-a", nom: "Livret A + LDDS", fiche: "livrets", badge: "Indispensable",
-    pourquoi: "Ton épargne de sécurité : l'argent des imprévus (panne, perte d'emploi), garanti par l'État et disponible en un clic. C'est elle qui te permet de ne jamais vendre ta bourse au mauvais moment.",
-    chips: ["1,7 % par an", "0 impôt", `Plafonds ${eur(PLAFONDS.livretA)} + ${eur(PLAFONDS.ldds)}`, "Dispo immédiate"],
-    ...(secA >= secC * 0.95 ? { statut: "fait", texte: `${eur(secA)} sur tes livrets : ton épargne de sécurité (${eur(secC)} selon ton plan) est en place${apport > 0.5 ? `, et ${eur(apport)} y sont gardés pour l'apport de ton achat` : ""}.${secA - secC - apport > 2000 ? ` Le surplus (${eur(secA - secC - apport)}) travaillera mieux ailleurs : voir l'onglet Rééquilibrage.` : ""}` }
-      : { statut: "afaire", texte: `${eur(secA)} sur tes livrets, pour ${eur(secC)} d'épargne de sécurité visés par ton plan.` }) });
-
-  // 2. L'argent offert par l'employeur
-  const ab = res.abondement;
-  L.push({ etape: 2, id: "abondement", nom: "Épargne salariale avec abondement (PEE, PER d'entreprise)", fiche: "epargne-salariale", badge: "Si ton employeur le propose",
-    pourquoi: "Le seul placement qui double ton argent le jour même : ton employeur ajoute jusqu'à 3 € pour chaque euro versé. Aucun autre produit ne rapporte autant.",
-    chips: ["Jusqu'à +300 % immédiat", "Pas d'impôt sur le revenu", "Souvent 500 à 4 000 €/an offerts", "Bloqué 5 ans ou jusqu'à la retraite"],
-    ...(acces === "?" ? { statut: "verifier", texte: "Demande à ton employeur s'il propose un PEE ou un PER d'entreprise avec abondement, puis indique-le dans « Mon profil »." }
-      : acces === "non" ? { statut: "non", texte: "Ton employeur n'en propose pas. Si tu changes d'emploi, pose la question." }
-      : !ab ? { statut: "verifier", texte: "Tu as un plan, mais pas d'abondement indiqué : vérifie le règlement du plan." }
-      : ab.complet ? { statut: "fait", texte: `Tu touches tout l'abondement : ${eur(ab.abondementAn)} offerts par an.` }
-      : { statut: "afaire", texte: `Tu touches ${eur(ab.abondementAn)} sur ${eur(ab.plafond)} possibles par an : verse ${eur(ab.versementAn / 12)} par mois pour tout avoir.` }) });
-
-  // 3. Le moteur de ta richesse
-  const peaV = Number(p.pea?.versements) || 0;
-  L.push({ etape: 3, id: "pea", nom: "PEA (plan d'épargne en actions)", fiche: "pea", badge: "Indispensable",
-    pourquoi: `Le moteur de ton patrimoine : des ETF qui suivent des milliers d'entreprises, environ ${pct(H.rendements?.bourse ?? 7)} par an en moyenne sur le long terme, et plus d'impôt sur le revenu après 5 ans.`,
-    chips: [`≈ ${pct(H.rendements?.bourse ?? 7)} par an (moyenne)`, `${pct(PRELEVEMENTS.PS_CAPITAL)} sur les gains après 5 ans`, `Plafond ${eur(PLAFONDS.pea)} versés`, "Ouvrir tôt pour prendre date"],
-    ...(p.pea?.ouvert ? { statut: "fait", texte: `Ouvert${p.pea.dateOuverture ? ` depuis ${new Date(p.pea.dateOuverture + "-01T12:00").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}` : ""}${(P.pea ?? 0) > 0 ? `, ${eur(P.pea)} dessus` : ""}.` }
-      : { statut: "afaire", texte: "À ouvrir maintenant, même avec 10 € : le compteur des 5 ans démarre à l'ouverture." }) });
-
-  // 4. Les cadeaux fiscaux
-  const per = res.per;
-  const tret = plan.per?.tmiRetraite ?? 11;
-  const tauxE = per?.exact ? per.tauxEffectif : tmi, cmp = tmi != null ? comparerPERPEA(tmi, tret, 20, tauxE) : null;
-  const calcul = cmp ? `100 € versés font baisser l'impôt de ${eur(tauxE)}${p.tmiEstimee ? ` (tranche estimée à ${tmi} % d'après tes revenus)` : ""}, mais ces versements seront imposés à la sortie (environ ${tret} % à la retraite). Sur 20 ans, pour 100 € par mois de ta poche : ${eur(cmp.per)} avec le PER contre ${eur(cmp.pea)} avec le PEA, après impôts, soit ${cmp.gain >= 0 ? "+" : "−"}${pct(Math.abs(cmp.gain))}.` : "";
-  L.push({ etape: 4, id: "per", nom: "PER (plan d'épargne retraite)", fiche: "per", badge: "Si tu paies assez d'impôt",
-    pourquoi: "L'État paie une partie de ton épargne : chaque versement baisse ton impôt de 30 à 45 %, et l'argent est investi en bourse jusqu'à la retraite (ou l'achat de ta résidence principale).",
-    chips: ["−30 à −45 % d'impôt", "Investi en ETF", "Bloqué jusqu'à la retraite", "Plafond sur l'avis d'impôt"],
-    ...(p.refusPER ? { statut: "non", texte: `Tu l'as écarté${per?.economiePossible > 0.5 ? ` : environ ${eur(per.economiePossible)} d'impôt par an laissés de côté` : ""}.` }
-      : tmi == null ? { statut: "verifier", texte: "Indique ta tranche d'imposition dans « Mon profil » pour savoir s'il vaut le coup." }
-      : per?.actif ? ((P.per ?? 0) > 0 ? { statut: "fait", texte: `Ouvert. Le plan y verse ${eur(per.mensuel)} par mois : environ ${eur(per.economie)} d'impôt en moins par an${per.exact ? "" : " (estimation à ta tranche)"}.` }
-        : { statut: "afaire", texte: `À ouvrir : ${eur(per.mensuel)} par mois, environ ${eur(per.economie)} d'impôt en moins par an${per.exact ? "" : " (estimation à ta tranche)"}.` })
-      : per?.raison === "pas-de-flux-bourse" ? { statut: "plustard", texte: `Intéressant pour toi : ${calcul} Mais pour l'instant toute ton épargne va à la sécurité ou à l'apport ; le plan commencera le PER ensuite.` }
-      : per?.raison === "age" ? { statut: "non", texte: "Depuis 2026, les versements faits après 70 ans ne sont plus déductibles." }
-      : per?.raison === "non-resident" ? { statut: "non", texte: "Réservé aux résidents fiscaux français." }
-      : { statut: "non", texte: `${calcul} ${cmp && cmp.gain > 5 ? "Le gain existe, mais ton plan ne prend le PER qu'à partir d'une tranche de 30 %." : "Pas la peine de bloquer l'argent jusqu'à la retraite : le PEA fait aussi bien ou mieux."}` }) });
-  const avOuverte = !!p.assuranceVie?.ouverte;
-  L.push({ etape: 4, id: "assurance-vie", nom: "Assurance-vie", fiche: avOuverte ? "assurance-vie" : "meilleures-assurances-vie", badge: "Indispensable",
-    pourquoi: "Le couteau suisse : disponible à tout moment, impôts allégés après 8 ans, et jusqu'à 152 500 € par enfant transmis sans droits de succession.",
-    chips: ["Fiscalité douce après 8 ans", "152 500 € transmis sans droits", "Fonds euros garanti ou ETF", "Ouvrir tôt pour prendre date"],
-    ...(avOuverte ? { statut: "fait", texte: `Ouverte${(P.assuranceVie ?? 0) + (P.assuranceVieUC ?? 0) > 0 ? ` (${eur((P.assuranceVie ?? 0) + (P.assuranceVieUC ?? 0))})` : ""}.` }
-      : { statut: "afaire", texte: "À ouvrir maintenant avec un petit montant, en ligne et sans frais d'entrée : le compteur des 8 ans démarre à l'ouverture. Voir la fiche « Les meilleures assurances-vie »." }) });
-
-  // 5. Quand le reste est plein
-  L.push({ etape: 5, id: "cto", nom: "Compte-titres", fiche: "cto", badge: "Plus tard",
-    pourquoi: "Pour continuer à investir en bourse sans limite quand le PEA est plein, ou pour les ETF qui n'entrent pas dans un PEA.",
-    chips: ["Sans plafond", "31,4 % sur les gains", "Disponible"],
-    ...(peaV >= 140000 || (P.cto ?? 0) > 0 ? { statut: (P.cto ?? 0) > 0 ? "fait" : "afaire", texte: (P.cto ?? 0) > 0 ? `${eur(P.cto)} dessus.` : "Ton PEA est presque plein : c'est le moment." }
-      : { statut: "plustard", texte: `Quand ton PEA sera plein (${eur(peaV)} versés sur ${eur(PLAFONDS.pea)}).` }) });
-  L.push({ etape: 5, id: "residence", nom: "Résidence principale", fiche: "residence", badge: "Projet de vie",
-    pourquoi: "Le seul investissement qu'on peut faire avec l'argent de la banque : le crédit remplace le loyer, et la plus-value à la revente est exonérée d'impôt.",
-    chips: ["Plus-value sans impôt", "Effet de levier du crédit", "Fin du loyer"],
-    ...(p.proprietaire && (p.logement?.usage ?? "rp") === "rp" ? { statut: "fait", texte: "Tu es propriétaire de ton logement." }
-      : p.projetRP?.actif ? { statut: "afaire", texte: res.achat?.ideal ? `Projet prévu : un bien à ${eur(res.achat.prix)}, idéalement à ${res.achat.ideal.age} ans.` : "Projet prévu : voir l'onglet Trajectoire." }
-      : { statut: "plustard", texte: "Pas de projet indiqué. Tu peux en tester un dans « Mon profil »." }) });
-  const paliers = plan.paliers ?? [];
-  const seuil = (c) => paliers.find((x) => (x.cibles?.[c] ?? 0) > 0)?.capital;
-  const div = [["bitcoin", "bitcoin"], ["or", "or physique"], ["scpi", "SCPI"]];
-  const prevus = div.filter(([c]) => (res.alloc?.[c] ?? 0) > 0.5);
-  L.push({ etape: 5, id: "diversification", nom: "Diversification : or, SCPI, bitcoin", fiche: "or", badge: "Plus tard",
-    pourquoi: "Des petites parts qui ne bougent pas comme la bourse : l'or protège dans les crises, les SCPI versent des loyers, le bitcoin peut beaucoup monter (et beaucoup baisser).",
-    chips: div.map(([c, n]) => `${n} dès ${eur(seuil(c) ?? 0)}`),
-    ...(prevus.length ? { statut: "afaire", texte: `Ton plan prévoit : ${prevus.map(([c, n]) => `${n} ${eur(res.alloc[c])}`).join(", ")}.` }
-      : { statut: "plustard", texte: `Pas encore : ton plan les ajoute à partir de ${eur(Math.min(...div.map(([c]) => seuil(c) ?? Infinity)))} de capital.` }) });
-  return L;
-}
-// Ce que tu laisses sur la table chaque année
-function argentPerdu(res) {
-  const p = normaliserProfil(etat.profil), P = p.placements ?? {}, A = p.abondement ?? {};
-  const out = [], tmi = Number(p.tmi) || 0;
-  const ab = res.abondement;
-  if (ab && !ab.complet) out.push(["Abondement non touché", ab.plafond - ab.abondementAn, "epargne-salariale"]);
-  if ((A.acces ?? "?") === "?" && !["independant", "etudiant", "retraite"].includes(p.statutPro)) out.push(["Abondement possible, à vérifier auprès de ton employeur", null, "epargne-salariale"]);
-  if (p.refusPER && res.per?.economiePossible > 0.5) out.push(["Impôt non économisé (PER écarté)", res.per.economiePossible, "per"]);
-  if (p.eligibleLEP && (P.lep ?? 0) < 9999) out.push(["LEP pas rempli (2,5 % au lieu de 1,7 %)", ((PLAFONDS.lep - (P.lep ?? 0)) * 0.8) / 100, "lep"]);
-  const inter = Number(A.interessement) || 0;
-  if (inter > 0 && A.placer === false && !["non", "?"].includes(A.acces) && tmi > 0) out.push(["Impôt payé sur l'intéressement reçu au lieu d'être placé", economieInteressement(p, inter).economie, "epargne-salariale"]);
-  if ((P.livretBancaire ?? 0) > 1000 && (P.livretA ?? 0) + (P.ldds ?? 0) < 34900) out.push(["Super livret imposé alors que le Livret A et le LDDS ne sont pas pleins", null, "livret-bancaire"]);
-  return out;
-}
-function rendreEpargneIdeale() {
-  const res = etat.resultat, el = $("#ideale");
-  if (!res) { el.innerHTML = `<p class="note">Remplis d'abord « Mon profil ».</p>`; return; }
-  const L = produitsIdeaux(res);
-  const concernes = L.filter((x) => x.statut !== "non" && x.statut !== "plustard");
-  const faits = concernes.filter((x) => x.statut === "fait").length;
-  const part = concernes.length ? (100 * faits) / concernes.length : 0;
-  const ETAPES = {
-    1: ["Le coussin de sécurité", "Avant tout placement : de quoi faire face aux imprévus sans rien vendre. Sans risque, sans impôt, disponible tout de suite."],
-    2: ["L'argent offert", "Si ton employeur ajoute de l'argent, c'est la priorité absolue : aucun placement ne rapporte autant."],
-    3: ["Le moteur de ton patrimoine", "La bourse sur le long terme, dans l'enveloppe la moins imposée."],
-    4: ["Les cadeaux fiscaux", "Ouvrir tôt pour prendre date, et laisser l'État payer une partie de ton épargne."],
-    5: ["Quand le reste est en place", "Pour aller plus loin, une fois les bases solides."],
-  };
-  const carte = (x) => `<article class="produit ${x.statut}">
-      <div class="tete"><h4>${lienFiche(x.fiche, echapper(x.nom))}</h4><span class="etiquette ${x.badge === "Indispensable" ? "projet" : x.badge.startsWith("Si") ? "action" : ""}">${echapper(x.badge)}</span></div>
-      <p class="pourquoi">${texteLie(x.pourquoi, x.fiche)}</p>
-      <ul class="chips">${x.chips.map((c) => `<li>${echapper(c)}</li>`).join("")}</ul>
-      <div class="pour-toi"><span class="etat-pt ${x.statut}">${PASTILLES[x.statut]}</span><span>${echapper(x.texte)}</span></div>
-    </article>`;
-  const perdu = argentPerdu(res);
-  const totalPerdu = perdu.reduce((t, x) => t + (x[1] ?? 0), 0);
-  el.innerHTML = `
-    <section class="panneau">
-      <div class="ideal-tete">
-        <div><h2>L'épargne idéale</h2>
-          <p>Les placements qu'il faut avoir et dont il faut profiter quand on y a droit, dans l'ordre où les remplir. C'est la logique de ton plan : d'abord la sécurité, puis l'argent offert, puis la bourse dans les enveloppes les moins imposées. Pour chacun, où tu en es d'après ton profil.</p></div>
-        <div class="score"><b>${faits} / ${concernes.length}</b><span>placements qui te concernent déjà en place</span><span class="jauge"><span style="width:${part}%;background:var(--accent)"></span></span></div>
-      </div>
-    </section>
-    <section class="panneau bandeau-frais"><h3>⚠ Attention aux frais</h3><p class="small" style="margin:0">Pour chaque placement ci-dessous, ouvre-le là où les frais sont bas : 0 % sur les versements, environ 0,5 % par an, des ETF. Avec 2 % de frais par an au lieu de 0,5 %, 100 € par mois pendant 30 ans donnent 69 400 € au lieu de 91 400 €. <a class="lien-fiche" href="#fiche-frais">Tout sur les frais</a></p></section>
-    ${perdu.length ? `<section class="panneau attention"><h3 style="margin:0 0 8px">Ce que tu laisses sur la table</h3>
-      <div class="table-wrap"><table class="table-perdu"><tbody>${perdu.map(([t, m, f]) => `<tr><td>${lienFiche(f, echapper(t))}</td><td class="m">${m == null ? "à vérifier" : `${eur(m)} par an`}</td></tr>`).join("")}</tbody></table></div>
-      ${totalPerdu > 0.5 ? `<p class="small" style="margin:8px 0 0">Au moins <b>${eur(totalPerdu)} par an</b>, soit ${eur(totalPerdu * 10)} sur 10 ans sans compter ce que cet argent aurait rapporté.</p>` : ""}</section>` : ""}
-    ${Object.entries(ETAPES).map(([n, [titre, intro]]) => {
-      const items = L.filter((x) => x.etape === Number(n));
-      return items.length ? `<section class="etape-ideale"><h3><span class="num">${n}</span>${titre}</h3><p>${intro}</p><div class="produits">${items.map(carte).join("")}</div></section>` : "";
-    }).join("")}
-    <section class="panneau" style="margin-top:18px"><h3 style="margin:0 0 8px">Les règles d'or</h3>
-      <ul class="points">
-        <li>Ouvre tôt le PEA et l'assurance-vie, même avec 10 € : leurs avantages fiscaux dépendent de leur âge, pas du montant.</li>
-        <li>Programme des versements automatiques chaque mois, le lendemain de la paie : on n'épargne pas ce qui reste, on dépense ce qui reste.</li>
-        <li>Pas plus d'un mois de dépenses sur le compte courant : au-delà, l'argent perd de la valeur avec l'inflation.</li>
-        <li>Ne jamais vendre sa bourse dans une crise : c'est l'épargne de sécurité qui paie les imprévus (voir la simulation de crise dans Trajectoire).</li>
-        <li>Fuir les frais : pas de frais d'entrée sur une assurance-vie, des ETF plutôt que des fonds à 2 % par an.</li>
-      </ul></section>
-    <section class="panneau"><h3 style="margin:0 0 8px">À éviter</h3>
-      <ul class="points">
-        <li>Les produits « garantis » à rendement mirobolant, les placements promis sur les réseaux sociaux, le trading de produits complexes.</li>
-        <li>Les contrats vendus en agence avec 3 à 5 % de frais sur chaque versement.</li>
-        <li>Le super livret imposé tant que le Livret A, le LDDS (et le LEP si tu y as droit) ne sont pas pleins.</li>
-        <li>Mettre toute son épargne salariale en actions de sa propre entreprise.</li>
-        <li>Laisser l'intéressement ou la participation partir par défaut sans choisir les fonds.</li>
-      </ul>
-      <p class="small muted" style="margin:8px 0 0">Les taux et plafonds sont ceux de novembre 2026. Les détails, les cas particuliers et les sources sont dans chaque fiche.</p></section>`;
-}
-
-const HAUT_FICHES = ["frais", "lexique", "risques", "net-impot"];
-// Bandeau « Attention aux frais » des fiches de placements
-function bandeauFrais(f) {
-  if (!f.frais?.length) return "";
-  return `<section class="panneau bandeau-frais"><h3>⚠ Attention aux frais</h3>
-    <p class="small">C'est ce qui fait le plus de différence sur la durée : 1 % de frais en plus par an, c'est environ 17 % de capital en moins au bout de 30 ans. Avant d'ouvrir, vérifie chaque ligne dans le document d'informations clés (DIC). <a class="lien-fiche" href="#fiche-frais">Tout sur les frais</a></p>
-    <div class="table-wrap"><table><thead><tr><th>Frais</th><th>À viser</th><th>Trop cher</th></tr></thead><tbody>${f.frais.map(([t, bon, cher]) => `<tr><td><b>${echapper(t)}</b></td><td>${echapper(bon)}</td><td>${echapper(cher)}</td></tr>`).join("")}</tbody></table></div></section>`;
-}
-// Exemples d'abondement de grandes entreprises (fiche Épargne salariale)
-const ENTREPRISES_TRIEES = [...ENTREPRISES].sort((a, b) => b.max - a.max);
-function blocEntreprises() {
-  const lien = ([t, u]) => `<a href="${u}" target="_blank" rel="noopener">${echapper(t)}</a>`;
-  return `<p style="margin:0 0 8px">Le maximum légal (11 534 € par an) n'est presque jamais atteint. Dans les grandes entreprises, l'abondement va le plus souvent de <b>quelques centaines d'euros à environ 4 000 € par an</b>. Voici des barèmes trouvés dans des accords et des documents publics, du plus généreux au plus modeste :</p>
-    <div class="table-wrap"><table class="tableau-fiche"><thead><tr><th>Entreprise</th><th>Plans</th><th>Barème</th><th class="m">Abondement maximum par an</th><th class="m">À verser pour tout toucher</th><th>Source</th></tr></thead><tbody>
-    ${ENTREPRISES_TRIEES.map((e) => `<tr>
-      <td class="fort">${echapper(e.nom)}<div class="small muted">${echapper(e.secteur)} · ${echapper(e.annee)}</div></td>
-      <td>${echapper(e.plans)}</td>
-      <td>${echapper(e.bareme)}${e.total ? `<div class="small muted">${echapper(e.total)}</div>` : ""}${e.note ? `<div class="small muted">${echapper(e.note)}</div>` : ""}</td>
-      <td class="m"><b>${eur(e.max)}</b></td>
-      <td class="m">${e.verser ? `${eur(e.verser)}<div class="small muted">${eur(e.verser / 12)} par mois</div>` : '<span class="muted">selon le barème</span>'}</td>
-      <td class="small">${echapper(e.fiabilite)}<br>${e.sources.map(lien).join("<br>")}${e.profil ? `<br><button type="button" class="lien" data-entreprise="${echapper(e.nom)}">Tester dans mon profil</button>` : ""}</td>
-    </tr>`).join("")}
-    </tbody></table></div>
-    <p style="margin:12px 0 6px"><b>Les offres d'actions réservées aux salariés</b> : une autre forme d'argent offert, mais investie dans une seule entreprise.</p>
-    <ul class="points">${OFFRES_ACTIONS.map(([n, a, t, src]) => `<li><b>${echapper(n)}</b> (${echapper(a)}) : ${echapper(t)}. ${lien(src)}</li>`).join("")}</ul>
-    <p class="note" style="margin:8px 0 0">Ces barèmes sont renégociés tous les 1 à 3 ans et peuvent varier selon la filiale ou le statut : ce sont des ordres de grandeur pour se projeter, par exemple avant de postuler. Le règlement de ton plan fait foi. Pour les barèmes par tranches, « Tester dans mon profil » utilise un taux moyen qui donne le même abondement maximum.</p>`;
-}
-// Top 3 des assurances-vie, avec la recommandation pour le profil
-function blocTop3(f) {
-  const res = etat.resultat, P = normaliserProfil(etat.profil).placements ?? {};
-  let reco = "";
-  if (res) {
-    const a = res.alloc ?? {}, prudent = (a.prudent ?? 0) + (a.projet ?? 0), bourse = a.bourse ?? 0;
-    const part = prudent + bourse > 0 ? (100 * prudent) / (prudent + bourse) : 0;
-    const choix = part >= 30 ? f.top3[0] : f.top3[1];
-    const av = (P.assuranceVie ?? 0) + (P.assuranceVieUC ?? 0);
-    reco = `<p class="verdict ok" style="margin:0 0 12px"><b>Pour ton profil : ${echapper(choix.nom)}.</b> ${part >= 30 ? `Ton plan met environ ${pct(part)} de ta part placée (hors livrets) sur la partie prudente : le fonds en euros compte beaucoup, et celui de Linxea Spirit 2 est l'un des meilleurs.` : `Ton plan met surtout ta part placée en bourse (${pct(100 - part)}) : les frais de 0,30 % de Lucya CNP sur les ETF font la plus grande différence.`}${av > 70000 ? ` Avec ${eur(av)} en assurance-vie, ouvre aussi un contrat chez un autre assureur (Lucya Cardif par exemple) pour rester sous la garantie de 70 000 € par assureur.` : ""}</p>`;
-  }
-  return reco + `<div class="produits">${f.top3.map((x, i) => `<article class="produit${i === 0 ? " fait" : ""}">
-      <div class="tete"><h4><span class="num-top">${i + 1}</span> ${echapper(x.nom)}</h4><span class="etiquette ${i === 0 ? "projet" : "action"}">${echapper(x.titre)}</span></div>
-      <p class="small muted" style="margin:0">${echapper(x.assureur)}</p>
-      <ul class="chips">${x.chiffres.map((c) => `<li>${echapper(c)}</li>`).join("")}</ul>
-      <p class="pourquoi"><b>Pour qui :</b> ${texteLie(x.pourQui, f.id)}</p>
-      <div><b class="small">Pourquoi on le choisit</b><ul class="arguments pour">${x.pour.map((t) => `<li>${texteLie(t, f.id)}</li>`).join("")}</ul></div>
-      <div><b class="small">Ses limites</b><ul class="arguments contre">${x.contre.map((t) => `<li>${texteLie(t, f.id)}</li>`).join("")}</ul></div>
-    </article>`).join("")}</div>
-    <p class="note" style="margin:8px 0 0">Classement établi pour ce plan (gestion libre, ETF, fonds en euros, arbitrages gratuits) à partir des comparatifs d'octobre et novembre 2026. Aucun lien commercial avec ces contrats. Les taux et bonus changent chaque année : vérifie le DIC avant d'ouvrir.</p>`;
-}
-// Intéressement et participation versés par de grandes entreprises
-function blocPrimes() {
-  const lien = ([t, u]) => `<a href="${u}" target="_blank" rel="noopener">${echapper(t)}</a>`;
-  return `<p style="margin:0 0 8px">Ces primes dépendent des résultats : elles peuvent doubler, baisser de moitié ou disparaître d'une année à l'autre. Voici ce que de grandes entreprises ont réellement versé récemment, de la plus généreuse à la plus faible :</p>
-    <div class="table-wrap"><table class="tableau-fiche"><thead><tr><th>Entreprise</th><th>Période</th><th>Ce qui a été versé</th><th>Source</th></tr></thead><tbody>
-    ${PRIMES.map((x) => `<tr><td class="fort">${echapper(x.nom)}</td><td class="small">${echapper(x.annee)}</td><td>${echapper(x.texte)}</td><td class="small">${lien(x.source)}</td></tr>`).join("")}
-    </tbody></table></div>
-    <p class="note" style="margin:8px 0 0">Montants moyens bruts par salarié en France, tirés de communiqués, d'articles de presse et de documents syndicaux (vérifiés le 13 novembre 2026). Le montant de chacun dépend souvent de son salaire et de son temps de présence. Pour ton plan, saisis plutôt une moyenne prudente de tes dernières années dans « Mon profil », champ « Intéressement + participation » : une année faible arrive toujours.</p>`;
-}
-function appliquerEntreprise(nom) {
-  const e = ENTREPRISES.find((x) => x.nom === nom);
-  if (!e?.profil) return;
-  const P = e.profil;
-  Object.assign(etat.profil.abondement, { acces: P.acces, actif: true, plan: P.plan ?? (P.acces === "pee" ? "pee" : "pereco"), taux: P.taux, plafond: P.plafond, surInteressement: !!P.surInteressement });
-  remplirProfil();
-  apresSaisieProfil();
-}
-document.addEventListener("click", (ev) => {
-  const b = ev.target.closest?.("[data-entreprise]");
-  if (!b) return;
-  appliquerEntreprise(b.dataset.entreprise);
-  location.hash = "#mon-profil";
-  setTimeout(() => $("#ab-acces")?.scrollIntoView({ block: "center" }), 50);
-});
-$("#ab-exemple").innerHTML = `<option value="">Choisir une entreprise…</option>${ENTREPRISES_TRIEES.filter((e) => e.profil).map((e) => `<option value="${echapper(e.nom)}">${echapper(e.nom)} : jusqu'à ${eur(e.max)} par an</option>`).join("")}`;
-$("#ab-exemple").addEventListener("change", (ev) => { const v = ev.target.value; ev.target.value = ""; if (v) appliquerEntreprise(v); });
-// ---------------------------------------------------------------- simulateur « Impact des frais » (fiche Les frais)
-// Valeurs de départ = profil actif ; null tant que l'utilisateur n'y a pas touché (elles suivent alors le profil).
-const fraisSim = { capital: null, mensuel: null, annees: null };
-document.addEventListener("profil:change", () => { fraisSim.capital = fraisSim.mensuel = fraisSim.annees = null; });
-function valeursFraisSim() {
-  const p = etat.profil;
-  const ageRetraite = etat.brouillon?.hypotheses?.ageRetraite ?? 64;
-  const parDefaut = Math.min(40, Math.max(10, ageRetraite - (Number(p.age) || 30)));
-  return {
-    capital: fraisSim.capital ?? Math.round(capitalDe(profilDeCalcul(p))),
-    mensuel: fraisSim.mensuel ?? Math.round(Number(p.epargneMensuelle) || 0),
-    annees: fraisSim.annees ?? parDefaut,
-  };
-}
-function depensesPourFrais() {
-  const p = etat.profil;
-  if (Number(p.depensesMensuelles) > 0) return Number(p.depensesMensuelles);
-  const reste = (Number(p.salaireNetMensuel) || 0) - (Number(p.epargneMensuelle) || 0);
-  return reste > 0 ? reste : 0;
-}
-function graphiqueFrais(r) {
-  const W = 640, H = 240, g = { l: 56, r: 12, t: 12, b: 26 };
-  const max = Math.max(1, r.capitalOptimise);
-  const x = (a) => g.l + ((W - g.l - g.r) * a) / r.annees;
-  const y = (v) => H - g.b - ((H - g.t - g.b) * v) / max;
-  const ligne = (s) => s.map((v, a) => `${a ? "L" : "M"}${x(a).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-  const aire = `${ligne(r.optimise)} ${r.charge.map((v, a) => `L${x(r.annees - a).toFixed(1)},${y(r.charge[r.annees - a]).toFixed(1)}`).join(" ")} Z`;
-  let axes = "";
-  for (const f of [0, 0.5, 1]) axes += `<line class="axe" x1="${g.l}" x2="${W - g.r}" y1="${y(max * f)}" y2="${y(max * f)}"/><text x="${g.l - 6}" y="${y(max * f) + 4}" text-anchor="end">${keur(max * f)}</text>`;
-  for (const f of [0, 0.5, 1]) axes += `<text x="${x(r.annees * f)}" y="${H - 6}" text-anchor="${f === 0 ? "start" : f === 1 ? "end" : "middle"}">${f === 0 ? "départ" : `${Math.round(r.annees * f)} ans`}</text>`;
-  return `<svg class="graphe fs-graphe" viewBox="0 0 ${W} ${H}" role="img" aria-label="Évolution du capital sur ${r.annees} ans avec ${FRAIS_CHARGE} % de frais par an, comparée à ${FRAIS_OPTIMISE} % de frais par an">${axes}<path class="c-ecart" d="M${aire.slice(1)}"/><path class="c-cher" d="${ligne(r.charge)}"/><path class="c-bon" d="${ligne(r.optimise)}"/></svg>`;
-}
-function resultatFrais(v) {
-  const dep = depensesPourFrais();
-  const r = comparerFrais({ capital: v.capital, mensuel: v.mensuel, annees: v.annees, depensesMensuelles: dep });
-  const nbAnnees = (x) => `${(Math.round(x * 10) / 10).toLocaleString("fr-FR")} an${x >= 2 ? "s" : ""}`;
-  const equivalent = r.anneesDepenses != null
-    ? `Cela représente <b>${nbAnnees(r.anneesDepenses)} de dépenses</b> (${eur(dep)} par mois dans ton profil) : autant d'années de vie, ou de retraite, que les frais te prennent.`
-    : `Renseigne tes dépenses (ou ton salaire) dans « Mon profil » pour voir ce que cela représente en années de dépenses.`;
-  return `<div class="fs-cartes">
-      <div class="fs-carte cher"><span>Contrat chargé en frais · ${pct(FRAIS_CHARGE)} par an</span><b class="num">${eur(r.capitalCharge)}</b><span>assurance-vie bancaire, fonds actifs</span></div>
-      <div class="fs-carte bon"><span>Enveloppe optimisée · ${pct(FRAIS_OPTIMISE)} par an</span><b class="num">${eur(r.capitalOptimise)}</b><span>PEA + ETF</span></div>
-    </div>
-    <div class="fs-ecart" role="status"><span class="small">Capté par les frais en ${r.annees} an${r.annees > 1 ? "s" : ""}</span><span class="gros num">${eur(r.ecart)}</span>
-      <p>Soit ${pct(r.ecartPct)} du capital que tu aurais pu avoir, pour ${eur(r.verse)} versés en tout. ${equivalent}</p>
-      <p>Avec la règle des 4 %, cet écart aurait payé <b>${eur(r.renteMensuelle4pct)} par mois</b> de retraite en plus.</p></div>
-    ${graphiqueFrais(r)}
-    <div class="fs-legende"><span><i style="background:var(--warn)"></i>Frais ${pct(FRAIS_CHARGE)}</span><span><i style="background:var(--accent)"></i>Frais ${pct(FRAIS_OPTIMISE)}</span><span>La zone colorée est ce que les frais captent.</span></div>`;
-}
-function blocSimulateurFrais() {
-  const v = valeursFraisSim();
-  return `<div class="frais-sim" id="frais-sim">
-    <div class="fs-saisie">
-      <label><span>Capital de départ (€)</span><input type="number" inputmode="decimal" min="0" max="100000000" step="1000" value="${v.capital}" data-fs="capital"></label>
-      <label><span>Versement mensuel (€)</span><input type="number" inputmode="decimal" min="0" max="100000" step="50" value="${v.mensuel}" data-fs="mensuel"></label>
-      <label><span>Horizon : <b id="fs-annees-txt">${v.annees}</b> ans</span><input type="range" min="1" max="50" step="1" value="${v.annees}" data-fs="annees" aria-label="Horizon en années"><input type="number" inputmode="numeric" min="1" max="50" step="1" value="${v.annees}" data-fs="annees-nb" aria-label="Horizon en années (saisie)"></label>
-    </div>
-    <p class="small muted" style="margin:0">Valeurs de départ prises dans ton profil actif. <button type="button" class="lien" data-fs-reset>Revenir aux valeurs de mon profil</button></p>
-    <div id="fs-resultat" aria-live="polite">${resultatFrais(v)}</div>
-  </div>`;
-}
-$("#fiches").addEventListener("input", (e) => {
-  const cle = e.target.dataset?.fs;
-  if (!cle) return;
-  const racine = e.target.closest("#frais-sim");
-  const nombre = (min, max) => Math.min(max, Math.max(min, Number(String(e.target.value).replace(",", ".")) || 0));
-  if (cle === "capital") fraisSim.capital = nombre(0, 1e8);
-  else if (cle === "mensuel") fraisSim.mensuel = nombre(0, 1e5);
-  else {
-    fraisSim.annees = Math.round(nombre(1, 50));
-    // curseur et champ numérique restent synchronisés (sans réécrire le champ en cours de saisie)
-    for (const el of racine.querySelectorAll('[data-fs="annees"], [data-fs="annees-nb"]')) if (el !== e.target) el.value = fraisSim.annees;
-    racine.querySelector("#fs-annees-txt").textContent = fraisSim.annees;
-  }
-  racine.querySelector("#fs-resultat").innerHTML = resultatFrais(valeursFraisSim());
-});
-$("#fiches").addEventListener("click", (e) => {
-  if (!e.target.closest?.("[data-fs-reset]")) return;
-  fraisSim.capital = fraisSim.mensuel = fraisSim.annees = null;
-  rendreFiches();
-});
-
-function rendreFiches() {
-  const id = location.hash.startsWith("#fiche-") ? location.hash.slice(7).split("?")[0] : null;
-  const f = CONTENU_FICHES.find((x) => x.id === id);
-  const verifie = new Date(VERIFIE_LE + "T12:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
-  if (!f) {
-    const intro = `<p class="note" style="margin:0 0 12px">Un mémo par compte : ce que c'est, où l'ouvrir, comment faire, et ce que ton plan prévoit. Les mots compliqués sont expliqués dans le lexique. Informations vérifiées le ${verifie}.</p>`;
-    const tout = `<div class="cartes">${CONTENU_FICHES.filter((x) => x.guide || HAUT_FICHES.includes(x.id)).map((x) => `<a class="carte carte-guide" href="#fiche-${x.id}"><span class="etiquette projet">${x.guide ? "À lire en premier" : x.id === "risques" ? "Se protéger" : x.id === "net-impot" ? "Comprendre sa paie" : x.id === "frais" ? "Attention aux frais" : "Les mots expliqués"}</span><h2>${x.titre}</h2><p>${echapper(x.accroche)}</p></a>`).join("")}</div>
-      <h3 class="annee" style="margin:20px 0 8px">Une fiche par compte</h3>
-      <div class="cartes">${CONTENU_FICHES.filter((x) => !x.guide && !HAUT_FICHES.includes(x.id)).map((x) => `<a class="carte" href="#fiche-${x.id}"><h2>${x.titre}</h2><p>${echapper(x.accroche)}</p></a>`).join("")}</div>`;
-    const niv = niveauCourant();
-    if (niv !== "debutant") { $("#fiches").innerHTML = intro + tout; return; }
-    // Débutant : un parcours de 6 fiches d'abord, toutes les autres repliées (aucune fiche n'est retirée)
-    const parcours = PARCOURS_DEBUTANT.map((e, i) => { const x = CONTENU_FICHES.find((y) => y.id === e.id); return x ? `<a class="carte carte-guide" href="#fiche-${x.id}"><span class="etiquette projet">Étape ${i + 1} sur ${PARCOURS_DEBUTANT.length}</span><h2>${x.titre}</h2><p>${echapper(e.phrase)}</p></a>` : ""; }).join("");
-    $("#fiches").innerHTML = intro + `<h3 class="annee" style="margin:0 0 8px">Par où commencer</h3><div class="cartes" id="parcours-fiches">${parcours}</div>
-      <details class="toutes-fiches" style="margin-top:20px"><summary><b>Toutes les fiches</b></summary><div style="margin-top:12px">${tout}</div></details>`;
-    return;
-  }
-  const res = etat.resultat;
-  const L = (t) => texteLie(t, f.id);
-  $("#fiches").innerHTML = `<article class="fiche-detail">
-    <a class="retour" href="#fiches">← Toutes les fiches</a>
-    <h2 class="titre-fiche">${f.titre}</h2>
-    <p class="accroche">${L(f.accroche)}</p>
-    ${bandeauFrais(f)}
-    ${f.guide || f.id === "lexique" ? "" : `<p class="small muted" style="margin:0">Dans ton plan : ${L(f.role)}</p>
-    <section class="panneau encart"><h3>Dans ton plan, pour ce profil</h3>${res ? blocDansTonPlan(f, res) : ""}</section>`}
-    <section><h3>L'essentiel</h3><dl class="essentiel">${f.essentiel.map(([k, v]) => `<div><dt>${k}</dt><dd>${L(v)}</dd></div>`).join("")}</dl></section>
-    ${f.sections.map((sec) => `<section><h3>${sec.titre}</h3>${sec.special === "entreprises" ? blocEntreprises() : sec.special === "top3" ? blocTop3(f) : sec.special === "primes" ? blocPrimes() : sec.special === "simulateurFrais" ? blocSimulateurFrais() : ""}${sec.points ? `<${sec.ordonne ? "ol" : "ul"} class="points">${sec.points.map((p) => `<li>${L(p)}</li>`).join("")}</${sec.ordonne ? "ol" : "ul"}>` : ""}${sec.tableau ? `<div class="table-wrap"><table class="tableau-fiche"><thead><tr>${sec.tableau.entetes.map((h) => `<th>${echapper(h)}</th>`).join("")}</tr></thead><tbody>${sec.tableau.lignes.map((l) => `<tr>${l.map((c, i) => `<td${i === 0 ? ' class="fort"' : ""}>${L(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : ""}</section>`).join("")}
-    ${f.videos?.length ? `<section><h3>En vidéo</h3><ul class="points">${f.videos.map(([t, u, n]) => `<li><a class="lien-video" href="${u}" target="_blank" rel="noopener">▶ ${echapper(t)}</a>${n ? ` <span class="muted small">${echapper(n)}</span>` : ""}</li>`).join("")}</ul></section>` : ""}
-    ${f.etapes?.length ? `<section><h3>Étapes</h3><ol class="points">${f.etapes.map((p) => `<li>${L(p)}</li>`).join("")}</ol></section>` : ""}
-    ${f.attention?.length ? `<section class="vigilance"><h3>Points de vigilance</h3><ul class="points">${f.attention.map((p) => `<li>${L(p)}</li>`).join("")}</ul></section>` : ""}
-    <p class="note">${f.guide || f.id === "lexique" ? `Mis à jour le ${verifie}.` : `Informations vérifiées le ${verifie}. Taux, plafonds et fiscalité évoluent : les revérifier avant d'agir. Les plateformes citées sont des exemples, pas des recommandations.`}${f.sources.length ? ` Sources : ${f.sources.map(([t, u]) => `<a href="${u}" target="_blank" rel="noopener">${echapper(t)}</a>`).join(" · ")}.` : ""}</p>
-  </article>`;
-}
+monterTransmission(); // écouteurs de la vue Transmission (vues/transmission.js), attachés à cet endroit comme avant le découpage
 
 // ---------------------------------------------------------------- onglets
-// ---------------------------------------------------------------- Transmission : succession et donation (calculs dans succession.js)
-// Les champs « succession.* » sont liés au profil par data-p ; les montants en euros passent par eur(), donc par le mode discrétion (Alt+H).
-const DETENUS_TEXTE = { pp: "pleine propriété", np: "nue-propriété", us: "usufruit", "pp+us": "pleine propriété (un quart) et usufruit" };
-const SITUATION_TEXTE = { seul: "Seul(e)", mariage: "Marié(e)", pacs: "Pacsé(e)", concubin: "En concubinage" };
-const OPTION_TEXTE = {
-  quart_pp: "Un quart en pleine propriété", usufruit: "Usufruit de toute la succession",
-  quart_pp_usufruit: "Un quart en pleine propriété et usufruit du reste", quotite_disponible: "Quotité disponible en pleine propriété",
-  communaute_universelle: "Si changement de régime (notaire) : communauté universelle",
-};
-const heritierTexte = (h) => (h.lien === "conjoint" ? "Conjoint survivant" : h.lien === "pacs" ? "Partenaire de PACS" : h.lien === "concubin" ? "Concubin" : `Enfant ${h.id.replace("enfant", "")}`);
-// ---------------------------------------------------------------- Quitter la France : exit tax et sort des comptes (fiscal.js, moteur.js)
-// Les champs « simulationDepart.* » sont liés au profil par data-p ; le rendu est construit sans innerHTML (textContent) et les montants passent par eur() (mode discrétion).
-const ACTION_DEPART = { conserver: "Conserver", cloturer: "Clôturer", gelerVersements: "Conserver, arrêter les versements" };
-function noeudDepart(balise, texte, attrs = {}) { const e = creerChampCE(balise, attrs); if (texte != null) e.textContent = texte; return e; }
-function ligneTableDepart(cellules) {
-  const tr = document.createElement("tr");
-  cellules.forEach(([texte, montant]) => tr.append(noeudDepart("td", texte, montant ? { class: "m num" } : {})));
-  return tr;
-}
-function rendreDepart() {
-  const bloc = $("#dp-resultat"); if (!bloc) return;
-  const plan = etat.brouillon, p = etat.profil, D = { ...DEPART_DEFAUT, ...(p.simulationDepart ?? {}) };
-  const select = $("#dp-pays");
-  if (!select.options.length) {
-    select.append(noeudDepart("option", "Choisis un pays", { value: "" }));
-    for (const [code, v] of Object.entries(plan.residence?.pays ?? {})) if (code !== "FR") select.append(noeudDepart("option", v.libelle ?? code, { value: code }));
-  }
-  const calcul = profilPourMoteur();
-  const T = tauxEffectifs(p, etat.tauxDuJour);
-  const epargneEtrangere = consoliderEtrangers(p, T.taux).lignes.filter((l) => l.type === "epargneEtrangere").reduce((t, l) => t + l.soldeEUR, 0);
-  const titresDefaut = Math.round((Number(calcul.placements?.cto) || 0) + epargneEtrangere);
-  $("#dp-titres").placeholder = String(titresDefaut);
-  const titres = D.valeurTitres == null ? titresDefaut : Number(D.valeurTitres) || 0;
-  const annees = D.anneesResidence10 == null ? 10 : Number(D.anneesResidence10) || 0;
-  const x = exitTax({ valeurTitres: titres, plusValuesLatentes: D.plusValuesLatentes, moinsValuesLatentes: D.moinsValuesLatentes, participation50: D.participation50 === true, anneesResidence10: annees, destination: D.destination === "autre" ? "autre" : "ue" });
-  const enfants = [];
-  const verdict = noeudDepart("p", null, { style: "margin:8px 0 4px" });
-  verdict.append(noeudDepart("b", x.assujetti ? "Exit tax : tu serais assujetti(e)." : "Exit tax : tu ne serais pas assujetti(e)."));
-  enfants.push(verdict);
-  const motifs = noeudDepart("ul", null, { class: "points" });
-  x.motifs.forEach((m) => motifs.append(noeudDepart("li", m)));
-  enfants.push(motifs);
-  if (x.assujetti) {
-    const tab = noeudDepart("table"), corps = noeudDepart("tbody");
-    corps.append(
-      ligneTableDepart([["Base imposable (plus-values latentes moins moins-values latentes)", false], [eur(x.base), true]]),
-      ligneTableDepart([["Impôt sur le revenu (prélèvement forfaitaire)", false], [eur(x.impotIR), true]]),
-      ligneTableDepart([["Prélèvements sociaux", false], [eur(x.prelevementsSociaux), true]]),
-      ligneTableDepart([["Total", false], [eur(x.total), true]]),
-      ligneTableDepart([["Sursis de paiement", false], [x.sursis === "automatique" ? "Automatique (UE ou EEE avec convention)" : "Sur demande, avec garanties", false]]),
-      ligneTableDepart([["Dégrèvement possible si les titres sont gardés", false], [`${x.degrevementApresAns} ans`, false]]),
-    );
-    corps.lastElementChild.previousElementSibling.previousElementSibling.classList.add("tm-ligne-total");
-    tab.append(corps);
-    const wrap = noeudDepart("div", null, { class: "table-wrap" }); wrap.append(tab); enfants.push(wrap);
-    const notes = noeudDepart("ul", null, { class: "points small muted" });
-    x.notes.forEach((m) => notes.append(noeudDepart("li", m)));
-    enfants.push(notes);
-  }
-  // Sort de chaque compte
-  const lignes = consequencesDepart(plan, calcul, D.pays || "AUTRE");
-  enfants.push(noeudDepart("h3", "Sort de tes comptes", { style: "margin:12px 0 4px" }));
-  if (!lignes.length) enfants.push(noeudDepart("p", "Aucun compte avec un solde à examiner (les comptes à l'étranger ne sont pas concernés).", { class: "muted", style: "margin:0" }));
-  else {
-    const wrap = noeudDepart("div", null, { class: "table-wrap" }), tab = noeudDepart("table"), tete = noeudDepart("thead"), tr = document.createElement("tr");
-    ["Compte", "Solde", "Décision", "Pourquoi"].forEach((t, i) => tr.append(noeudDepart("th", t, i === 1 ? { class: "m" } : {})));
-    tete.append(tr);
-    const corps = noeudDepart("tbody");
-    lignes.forEach((l) => {
-      const ligne = document.createElement("tr");
-      ligne.append(noeudDepart("td", l.libelle), noeudDepart("td", eur(l.solde), { class: "m num" }), noeudDepart("td", ACTION_DEPART[l.action] ?? l.action), noeudDepart("td", l.explication));
-      corps.append(ligne);
-    });
-    tab.append(tete, corps); wrap.append(tab); enfants.push(wrap);
-  }
-  enfants.push(noeudDepart("p", NOTE_CONSEQUENCES_DEPART, { class: "small muted", style: "margin:8px 0 0" }));
-  bloc.replaceChildren(...enfants);
-}
-function rendreTransmission() {
-  const sortie = $("#tm-resultat"); if (!sortie) return;
-  const p = etat.profil;
-  rendreDepart();
-  // Champs liés au profil (sauf celui qu'on est en train de saisir)
-  document.querySelectorAll("#vue-transmission [data-p]").forEach((el) => {
-    if (el === document.activeElement) return;
-    const v = lire(p, el.dataset.p);
-    if (el.type === "checkbox") el.checked = !!v; else el.value = v ?? "";
-  });
-  const annee = new Date().getFullYear();
-  let entree, r;
-  try { entree = entreeDepuisProfil(profilDeCalcul(p), annee); r = simulerSuccession(entree); }
-  catch (e) { console.error(e); sortie.innerHTML = `<p class="erreur">Simulation impossible : ${echapper(e.message)}</p>`; return; }
-  const sit = entree.situation, couple = sit === "mariage" || sit === "pacs", avecEnfants = entree.enfants > 0;
-  $("#tm-rappel").innerHTML = `Repris de ton profil : <b>${SITUATION_TEXTE[sit]}</b> · tu as <b>${entree.ageDefunt} ans</b>${sit !== "seul" ? ` · ton conjoint ou partenaire a <b>${entree.ageConjoint} ans</b>` : ""} · <b>${entree.enfants}</b> enfant${entree.enfants > 1 ? "s" : ""}. Pour les changer, va dans <a class="lien-fiche" href="#mon-profil">Mon profil</a>.`;
-  const montre = (id, on) => { const el = $(id); if (el) el.hidden = !on; };
-  montre("#tm-ch-union", couple); montre("#tm-ch-regime", sit === "mariage");
-  montre("#tm-ch-testament", sit === "pacs" || sit === "concubin"); montre("#tm-ch-mineur", sit === "seul" || sit === "concubin");
-  montre("#tm-ch-clause", sit !== "seul");
-  montre("#tm-ch-option", sit === "mariage" && avecEnfants && entree.regime !== "communaute_universelle"); montre("#tm-ch-ddv", sit === "mariage" && avecEnfants);
-  montre("#tm-ch-noncommuns", sit === "mariage" && avecEnfants); montre("#tm-ch-propres", sit !== "seul" && entree.regime !== "communaute_universelle"); montre("#tm-ch-propres-conjoint", sit !== "seul" && entree.regime !== "communaute_universelle");
-  $("#tm-noncommuns").max = String(entree.enfants);
-  // Options du conjoint impossibles dans cette situation : grisées (« auto » reste toujours disponible) ; si la valeur enregistrée
-  // est devenue impossible, simulerSuccession se replie sur le quart en pleine propriété et l'indique dans les hypothèses
-  const possibles = optionsPossibles(entree);
-  document.querySelectorAll("#tm-option option").forEach((o) => { o.disabled = o.value !== "auto" && !possibles.includes(o.value); });
-
-  const M = r.masse;
-  const lignesH = r.heritiers.map((h) => `<tr><td>${heritierTexte(h)}</td><td>${h.recuSuccession > 0 ? DETENUS_TEXTE[h.droitsDetenus] ?? "" : "—"}</td><td class="m">${eur(h.recuSuccession)}</td><td class="m">${eur(h.avHorsSuccession)}</td><td class="m">${eur(h.abattement)}</td><td class="m">${eur(h.droitsTotal)}</td><td class="m"><b>${eur(h.net)}</b></td></tr>`).join("");
-  const synthese = `<section class="panneau" id="tm-synthese">
-    <h2>Ce que tes héritiers recevraient</h2>
-    <p class="small muted" style="margin:0 0 8px">Masse successorale nette : <b>${eur(M.masseNette)}</b> (actifs de la succession ${eur(M.actifBrut)}${M.abattementRP > 0 ? `, moins l'abattement de 20 % sur la résidence principale ${eur(M.abattementRP)}` : ""}, moins les dettes ${eur(M.passif)}, moins le forfait funéraire ${eur(M.forfaitFuneraire)}). L'assurance-vie et le PER sont hors succession.</p>
-    ${r.heritiers.length ? `<div class="table-wrap"><table><thead><tr><th>Héritier</th><th>Reçoit en</th><th class="m">Reçu (valeur fiscale)</th><th class="m">Assurance-vie et PER</th><th class="m">Abattement</th><th class="m">Droits</th><th class="m">Net</th></tr></thead><tbody>${lignesH}
-      <tr class="tm-ligne-total"><td colspan="5">Total</td><td class="m">${eur(r.totalDroits)}</td><td class="m">${eur(r.netTransmis)}</td></tr></tbody></table></div>
-    <p style="margin:8px 0 0">Droits totaux : <b>${eur(r.totalDroits)}</b> · net transmis : <b>${eur(r.netTransmis)}</b> · taux effectif : <b>${pct(r.tauxEffectif)}</b></p>` : `<p class="muted">Aucun héritier modélisé dans cette situation (voir les points hors périmètre).</p>`}
-    ${r.hypotheses.length ? `<ul class="points tm-liste">${r.hypotheses.map((h) => `<li>${echapper(h)}</li>`).join("")}</ul>` : ""}
-    <details style="margin-top:8px"><summary class="small">Hors périmètre de cette estimation</summary><ul class="points">${r.horsPerimetre.map((h) => `<li>${echapper(h)}</li>`).join("")}</ul></details>
-    <p class="note" style="margin:8px 0 0">${lienFiche("heritage", "Fiche Héritage et transmission")}</p>
-  </section>`;
-
-  let options = "";
-  let lignesO = [];
-  try { lignesO = comparerOptionsConjoint(entree); } catch (e) { console.error(e); }
-  if (lignesO.length) {
-    const meilleure = lignesO.find((l) => l.option !== "communaute_universelle");
-    const corps = lignesO.map((l) => `<tr${l === meilleure ? ' class="meilleure"' : ""}><td>${OPTION_TEXTE[l.option] ?? l.option}${l === meilleure ? " (la moins chère)" : ""}</td><td class="m">${eur(l.droits1erDeces)}</td><td class="m">${eur(l.droits2eDeces)}</td><td class="m">${eur(l.total)}</td><td class="m">${eur(l.netEnfants)}</td></tr>`).join("");
-    options = `<section class="panneau" id="tm-options" data-min="avance">
-      <h2>Options du conjoint survivant : deux décès</h2>
-      <p class="small muted" style="margin:0 0 8px">Droits payés par les enfants au premier décès, puis au second (à valeurs constantes, sans consommation du patrimoine).</p>
-      <div class="table-wrap"><table><thead><tr><th>Option</th><th class="m">1er décès</th><th class="m">2e décès</th><th class="m">Total des droits</th><th class="m">Net pour les enfants</th></tr></thead><tbody>${corps}</tbody></table></div>
-    </section>`;
-  }
-  sortie.innerHTML = synthese + options;
-
-  // Concubinage, PACS ou mariage ? (même profil et même année que la simulation ci-dessus)
-  const stat = $("#tm-statuts"), part = $("#tm-partage");
-  let cmp = null, sep = null;
-  try { cmp = comparerStatutsConjugaux(profilDeCalcul(p), annee); } catch (e) { console.error(e); }
-  try { sep = partageDepuisProfil(profilDeCalcul(p), annee); } catch (e) { console.error(e); }
-  const STATUT_TEXTE = { concubin: "Concubinage", pacs: "PACS", mariage: "Mariage" };
-  if (stat) {
-    if (!cmp) stat.innerHTML = "";
-    else {
-      const g = cmp.impot.gainCommun;
-      const phrase = Math.abs(g) < 1 ? "Imposition commune : aucune différence d'impôt par rapport à deux déclarations séparées." : g > 0 ? `Imposition commune : <b>${eur(g)}</b> d'impôt en moins par an.` : `Imposition commune : <b>${eur(-g)}</b> d'impôt en plus par an.`;
-      const corps = cmp.lignes.map((l) => `<tr><td>${STATUT_TEXTE[l.statut] ?? l.statut}${l.testament ? " + testament" : ""}</td><td class="m">${eur(l.impotAnnuel)}</td><td class="m">${eur(l.droitsSurvivant)}</td><td class="m">${eur(l.netSurvivant)}</td><td>${l.heritierLegal ? "Oui" : "Non"}</td></tr>`).join("");
-      stat.innerHTML = `<section class="panneau">
-        <h2>Concubinage, PACS ou mariage ?</h2>
-        <p class="small" style="margin:0 0 8px">${phrase}</p>
-        <div class="table-wrap"><table><thead><tr><th>Statut</th><th class="m">Impôt sur le revenu / an</th><th class="m">Droits au décès</th><th class="m">Net reçu par le survivant</th><th>Héritier sans testament</th></tr></thead><tbody>${corps}</tbody></table></div>
-        <details style="margin-top:8px"><summary class="small">Hypothèses</summary><ul class="points">${cmp.hypotheses.map((h) => `<li>${echapper(h)}</li>`).join("")}</ul></details>
-      </section>`;
-    }
-  }
-  if (part) {
-    if (!sep) part.innerHTML = "";
-    else {
-      const prenom = echapper(p.conjoint?.prenom?.trim() || "Ton conjoint");
-      const REGIME_TEXTE = { communaute_legale: "communauté réduite aux acquêts", separation: "séparation de biens", communaute_universelle: "communauté universelle" };
-      const regime = sep.situation === "mariage" ? `, régime : ${REGIME_TEXTE[sep.regime] ?? echapper(sep.regime ?? "")}` : "";
-      const ligne = (nom, x) => `<tr><td>${nom}</td><td class="m">${eur(x.propres)}</td><td class="m">${eur(x.communs)}</td><td class="m">${eur(x.dettes)}</td><td class="m"><b>${eur(x.net)}</b></td></tr>`;
-      const phraseEcart = Math.abs(sep.ecart) < 1 ? "Le partage laisse à chacun le même patrimoine net." : `Le partage laisse à ${sep.ecart > 0 ? "toi" : prenom} <b>${eur(Math.abs(sep.ecart))}</b> de patrimoine net de plus.`;
-      part.innerHTML = `<section class="panneau">
-        <h2>En cas de séparation</h2>
-        <p class="small muted" style="margin:0 0 8px">Situation actuelle : ${SITUATION_TEXTE[sep.situation] ?? sep.situation}${regime}.</p>
-        <div class="table-wrap"><table><thead><tr><th></th><th class="m">Biens propres</th><th class="m">Part des biens communs ou indivis</th><th class="m">Dettes</th><th class="m">Patrimoine net</th></tr></thead><tbody>${ligne("Toi", sep.A)}${ligne(prenom, sep.B)}</tbody></table></div>
-        <p style="margin:8px 0 0">${phraseEcart}</p>
-        <details style="margin-top:8px"><summary class="small">Hypothèses et points non pris en compte</summary><ul class="points">${sep.hypotheses.map((h) => `<li>${echapper(h)}</li>`).join("")}</ul><p class="small" style="margin:6px 0 0">Non pris en compte :</p><ul class="points">${sep.horsPerimetre.map((h) => `<li>${echapper(h)}</li>`).join("")}</ul></details>
-        <p class="note" style="margin:8px 0 0">Estimation indicative : seul un notaire ou un avocat chiffre un partage réel.</p>
-      </section>`;
-    }
-  }
-
-  // Donation de nue-propriété
-  const D = p.succession?.projetDonation ?? {};
-  const bloc = $("#tm-donation-resultat");
-  const sansEnfant = entree.enfants <= 0;
-  document.querySelectorAll("#tm-donation input").forEach((el) => { el.disabled = sansEnfant; });
-  if (sansEnfant) bloc.innerHTML = `<p class="muted" style="margin:0">Indique au moins un enfant dans <a class="lien-fiche" href="#mon-profil">Mon profil</a> pour simuler une donation.</p>`;
-  else if (!(Number(D.valeur) > 0)) bloc.innerHTML = `<p class="muted" style="margin:0">Saisis la valeur du bien à donner pour voir l'économie de droits.</p>`;
-  else {
-    let d = null;
-    // Reste de la succession : part moyenne reçue par chaque enfant dans la simulation ci-dessus (elle s'ajoute au bien au décès)
-    const recus = r.heritiers.filter((h) => h.lien === "enfant").map((h) => h.recuSuccession);
-    const autres = recus.length ? recus.reduce((t, x) => t + x, 0) / recus.length : 0;
-    try { d = simulerDonationNP({ valeur: Number(D.valeur), ageDonateur: entree.ageDefunt, enfants: entree.enfants, donations: entree.donations, annee, croissance: (Number(D.croissance) || 0) / 100, anneesAvantDeces: Number(D.annees) || 0, autresBiensParEnfant: autres }); }
-    catch (e) { console.error(e); }
-    bloc.innerHTML = d ? `<p style="margin:0">À ${entree.ageDefunt} ans, la nue-propriété vaut <b>${pct(d.nuePropriete)}</b> du bien, soit <b>${eur(d.valeurNP)}</b> à partager entre ${entree.enfants} enfant${entree.enfants > 1 ? "s" : ""}.</p>
-      <div class="table-wrap"><table><tbody>
-        <tr><td>Droits si tu donnes aujourd'hui</td><td class="m">${eur(d.droitsDonation)}</td></tr>
-        ${d.droitsDecesAvecDonation > 0 || autres > 0 ? `<tr><td>Droits au décès sur le reste de la succession (donation rappelée si moins de 15 ans)</td><td class="m">${eur(d.droitsDecesAvecDonation)}</td></tr>` : ""}
-        <tr><td>Droits si rien n'est donné : bien et reste de la succession transmis au décès, dans ${Number(D.annees) || 0} ans</td><td class="m">${eur(d.droitsSansDonation)}</td></tr>
-        <tr class="tm-ligne-total"><td>Économie de droits</td><td class="m">${eur(d.economie)}</td></tr></tbody></table></div>
-      <p class="small muted" style="margin:8px 0 4px">Le reste de ta succession (${eur(autres)} par enfant dans la simulation ci-dessus) est pris en compte : une donation de moins de 15 ans est rappelée au décès et consomme l'abattement de 100 000 €. Si le bien donné figure déjà dans tes placements ou ton logement, il est compté deux fois dans ce reste.</p>
-      <p class="small muted" style="margin:8px 0 4px">Renouvellements de l'abattement de 100 000 € par enfant (tous les 15 ans) :</p>
-      <ul class="points">${d.calendrier.map((l) => `<li>${l.annee}, à ${l.age} ans : ${eur(l.abattementParEnfant)} par enfant, nue-propriété à ${pct(l.nuePropriete)}</li>`).join("")}</ul>` : "";
-  }
-}
-$("#vue-transmission").addEventListener("input", (e) => {
-  const el = e.target;
-  if (!el.dataset?.p) return;
-  if (el.type === "number" && el.max !== "" && el.value !== "" && Number(el.value) > Number(el.max)) el.value = el.max;
-  const v = el.type === "checkbox" ? el.checked : el.tagName === "SELECT" ? el.value : el.value === "" ? (el.placeholder ? null : 0) : Number(el.value);
-  ecrire(etat.profil, el.dataset.p, v);
-  memo.set("profil-v2", etat.profil);
-  rendreTransmission();
-  planifierSauvegardeProfil();
-});
-
 function rendreVue() {
   const vues = { "#epargne-ideale": "ideale", "#mon-profil": "profil", "#simulation": "profil", "#reequilibrage": "reequilibrage", "#trajectoire": "trajectoire", "#retraite": "retraite", "#transmission": "transmission", "#suivi": "suivi", "#fiches": "fiches", "#mon-plan": "plan" };
   const chemin = location.hash.split("?")[0]; // « #mon-profil?p=… » : seule la partie avant « ? » désigne l'onglet
@@ -5278,7 +2800,7 @@ function rendreVue() {
   if (vue === "trajectoire") rendreTrajectoire();
   if (vue === "retraite") rendreRetraite();
   if (vue === "transmission") rendreTransmission();
-  if (vue === "suivi") { messageSuivi = ""; rendreSuivi(); }
+  if (vue === "suivi") ouvrirSuivi();
   if (vue === "fiches") rendreFiches();
   if (vue === "ideale") rendreEpargneIdeale();
   if (avant !== `vue-${vue}` || vue === "fiches") window.scrollTo(0, 0);

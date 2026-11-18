@@ -1,5 +1,5 @@
 // Tests des niveaux de lecture (niveaux.js) et de leur cohérence avec index.html — `node test_niveaux.mjs`
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { PLAN } from "./plan.js";
 import { analyser, GROUPES_PLACEMENTS, totalGroupe, repartirGroupe, repartirCapitalPrudent } from "./moteur.js";
 import { NIVEAUX, INFOS_NIVEAUX, MATRICE, LIBELLES_VUES, nomVue, libelleOnglet, suiteVue, rang, visible, reglagesAvancesActifs, niveauLePlusBas } from "./niveaux.js";
@@ -29,7 +29,9 @@ for (const [cle, min] of Object.entries(MATRICE.profil)) {
   egal(dm(ligne), min, `data-min de « ${cle} » dans index.html`);
 }
 // Rééquilibrage : chaque clé de MATRICE.reequilibrage a son id et son data-min dans le gabarit de app.js
-const appJs = readFileSync(new URL("./app.js", import.meta.url), "utf8").split("\n");
+// Source des gabarits de rendu : app.js + ui/commun.js + vues/*.js (ordre trié), depuis le découpage en modules de vue
+const sourcesRendu = ["app.js", "ui/commun.js", ...readdirSync(new URL("./vues/", import.meta.url)).filter((f) => f.endsWith(".js")).sort().map((f) => `vues/${f}`)];
+const appJs = sourcesRendu.map((f) => readFileSync(new URL(`./${f}`, import.meta.url), "utf8")).join("\n").split("\n");
 for (const [cle, min] of Object.entries(MATRICE.reequilibrage)) {
   const ligne = appJs.find((l) => l.includes(`id="${cle}"`));
   egal(ligne?.match(/data-min="([a-z]+)"/)?.[1], min, `data-min de « ${cle} » dans app.js`);
@@ -160,7 +162,7 @@ const PROFIL_VIDE = {
   succession: clone(SUCCESSION_DEFAUT),
 };
 // Garde-fou : les copies suivent app.js (si un champ y est ajouté, ce test le rappelle)
-const appSrc = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+const appSrc = ["./app.js", "./ui/commun.js"].map((f) => readFileSync(new URL(f, import.meta.url), "utf8")).join("\n"); // les profils par défaut vivent dans ui/commun.js
 const litApp = (nom) => { const t = appSrc.match(new RegExp(`const ${nom} = (\\{\\n[\\s\\S]*?\\n\\});`))?.[1]; return t ? new Function("PTZ_DEFAUT", "clone", "SUCCESSION_DEFAUT", `return ${t};`)(PTZ_DEFAUT, clone, SUCCESSION_DEFAUT) : null; };
 egal(SUCCESSION_DEFAUT, new Function(`return ${appSrc.match(/const SUCCESSION_DEFAUT = (\{.*\});/)?.[1]};`)(), "copie de SUCCESSION_DEFAUT identique à celle d'app.js");
 egal(PROFIL_EXEMPLE, litApp("PROFIL_EXEMPLE"), "copie de PROFIL_EXEMPLE identique à celle d'app.js");
@@ -223,11 +225,13 @@ for (const groupe of ["livrets", "assuranceVie", "bourse"]) for (const montant o
   for (const f of shell.filter((x) => x !== "./")) verifier(existsSync(new URL(`./${f}`, import.meta.url)), `SHELL : ${f} existe sur le disque`);
   for (const f of shell.filter((x) => x.endsWith(".js") && x !== "service-worker.js")) {
     const src = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
-    for (const m of src.matchAll(/(?:from|import)\s*\(?\s*"\.\/([a-z0-9-]+(?:\/[a-z0-9-]+)*\.js)"/g)) verifier(shell.includes(m[1]), `SHELL : ${m[1]} (importé par ${f}) est pré-caché`);
+    // Imports relatifs (./ et ../) résolus depuis le dossier du fichier importeur (vues/*.js importent ../ui/commun.js et ./trajectoire.js)
+    for (const m of src.matchAll(/(?:from|import)\s*\(?\s*"(\.{1,2}\/[a-z0-9-]+(?:\/[a-z0-9-]+)*\.js)"/g)) {
+      const cible = new URL(m[1], `http://x/${f}`).pathname.slice(1);
+      verifier(shell.includes(cible), `SHELL : ${cible} (importé par ${f}) est pré-caché`);
+    }
   }
-  const cacheMatch = sw.match(/CACHE_VERSION = "plan-patrimoine-v(\d+)"/);
-  verifier(cacheMatch && Number(cacheMatch[1]) >= 16, `CACHE_VERSION incrémentée (v${cacheMatch?.[1]})`);
-  verifier(cacheMatch && Number(cacheMatch[1]) >= 21, `CACHE_VERSION ≥ v21 (polices locales dans le shell)`);
+  verifier(/CACHE_VERSION = "plan-patrimoine-[0-9a-f]{12}";/.test(sw), "CACHE_VERSION dérivée de l'empreinte du shell (outils/empreinte-shell.mjs ; polices locales dans le shell)");
 
   // Zéro CDN tiers (CLAUDE.md) : CSP sans hôte externe, index.html sans ressource externe, polices locales pré-cachées
   const entetes = readFileSync(new URL("./_headers", import.meta.url), "utf8");
