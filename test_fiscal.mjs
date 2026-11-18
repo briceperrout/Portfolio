@@ -3,6 +3,8 @@ import { alerteMillesime, FISCALITE, MILLESIME, PLAFONDS, BAREME, PFU, PRELEVEME
 import { conseilPER, tauxGains, revenuImposableDe, normaliserFoyer } from "./moteur.js";
 import { PLAN } from "./plan.js";
 import { estimerPension } from "./pension.js";
+import { comparerMillesimes } from "./outils/comparer-millesimes.mjs";
+import { readFileSync } from "node:fs";
 
 let ok = 0, ko = 0;
 const verifier = (nom, obtenu, attendu, tol = 2) => {
@@ -321,6 +323,27 @@ verifier("barème indexé 1,1", impotBaremeIndexe(33000, 2, 2, 1.1).impot, impot
     const moi = { ...marie, foyer: { actif: true, statut: "concubin", vue: "moi" } }, v = revenusImposablesConjoints(moi), w = revenusImposablesConjoints(normaliserFoyer(PLAN, JSON.parse(JSON.stringify(moi))));
     verifier("revenus conjoints concubin « vue moi » : profil normalisé = brut", Math.abs(w.a - v.a) < 0.01 && Math.abs(w.b - v.b) < 0.01, true);
   }
+}
+
+// Outillage du millésime : cohérence des métadonnées, import unique, comparateur
+{
+  verifier("millésime : FISCALITE.millesime = MILLESIME", FISCALITE.millesime, MILLESIME);
+  verifier("millésime : revenus = millésime - 1", FISCALITE.revenus, FISCALITE.millesime - 1);
+  verifier("millésime : loiDeFinances mentionne l'année", String(FISCALITE.loiDeFinances).includes(String(FISCALITE.millesime)), true);
+  const imports = [...readFileSync(new URL("./fiscal.js", import.meta.url), "utf8").matchAll(/from\s+"\.\/fiscalite\/(\d{4})\.js"/g)].map((r) => r[1]);
+  verifier("millésime : fiscal.js importe un seul fichier fiscalite/<année>.js", imports.length, 1, 0);
+  verifier("millésime : le fichier importé est celui du millésime", imports[0], String(MILLESIME));
+  verifier("comparerMillesimes : identique -> aucun écart", comparerMillesimes(FISCALITE, FISCALITE).length, 0, 0);
+  const clone = structuredClone(FISCALITE);
+  clone.ir.bareme[2][1] += 1;
+  clone.nouvelleCle = 42;
+  delete clone.marche;
+  const ec = comparerMillesimes(FISCALITE, clone);
+  verifier("comparerMillesimes : 3 écarts", ec.length, 3, 0);
+  const par = (c) => ec.find((e) => e.chemin === c);
+  verifier("comparerMillesimes : taux modifié", par("ir.bareme[2][1]")?.type, "modifie");
+  verifier("comparerMillesimes : clé ajoutée", par("nouvelleCle")?.type, "ajoute");
+  verifier("comparerMillesimes : clé supprimée", par("marche")?.type, "supprime");
 }
 
 console.log(`${ok} vérifications réussies, ${ko} échec(s)`);
