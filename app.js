@@ -12,7 +12,7 @@ import { LEXIQUE, lierTermes } from "./lexique.js";
 import { DEPARTEMENTS, chargerPrix, prixCharges, estimer, estimerLoyer, libelleCommune, chercherCommunes, codeCommune } from "./immobilier.js";
 import { estimerPension, ageEnTexte } from "./pension.js";
 import { entreeDepuisProfil, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, optionsPossibles, reserveAVTransmissible } from "./succession.js";
-import { decomposerSalaire, foyerFiscal, impotBareme, BAREME, exitTax } from "./fiscal.js";
+import { decomposerSalaire, foyerFiscal, impotBareme, BAREME, exitTax, PRELEVEMENTS, PFU, PLAFONDS, ABATTEMENT_AV, SEUIL_PRIMES_AV } from "./fiscal.js";
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
 import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER, etatReleve, comparerReleve } from "./moteur.js";
 import { monterAssistant } from "./assistant.js";
@@ -1639,7 +1639,7 @@ function rendreRetraite() {
         <div class="tuile"><span>Pessimiste (9 cas sur 10) : revenu possible en consommant tout d'ici ${C[iF].age} ans</span><b class="num" id="pess-consomme">${P ? `${eur(P.revenuConsomme)}/mois` : '<span class="muted small">calcul en cours…</span>'}</b></div>
       </div>
       ${verdict}
-      <p class="note" style="margin:10px 0 0">Tous les montants sont en euros d'aujourd'hui (inflation déduite). Les revenus possibles sont calculés dans le scénario central (rendements moyens), impôts sur les ventes compris : environ ${pct(tauxPremiereAnnee)} de chaque retrait la première année, puis plus ensuite, car la part de gains dans ce qu'il reste augmente (le capital restant continue de rapporter). Chaque scénario tiré au hasard est taxé avec ses propres gains. L'abattement annuel de l'assurance-vie de plus de 8 ans (4 600 € de gains, 9 200 € pour un couple marié ou pacsé) est utilisé chaque année.</p>
+      <p class="note" style="margin:10px 0 0">Tous les montants sont en euros d'aujourd'hui (inflation déduite). Les revenus possibles sont calculés dans le scénario central (rendements moyens), impôts sur les ventes compris : environ ${pct(tauxPremiereAnnee)} de chaque retrait la première année, puis plus ensuite, car la part de gains dans ce qu'il reste augmente (le capital restant continue de rapporter). Chaque scénario tiré au hasard est taxé avec ses propres gains. L'abattement annuel de l'assurance-vie de plus de 8 ans (${eur(ABATTEMENT_AV.seul)} de gains, ${eur(ABATTEMENT_AV.couple)} pour un couple marié ou pacsé) est utilisé chaque année.</p>
     </section>
 ${economieRetraitsHtml(D)}
     <section class="panneau" id="ret-capital" data-min="intermediaire"><h2>Ton capital pendant la retraite</h2>
@@ -1665,7 +1665,7 @@ ${economieRetraitsHtml(D)}
     </section>
     <section class="panneau" id="ret-impots" data-min="avance"><h2>Impôts et transmission</h2>
       <ul class="points" style="margin-top:10px">
-        <li>${texteLie("Assurance-vie de plus de 8 ans : l'abattement annuel (4 600 € de gains, 9 200 € pour un couple marié ou pacsé) est utilisé chaque année par des rachats partiels ; au-delà, les gains paient 7,5 % d'impôt (12,8 % sur la part des contrats dépassant 150 000 € de versements) et 17,2 % de prélèvements sociaux.")}</li>
+        <li>${texteLie(`Assurance-vie de plus de 8 ans : l'abattement annuel (${eur(ABATTEMENT_AV.seul)} de gains, ${eur(ABATTEMENT_AV.couple)} pour un couple marié ou pacsé) est utilisé chaque année par des rachats partiels ; au-delà, les gains paient ${pct(PRELEVEMENTS.IR_AV_8ANS)} d'impôt (${pct(PRELEVEMENTS.IR_PFU)} sur la part des contrats dépassant ${eur(SEUIL_PRIMES_AV)} de versements) et ${pct(PRELEVEMENTS.PS_PATRIMOINE)} de prélèvements sociaux.`)}</li>
         <li>${texteLie("PEA de plus de 5 ans : retraits sans impôt sur le revenu, seulement 18,6 % de prélèvements sociaux sur la part de gains. Il est consommé avant le compte-titres, imposé à 31,4 % sur la part de gains de chaque vente.")}</li>
         <li>${texteLie("PER : la sortie en capital est lissée sur les années restantes, en restant dans ta tranche d'imposition (les versements déduits sont imposés au barème, les gains à 31,4 %), pour éviter une grosse facture d'un seul coup.")}</li>
         <li>${texteLie("Pour transmettre, l'assurance-vie est l'outil le plus avantageux : les sommes versées avant 70 ans sont transmises jusqu'à 152 500 € par bénéficiaire sans droits de succession ; après 70 ans, 30 500 € de versements au total (les gains sont exonérés). Le PEA, lui, est fermé au décès et entre dans la succession.")}</li>
@@ -1941,8 +1941,8 @@ async function lancerPessimiste() {
 function comparerPERPEA(tmi, tret, n = 20) {
   const r = 0.06 / 12, F = (Math.pow(1 + r, 12 * n) - 1) / r;
   const m = 100 / (1 - tmi / 100), cap = m * F, verse = m * 12 * n;
-  const per = cap - (verse * tret) / 100 - (cap - verse) * 0.314;
-  const capE = 100 * F, pea = capE - (capE - 1200 * n) * 0.186;
+  const per = cap - (verse * tret) / 100 - (cap - verse) * (PFU / 100);
+  const capE = 100 * F, pea = capE - (capE - 1200 * n) * (PRELEVEMENTS.PS_CAPITAL / 100);
   return { per, pea, gain: 100 * (per / pea - 1) };
 }
 // ---------------------------------------------------------------- export / import des données (.json)
@@ -2417,13 +2417,13 @@ function rendreChoixProfil() {
       ? `<b>⚠ C'est étonnant :</b> avec ton salaire, ton revenu fiscal de référence serait d'environ ${eur(LE.rfr)}, au-dessus du plafond de ${eur(LE.seuil)} pour ton foyer. C'est possible seulement si tes revenus d'une des deux années précédentes étaient plus bas (voir ton avis d'impôt) ; sinon, la banque refusera l'ouverture : décoche la case. ${echapper(texte)}`
       : echapper(texte);
     $("#aide-lep").classList.toggle("attention", etonnant);
-    const lien = $("#ligne-lep .aide-lien"); if (lien) lien.dataset.bulle = `LEP : 2,5 % sans impôt, plafond 10 000 €. ${texte}`;
+    const lien = $("#ligne-lep .aide-lien"); if (lien) lien.dataset.bulle = `LEP : 2,5 % sans impôt, plafond ${eur(PLAFONDS.lep)}. ${texte}`;
   }
   // Salaire dans 10 ans
   // Abondement : combien verser pour tout toucher
   const AB = etat.profil.abondement ?? {}, RA = plan.abondement ?? {};
   const surPEE = AB.acces === "pee" || (AB.acces !== "per" && AB.plan === "pee");
-  const plafLegal = surPEE ? RA.plafondPEE ?? 3844.8 : RA.plafondPERCollectif ?? 7689.6;
+  const plafLegal = surPEE ? RA.plafondPEE ?? PLAFONDS.abondement.pee : RA.plafondPERCollectif ?? PLAFONDS.abondement.perco;
   $("#aide-acces").innerHTML = {
     "?": `Ton employeur ajoute peut-être de l'argent à ton épargne : regarde ton livret d'épargne salariale, ta fiche de paie (lignes « intéressement », « participation ») ou demande aux RH. Obligatoire dans les entreprises d'au moins 50 salariés. <a class="lien-fiche" href="#fiche-epargne-salariale">Comment savoir</a>`,
     non: "Pas de souci : ton PEA et ton PER individuel font le même travail, sans l'argent offert.",
@@ -4345,8 +4345,8 @@ function blocCalculPER(res) {
   const n = Math.max(1, (plan.hypotheses.ageRetraite ?? 64) - (p.agePrincipal ?? p.age ?? 30));
   const tret = plan.per?.tmiRetraite ?? 11, r = 0.06 / 12, F = (Math.pow(1 + r, 12 * n) - 1) / r;
   const effort = 100, mPER = effort / (1 - tmi / 100);
-  const capPER = mPER * F, versePER = mPER * 12 * n, netPER = capPER - (versePER * tret) / 100 - (capPER - versePER) * 0.314;
-  const cap = effort * F, verse = effort * 12 * n, netPEA = cap - (cap - verse) * 0.186, netCTO = cap - (cap - verse) * 0.314;
+  const capPER = mPER * F, versePER = mPER * 12 * n, netPER = capPER - (versePER * tret) / 100 - (capPER - versePER) * (PFU / 100);
+  const cap = effort * F, verse = effort * 12 * n, netPEA = cap - (cap - verse) * (PRELEVEMENTS.PS_CAPITAL / 100), netCTO = cap - (cap - verse) * (PFU / 100);
   const gain = (100 * (netPER / netPEA - 1));
   const ab = res.abondement;
   const ligneAb = ab?.mensuel > 0.5 ? `<p class="verdict ok" style="margin:0 0 8px"><b>Abondement :</b> en versant ${eur(ab.mensuel)} par mois sur ton ${ab.surPER ? "PER d'entreprise" : "PEE"}, ton employeur ajoute ${eur(ab.abondementAn)} par an. C'est la première chose à faire.</p>` : "";
@@ -4451,7 +4451,7 @@ function produitsIdeaux(res) {
   const secA = SEC.reduce((t, e) => t + (P[e] ?? 0), 0), secC = res.alloc?.securite ?? cible(SEC), apport = res.alloc?.projet ?? 0;
   L.push({ etape: 1, id: "livret-a", nom: "Livret A + LDDS", fiche: "livrets", badge: "Indispensable",
     pourquoi: "Ton épargne de sécurité : l'argent des imprévus (panne, perte d'emploi), garanti par l'État et disponible en un clic. C'est elle qui te permet de ne jamais vendre ta bourse au mauvais moment.",
-    chips: ["1,7 % par an", "0 impôt", "Plafonds 22 950 € + 12 000 €", "Dispo immédiate"],
+    chips: ["1,7 % par an", "0 impôt", `Plafonds ${eur(PLAFONDS.livretA)} + ${eur(PLAFONDS.ldds)}`, "Dispo immédiate"],
     ...(secA >= secC * 0.95 ? { statut: "fait", texte: `${eur(secA)} sur tes livrets : ton épargne de sécurité (${eur(secC)} selon ton plan) est en place${apport > 0.5 ? `, et ${eur(apport)} y sont gardés pour l'apport de ton achat` : ""}.${secA - secC - apport > 2000 ? ` Le surplus (${eur(secA - secC - apport)}) travaillera mieux ailleurs : voir l'onglet Rééquilibrage.` : ""}` }
       : { statut: "afaire", texte: `${eur(secA)} sur tes livrets, pour ${eur(secC)} d'épargne de sécurité visés par ton plan.` }) });
 
@@ -4470,7 +4470,7 @@ function produitsIdeaux(res) {
   const peaV = Number(p.pea?.versements) || 0;
   L.push({ etape: 3, id: "pea", nom: "PEA (plan d'épargne en actions)", fiche: "pea", badge: "Indispensable",
     pourquoi: `Le moteur de ton patrimoine : des ETF qui suivent des milliers d'entreprises, environ ${pct(H.rendements?.bourse ?? 7)} par an en moyenne sur le long terme, et plus d'impôt sur le revenu après 5 ans.`,
-    chips: [`≈ ${pct(H.rendements?.bourse ?? 7)} par an (moyenne)`, "18,6 % sur les gains après 5 ans", "Plafond 150 000 € versés", "Ouvrir tôt pour prendre date"],
+    chips: [`≈ ${pct(H.rendements?.bourse ?? 7)} par an (moyenne)`, `${pct(PRELEVEMENTS.PS_CAPITAL)} sur les gains après 5 ans`, `Plafond ${eur(PLAFONDS.pea)} versés`, "Ouvrir tôt pour prendre date"],
     ...(p.pea?.ouvert ? { statut: "fait", texte: `Ouvert${p.pea.dateOuverture ? ` depuis ${new Date(p.pea.dateOuverture + "-01T12:00").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}` : ""}${(P.pea ?? 0) > 0 ? `, ${eur(P.pea)} dessus` : ""}.` }
       : { statut: "afaire", texte: "À ouvrir maintenant, même avec 10 € : le compteur des 5 ans démarre à l'ouverture." }) });
 
@@ -4502,7 +4502,7 @@ function produitsIdeaux(res) {
     pourquoi: "Pour continuer à investir en bourse sans limite quand le PEA est plein, ou pour les ETF qui n'entrent pas dans un PEA.",
     chips: ["Sans plafond", "31,4 % sur les gains", "Disponible"],
     ...(peaV >= 140000 || (P.cto ?? 0) > 0 ? { statut: (P.cto ?? 0) > 0 ? "fait" : "afaire", texte: (P.cto ?? 0) > 0 ? `${eur(P.cto)} dessus.` : "Ton PEA est presque plein : c'est le moment." }
-      : { statut: "plustard", texte: `Quand ton PEA sera plein (${eur(peaV)} versés sur 150 000 €).` }) });
+      : { statut: "plustard", texte: `Quand ton PEA sera plein (${eur(peaV)} versés sur ${eur(PLAFONDS.pea)}).` }) });
   L.push({ etape: 5, id: "residence", nom: "Résidence principale", fiche: "residence", badge: "Projet de vie",
     pourquoi: "Le seul investissement qu'on peut faire avec l'argent de la banque : le crédit remplace le loyer, et la plus-value à la revente est exonérée d'impôt.",
     chips: ["Plus-value sans impôt", "Effet de levier du crédit", "Fin du loyer"],
@@ -4528,7 +4528,7 @@ function argentPerdu(res) {
   if (ab && !ab.complet) out.push(["Abondement non touché", ab.plafond - ab.abondementAn, "epargne-salariale"]);
   if ((A.acces ?? "?") === "?" && !["independant", "etudiant", "retraite"].includes(p.statutPro)) out.push(["Abondement possible, à vérifier auprès de ton employeur", null, "epargne-salariale"]);
   if (p.refusPER && res.per?.economiePossible > 0.5) out.push(["Impôt non économisé (PER écarté)", res.per.economiePossible, "per"]);
-  if (p.eligibleLEP && (P.lep ?? 0) < 9999) out.push(["LEP pas rempli (2,5 % au lieu de 1,7 %)", ((10000 - (P.lep ?? 0)) * 0.8) / 100, "lep"]);
+  if (p.eligibleLEP && (P.lep ?? 0) < 9999) out.push(["LEP pas rempli (2,5 % au lieu de 1,7 %)", ((PLAFONDS.lep - (P.lep ?? 0)) * 0.8) / 100, "lep"]);
   const inter = Number(A.interessement) || 0;
   if (inter > 0 && A.placer === false && !["non", "?"].includes(A.acces) && tmi > 0) out.push(["Impôt payé sur l'intéressement reçu au lieu d'être placé", (inter * tmi) / 100, "epargne-salariale"]);
   if ((P.livretBancaire ?? 0) > 1000 && (P.livretA ?? 0) + (P.ldds ?? 0) < 34900) out.push(["Super livret imposé alors que le Livret A et le LDDS ne sont pas pleins", null, "livret-bancaire"]);

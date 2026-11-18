@@ -223,7 +223,7 @@ for (const groupe of ["livrets", "assuranceVie", "bourse"]) for (const montant o
   for (const f of shell.filter((x) => x !== "./")) verifier(existsSync(new URL(`./${f}`, import.meta.url)), `SHELL : ${f} existe sur le disque`);
   for (const f of shell.filter((x) => x.endsWith(".js") && x !== "service-worker.js")) {
     const src = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
-    for (const m of src.matchAll(/(?:from|import)\s*\(?\s*"\.\/([a-z0-9-]+\.js)"/g)) verifier(shell.includes(m[1]), `SHELL : ${m[1]} (importé par ${f}) est pré-caché`);
+    for (const m of src.matchAll(/(?:from|import)\s*\(?\s*"\.\/([a-z0-9-]+(?:\/[a-z0-9-]+)*\.js)"/g)) verifier(shell.includes(m[1]), `SHELL : ${m[1]} (importé par ${f}) est pré-caché`);
   }
   const cacheMatch = sw.match(/CACHE_VERSION = "plan-patrimoine-v(\d+)"/);
   verifier(cacheMatch && Number(cacheMatch[1]) >= 16, `CACHE_VERSION incrémentée (v${cacheMatch?.[1]})`);

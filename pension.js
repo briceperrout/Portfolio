@@ -10,7 +10,7 @@
 //  Ne remplace pas le relevé officiel (info-retraite.fr).
 // =====================================================================
 import { facteurSalaire, carriereDe, hausseReelle, normaliserFoyer, simulerIndependant } from "./moteur.js";
-import { decomposerSalaire, foyerFiscal, apresImpot, ABATTEMENT_AV, PRELEVEMENTS, impotBaremeIndexe, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitCTO, impotRetraitPER } from "./fiscal.js";
+import { decomposerSalaire, foyerFiscal, apresImpot, ABATTEMENT_AV, PRELEVEMENTS, PLAFONDS, impotBaremeIndexe, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitCTO, impotRetraitPER } from "./fiscal.js";
 
 // Âge légal et trimestres requis selon l'année de naissance (réforme 2023,
 // suspendue par la loi de financement de la Sécurité sociale pour 2026)
@@ -55,7 +55,7 @@ export function estimerPension(plan, profilSaisi, { ageDebut, trimestresDeja = n
   const naissance = new Date().getFullYear() - age;
   const regles = reglesGeneration(plan, naissance);
   const debut = Math.max(14, Math.min(Number(ageDebut) || R.ageDebutCarriere || 22, ageArret));
-  const PASS = R.pass ?? 48060;
+  const PASS = R.pass ?? PLAFONDS.pass;
   // Indépendant : SASU (régime général, base = rémunération nette) ou SSI (EURL, micro : base = revenu cotisé)
   const ind = profilSaisi.statutPro === "independant" ? simulerIndependant(plan, profilSaisi, false) : null;
   const forme = ind ? profilSaisi.independant?.forme : null;

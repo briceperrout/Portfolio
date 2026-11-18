@@ -1,5 +1,5 @@
 // Tests de la fiscalité des indépendants et de la centralisation des taux — node test_fiscal.mjs
-import { PFU, PRELEVEMENTS, DECOTE, PLAFOND_DEMI_PART, partsEnfants, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes, exitTax } from "./fiscal.js";
+import { FISCALITE, MILLESIME, PLAFONDS, BAREME, PFU, PRELEVEMENTS, DECOTE, PLAFOND_DEMI_PART, partsEnfants, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes, exitTax } from "./fiscal.js";
 import { PLAN } from "./plan.js";
 import { estimerPension } from "./pension.js";
 
@@ -204,6 +204,34 @@ verifier("barème indexé 1,1", impotBaremeIndexe(33000, 2, 2, 1.1).impot, impot
   verifier("partsEnfants 1", partsEnfants(1), 0.5, 0);
   verifier("partsEnfants 2", partsEnfants(2), 1, 0);
   verifier("partsEnfants 3", partsEnfants(3), 2, 0);
+}
+
+// ---- Source unique fiscalite/2026.js : cohérence interne et non-régression littérale ----
+{
+  const P = PLAFONDS;
+  verifier("per.plafondMax = 8 × PASS N-1 × 10 %", P.per.plafondMax, 8 * P.passN1 * 0.1, 0.001);
+  verifier("per.plafondMin = 10 % du PASS N-1", P.per.plafondMin, 0.1 * P.passN1, 0.001);
+  verifier("abondement PERCO = 16 % du PASS", P.abondement.perco, 0.16 * P.pass, 0.001);
+  verifier("abondement PEE = 8 % du PASS", P.abondement.pee, 0.08 * P.pass, 0.001);
+  verifier("PFU = IR_PFU + PS_CAPITAL", PFU, PRELEVEMENTS.IR_PFU + PRELEVEMENTS.PS_CAPITAL, 0.0001);
+  verifier("barème strictement croissant", BAREME.every(([h, t], i) => i === 0 || (h > BAREME[i - 1][0] && t > BAREME[i - 1][1])), true);
+  verifier("FISCALITE figée", Object.isFrozen(FISCALITE), true);
+  verifier("FISCALITE.plafonds figé en profondeur", Object.isFrozen(P.ptz.plafondOperationUnePersonne), true);
+  verifier("MILLESIME", MILLESIME, 2026, 0);
+  verifier("BAREME[1][0]", BAREME[1][0], 29579, 0);
+  verifier("BAREME[4][1]", BAREME[4][1], 45, 0);
+  verifier("DECOTE.taux", DECOTE.taux, 45.25, 0);
+  verifier("PLAFONDS.livretA", P.livretA, 22950, 0);
+  verifier("PLAFONDS.ldds", P.ldds, 12000, 0);
+  verifier("PLAFONDS.lep", P.lep, 10000, 0);
+  verifier("PLAFONDS.pea", P.pea, 150000, 0);
+  verifier("PLAFONDS.pass", P.pass, 48060, 0);
+  verifier("PLAFONDS.per.plafondMax", P.per.plafondMax, 37680, 0);
+  verifier("PLAFONDS.ptz zone B1", P.ptz.plafondOperationUnePersonne.B1, 135000, 0);
+  verifier("PLAN reprend les plafonds (livret A)", PLAN.enveloppes.livretA.plafond, P.livretA, 0);
+  verifier("PLAN reprend les plafonds (PER)", PLAN.per.plafondMax, P.per.plafondMax, 0);
+  verifier("PLAN reprend les plafonds (PASS)", PLAN.retraitePublique.pass, P.pass, 0);
+  verifier("PLAN reprend l'abondement PEE", PLAN.abondement.plafondPEE, P.abondement.pee, 0);
 }
 
 console.log(`${ok} vérifications réussies, ${ko} échec(s)`);

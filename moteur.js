@@ -1,4 +1,4 @@
-import { decomposerSalaire, foyerFiscal, revenuImposableSalaires, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant } from "./fiscal.js";
+import { PLAFONDS, decomposerSalaire, foyerFiscal, revenuImposableSalaires, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant } from "./fiscal.js";
 import { projetLocatifDe } from "./locatif.js";
 // =====================================================================
 //  MOTEUR — applique PLAN à un profil. Aucune valeur financière ici.
@@ -985,7 +985,7 @@ export function simulerIndependant(plan, profil, optimiser = true) {
   if (profil?.statutPro !== "independant" || !I?.forme) return null;
   const ff = foyerFiscal(profil);
   const autres = ff.commun && ff.autresMensuels > 0 ? decomposerSalaire(ff.autresMensuels).netAvant * 12 * 0.9 : 0;
-  const pass = plan.retraitePublique?.pass ?? 48060, passN1 = (plan.per?.plafondMin ?? 4710) * 10;
+  const pass = plan.retraitePublique?.pass ?? PLAFONDS.pass, passN1 = (plan.per?.plafondMin ?? PLAFONDS.per.plafondMin) * 10;
   const commun = { autresRevenusImposables: autres, parts: ff.parts, partsBase: ff.partsBase };
   let resultat, formePER, optimisation = null;
   if (FORMES_MICRO[I.forme]) {
@@ -1044,7 +1044,7 @@ export function conseilAbondement(plan, profil, mouvements = []) {
   const A = profil.abondement, R = plan.abondement ?? {};
   if (!A?.actif || A.acces === "non" || !(Number(A.taux) > 0)) return null;
   const surPER = A.acces === "pee" ? false : A.acces === "per" ? true : A.plan !== "pee";
-  const plafondLegal = surPER ? R.plafondPERCollectif ?? 7689.6 : R.plafondPEE ?? 3844.8;
+  const plafondLegal = surPER ? R.plafondPERCollectif ?? PLAFONDS.abondement.perco : R.plafondPEE ?? PLAFONDS.abondement.pee;
   const plafond = Math.min(plafondLegal, Number(A.plafond) > 0 ? Number(A.plafond) : plafondLegal);
   const taux = Math.min(Number(A.taux), R.tauxMax ?? 300);
   // L'intéressement placé peut lui aussi être abondé (selon le règlement) : il réduit ce qu'il faut verser

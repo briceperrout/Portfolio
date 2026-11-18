@@ -7,23 +7,23 @@
 //  imposable = net avant impôt, pas de réductions ni de crédits d'impôt.
 // =====================================================================
 
-export const BAREME = [[11600, 0], [29579, 11], [84577, 30], [181917, 41], [Infinity, 45]];
+import { FISCALITE_2026 } from "./fiscalite/2026.js";
+
+// Source unique : fiscalite/2026.js. Les exports ci-dessous gardent leurs noms historiques.
+export const FISCALITE = FISCALITE_2026;
+export const MILLESIME = FISCALITE.millesime;
+export const PLAFONDS = FISCALITE.plafonds;
+
+export const BAREME = FISCALITE.ir.bareme;
 // Taux de prélèvement : source unique pour plan.js, evolution-fiscale.js et locatif.js
-export const PRELEVEMENTS = Object.freeze({
-  IR_PFU: 12.8,           // part impôt sur le revenu du prélèvement forfaitaire unique
-  PS_CAPITAL: 18.6,       // LFSS 2026 : dividendes, intérêts, plus-values, PEA
-  PS_PATRIMOINE: 17.2,    // assurance-vie, revenus fonciers
-  IR_AV_8ANS: 7.5,        // assurance-vie de plus de 8 ans (après abattement)
-  CSG_CRDS_ACTIVITE: 9.7, // CSG et CRDS sur l'abondement et l'épargne salariale
-  VERIFIE_LE: "2026-11-16",
-});
+export const PRELEVEMENTS = FISCALITE.prelevements;
 export const PFU = Math.round((PRELEVEMENTS.IR_PFU + PRELEVEMENTS.PS_CAPITAL) * 10) / 10; // 31,4 %
 
-export const DECOTE = { seul: 897, couple: 1483, taux: 45.25 };
+export const DECOTE = FISCALITE.ir.decote;
 
 // Parts pour enfants à charge : 0,5 pour chacun des deux premiers, 1 à partir du troisième
 export const partsEnfants = (n) => { const k = Math.max(0, Math.round(Number(n) || 0)); return Math.min(k, 2) * 0.5 + Math.max(0, k - 2); };
-export const PLAFOND_DEMI_PART = 1807; // avantage maximal par demi-part pour enfant (2026)
+export const PLAFOND_DEMI_PART = FISCALITE.ir.plafondDemiPart; // avantage maximal par demi-part pour enfant
 
 // Impôt annuel d'un foyer à partir de son revenu imposable (après l'abattement de 10 %).
 // partsBase : parts sans les enfants (1 ou 2), pour plafonner l'avantage des enfants.
@@ -55,30 +55,16 @@ function decoter(r, revenuImposable, partsBase) {
 // =====================================================================
 // Décumulation : primitives fiscales pures (retraits par enveloppe)
 // =====================================================================
-export const ABATTEMENT_AV = Object.freeze({ seul: 4600, couple: 9200 });   // art. 125-0 A CGI, non indexé
-export const SEUIL_PRIMES_AV = 150000;                                       // primes nettes, non indexé
-// ==== Droits de mutation à titre gratuit (successions et donations) — 2026 ====
-// Barème inchangé par la LF 2026. Tranches : [plafond de la tranche, taux %].
-export const DMTG = Object.freeze({
-  BAREME_LIGNE_DIRECTE: Object.freeze([[8072, 5], [12109, 10], [15932, 15], [552324, 20], [902838, 30], [1805677, 40], [Infinity, 45]]), // art. 777 CGI
-  ABATTEMENT_ENFANT: 100000,      // art. 779 I, par parent et par enfant
-  RAPPEL_FISCAL_ANS: 15,          // art. 784
-  CONCUBIN: Object.freeze({ abattement: 1594, taux: 60 }), // art. 777 tableau III + 788 IV
-  ABATTEMENT_RP: 20,              // % — art. 764 bis
-  FORFAIT_FUNERAIRE: 1500,        // art. 775
-  VERIFIE_LE: "2026-11-17",
-});
-export const AV_DECES = Object.freeze({
-  ABATTEMENT_990I: 152500, SEUIL_990I: 700000, TAUX_990I: Object.freeze([20, 31.25]), // art. 990 I, par bénéficiaire
-  ABATTEMENT_757B: 30500,  // art. 757 B, global, sur les primes seulement
-  AGE_PIVOT: 70,
-  VERIFIE_LE: "2026-11-17",
-});
+export const ABATTEMENT_AV = FISCALITE.assuranceVie.abattement;   // art. 125-0 A CGI, non indexé
+export const SEUIL_PRIMES_AV = FISCALITE.assuranceVie.seuilPrimes; // primes nettes, non indexé
+// ==== Droits de mutation à titre gratuit (successions et donations) — voir fiscalite/2026.js ====
+export const DMTG = FISCALITE.dmtg;
+export const AV_DECES = FISCALITE.avDeces;
 // Art. 669 CGI : [âge de l'usufruitier strictement inférieur à, % de l'usufruit]
-export const BAREME_USUFRUIT = Object.freeze([[21, 90], [31, 80], [41, 70], [51, 60], [61, 50], [71, 40], [81, 30], [91, 20], [Infinity, 10]]);
+export const BAREME_USUFRUIT = FISCALITE.baremeUsufruit;
 export const ABATTEMENT_AV_DECES = AV_DECES.ABATTEMENT_990I;                  // art. 990 I, par bénéficiaire
-// Revenus 2025 (IR 2026) : plancher par pensionné, plafond par foyer ; la LF 2026 (19/02/2026) a conservé l'abattement de 10 %
-export const ABATTEMENT_PENSIONS = Object.freeze({ taux: 10, plancher: 454, plafond: 4439, VERIFIE_LE: "2026-11-17" });
+// Revenus 2025 (IR 2026) : plancher par pensionné, plafond par foyer ; la LF 2026 a conservé l'abattement de 10 %
+export const ABATTEMENT_PENSIONS = FISCALITE.abattementPensions;
 
 // PFU d'un jeu de prélèvements (scénarios de réforme) : part impôt + prélèvements sociaux sur le capital
 const pfuDe = (pr) => pr.IR_PFU + pr.PS_CAPITAL;
@@ -219,26 +205,7 @@ export function tauxSurRevenuEnPlus(profil, extra) {
 //  chômage ni de prévoyance, réforme 2026 de l'assiette TNS non reproduite
 //  ligne à ligne.
 // =====================================================================
-export const INDEPENDANTS_2026 = Object.freeze({
-  micro: Object.freeze({
-    // cotisations : % du CA ; abattement : abattement forfaitaire de l'impôt ; vl : versement libératoire (% du CA)
-    // BNC 25,6 % : taux 2026 SSI non réglementé ; CIPAV (23,2 %) hors périmètre ; contribution formation professionnelle non incluse
-    bnc: Object.freeze({ cotisations: 25.6, abattement: 34, vl: 2.2, seuil: 83600 }),
-    bicServices: Object.freeze({ cotisations: 21.2, abattement: 50, vl: 1.7, seuil: 83600 }),
-    bicVente: Object.freeze({ cotisations: 12.3, abattement: 71, vl: 1.0, seuil: 203100 }),
-    abattementMin: 305,
-  }),
-  // Impôt sur les sociétés : 15 % jusqu'à 42 500 € de bénéfice (PME éligibles, art. 219 I-b du CGI), 25 % au-delà
-  is: Object.freeze({ tauxReduit: 15, plafondReduit: 42500, tauxNormal: 25 }),
-  // Président de SASU assimilé salarié (régime général, sans assurance chômage)
-  sasu: Object.freeze({ tauxSalarial: 22, tauxPatronal: 42, csgNonDeductible: 2.9, assietteCsg: 98.25 }),
-  // Gérant majoritaire d'EURL (TNS) : taux effectif simplifié sur la rémunération nette
-  tns: Object.freeze({ tauxSurNet: 45, csgNonDeductible: 2.9, abattementAssiette: 26 }),
-  // Frais professionnels forfaitaires de 10 % (plafond à vérifier chaque année) : salaires SASU et gérant EURL (art. 62)
-  abattement10: Object.freeze({ taux: 10, plafond: 14426 }),
-  // Dividendes d'EURL soumis aux cotisations TNS au-delà de 10 % du capital + primes d'émission + comptes courants d'associés
-  seuilDividendesEURL: 10,
-});
+export const INDEPENDANTS_2026 = FISCALITE.independants;
 
 const I = INDEPENDANTS_2026;
 
@@ -357,16 +324,7 @@ export function plafondPERIndependant({ forme, revenuPro, pass, passN1 }) {
 //  EXIT TAX (art. 167 bis CGI) — imposition des plus-values latentes lors du
 //  transfert du domicile fiscal hors de France. Fonction pure, estimation.
 // =====================================================================
-export const EXIT_TAX = Object.freeze({
-  SEUIL_TITRES: 800000,            // valeur globale des titres
-  PART_BENEFICES: 50,              // ou participation ≥ 50 % des bénéfices sociaux d'une société
-  ANNEES_RESIDENCE: 6,             // résidence fiscale en France au moins 6 des 10 dernières années
-  FENETRE_ANNEES: 10,
-  SEUIL_DEGREVEMENT_LONG: 2570000, // au-delà : dégrèvement après 5 ans, sinon 2 ans
-  DEGREVEMENT_COURT: 2,
-  DEGREVEMENT_LONG: 5,
-  VERIFIE_LE: "2026-11-17",
-});
+export const EXIT_TAX = FISCALITE.exitTax;
 
 export function exitTax({ valeurTitres = 0, plusValuesLatentes = 0, moinsValuesLatentes = 0, participation50 = false, anneesResidence10 = 10, destination = "ue" } = {}, prelevements = PRELEVEMENTS) {
   const num = (x) => { const n = Number(x); return Number.isFinite(n) ? n : 0; };

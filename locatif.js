@@ -123,7 +123,7 @@ export function impotPlusValue(prixAchat, prixVente, n, amortissementsReintegres
   const pv = Math.max(0, prixVente - prixAchat * (1 + 0.075 + (n >= 5 ? 0.15 : 0)) + amortissementsReintegres);
   const abIR = n < 6 ? 0 : n >= 22 ? 1 : Math.min(1, 0.06 * (Math.min(n, 21) - 5) + (n >= 22 ? 0.04 : 0));
   const abPS = n < 6 ? 0 : n >= 30 ? 1 : Math.min(1, 0.0165 * (Math.min(n, 21) - 5) + (n >= 22 ? 0.016 : 0) + 0.09 * Math.max(0, n - 22));
-  return pv * (1 - abIR) * 0.19 + pv * (1 - abPS) * 0.172;
+  return pv * (1 - abIR) * (PRELEVEMENTS.IR_PV_IMMO / 100) + pv * (1 - abPS) * (PRELEVEMENTS.PS_PATRIMOINE / 100);
 }
 
 // TRI net (taux de rendement interne) sur n années, et le même argent placé sur un PEA

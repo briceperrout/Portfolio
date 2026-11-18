@@ -11,7 +11,7 @@
 //     à remplacer par la tienne.
 // =====================================================================
 
-import { PRELEVEMENTS, PFU } from "./fiscal.js";
+import { PRELEVEMENTS, PFU, PLAFONDS } from "./fiscal.js";
 
 const AV_8ANS = Math.round((PRELEVEMENTS.IR_AV_8ANS + PRELEVEMENTS.PS_PATRIMOINE) * 10) / 10; // 24,7 %
 
@@ -152,15 +152,15 @@ export const PLAN = {
   //    ⚠ Plafonds à revérifier lors de la rédaction des fiches.
   // -------------------------------------------------------------------
   enveloppes: {
-    livretA:          { libelle: "Livret A",                          plafond: 22950,  fiche: "livret-a", parPersonne: true },
-    ldds:             { libelle: "LDDS",                              plafond: 12000,  fiche: "ldds", parPersonne: true },
-    lep:              { libelle: "LEP (livret d'épargne populaire)",  plafond: 10000,  fiche: "lep", parPersonne: true, condition: "eligibleLEP" },
+    livretA:          { libelle: "Livret A",                          plafond: PLAFONDS.livretA,  fiche: "livret-a", parPersonne: true },
+    ldds:             { libelle: "LDDS",                              plafond: PLAFONDS.ldds,  fiche: "ldds", parPersonne: true },
+    lep:              { libelle: "LEP (livret d'épargne populaire)",  plafond: PLAFONDS.lep,  fiche: "lep", parPersonne: true, condition: "eligibleLEP" },
     livretJeune:      { libelle: "Livret Jeune (12 à 25 ans)",        plafond: 1600,   fiche: "livret-jeune", parPersonne: true, condition: "jeune" },  // taux libre, jamais sous celui du Livret A, sans impôt  // sous conditions de revenus
     livretBancaire:   { libelle: "Livret bancaire fiscalisé (super livret)", plafond: null, fiche: "livret-bancaire" },  // livret d'épargne classique d'une banque, intérêts imposés
     pel:              { libelle: "PEL (plan d'épargne logement)",     plafond: 61200,  fiche: "pel", parPersonne: true, nouveauxVersements: false },  // un retrait clôture le PEL : on garde l'existant
     assuranceVie:     { libelle: "Assurance-vie (fonds euros)",       plafond: null,   fiche: "assurance-vie", arbitrageDepuis: "assuranceVieUC" },
     assuranceVieUC:   { libelle: "Assurance-vie (unités de compte)",  plafond: null,   fiche: "assurance-vie", arbitrageDepuis: "assuranceVie" },
-    pea:              { libelle: "PEA",                               plafond: 150000, fiche: "pea", parPersonne: true },
+    pea:              { libelle: "PEA",                               plafond: PLAFONDS.pea, fiche: "pea", parPersonne: true },
     cto:              { libelle: "Compte-titres (CTO)",               plafond: null,   fiche: "cto" },
     comptesEtrangers: { libelle: "Comptes à l'étranger",              plafond: null,   fiche: "etranger", nouveauxVersements: false },  // solde dérivé de profil.comptesEtrangers (devises.js), jamais saisi ici ; traité comme un CTO, sans argent neuf
     orPhysique:       { libelle: "Or physique (pièces / lingots)",    plafond: null,   fiche: "or" },
@@ -239,8 +239,8 @@ export const PLAN = {
   // -------------------------------------------------------------------
   // Abondement de l'employeur (épargne salariale), plafonds légaux 2026
   abondement: {
-    plafondPERCollectif: 7689.6,  // 16 % du PASS
-    plafondPEE: 3844.8,           // 8 % du PASS
+    plafondPERCollectif: PLAFONDS.abondement.perco,  // 16 % du PASS
+    plafondPEE: PLAFONDS.abondement.pee,           // 8 % du PASS
     tauxMax: 300,                 // au plus 3 fois le versement du salarié
     prelevements: PRELEVEMENTS.CSG_CRDS_ACTIVITE,            // CSG et CRDS sur l'abondement (pas d'impôt sur le revenu)
   },
@@ -248,8 +248,8 @@ export const PLAN = {
   per: {
     tmiMin: 30,                                   // PROPOSITION : PER conseillé à partir de 30 %
     partEpargneSelonTMI: { 30: 15, 41: 25, 45: 30 },  // PROPOSITION : % de l'épargne mensuelle versé sur le PER
-    plafondMin: 4710,                             // plancher de déduction 2026 (10 % du PASS 2025)
-    plafondMax: 37680,                            // plafond 2026 (10 % de 8 PASS 2025) ; à revérifier chaque année
+    plafondMin: PLAFONDS.per.plafondMin,                             // plancher de déduction 2026 (10 % du PASS 2025)
+    plafondMax: PLAFONDS.per.plafondMax,                            // plafond 2026 (10 % de 8 PASS 2025) ; à revérifier chaque année
     tmiRetraite: 11,                              // PROPOSITION : TMI supposée à la sortie (imposition des versements)
     reinvestirEconomie: true,                     // l'économie d'impôt est réépargnée
   },
@@ -361,7 +361,7 @@ export const PLAN = {
     ageTauxPlein: 67,             // taux plein automatique
     tauxPlein: 50,
     decoteParTrimestre: 0.625,    // points de taux en moins par trimestre manquant (20 trimestres au plus)
-    pass: 48060,                  // plafond annuel de la Sécurité sociale 2026
+    pass: PLAFONDS.pass,                  // plafond annuel de la Sécurité sociale 2026
     agircPrixAchat: 20.1877,      // € par point, 2026
     agircValeurPoint: 1.4587,     // € par point, depuis le 1er novembre 2026 (1,4386 € avant)
     agircTauxT1: 6.2, agircTauxT2: 17,
@@ -459,7 +459,7 @@ export const PLAN = {
         { differe: 2, remboursement: 13 },
         { differe: 0, remboursement: 10 },
       ],
-      plafondOperationUnePersonne: { A: 150000, B1: 135000, B2: 110000, C: 100000 },
+      plafondOperationUnePersonne: { ...PLAFONDS.ptz.plafondOperationUnePersonne },
       coefficientsFoyer: [1, 1.5, 1.8, 2.1, 2.4], // 1 à 5 personnes et plus
     },
   },

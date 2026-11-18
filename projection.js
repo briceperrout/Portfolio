@@ -5,7 +5,7 @@
 //  au hasard selon la volatilité de chaque classe.
 // =====================================================================
 import { fluxLocatif, projetLocatifDe, echeancier } from "./locatif.js";
-import { PRELEVEMENTS, PFU, foyerFiscal, revenuImposablePension } from "./fiscal.js";
+import { PRELEVEMENTS, PFU, PLAFONDS, foyerFiscal, revenuImposablePension } from "./fiscal.js";
 import { planifierRetraits, impotsAuDeces, STRATEGIES_DECUMULATION } from "./pension.js";
 import { droitsSurRegistre, reserveAVTransmissible } from "./succession.js";
 import { totalGroupe, allocationCible, actuelParClasse, repartirEnEnveloppes, capitalDe, achatResidence, analyser, chargesProprietaire, normaliserFoyer, resideEnFrance, paysDe, facteurSalaire, interessementPlace, locatifFinancable } from "./moteur.js";
@@ -1164,7 +1164,7 @@ export function acheterOuLouer(plan, { prix, apportInitial, mensualites = [], re
   const infl = num(inflation) / 100, val = num(valorisation) / 100;
   const rm = Math.pow(1 + num(rendement) / 100, 1 / 12) - 1;
   const tf = num(charges?.taxeFonciere) + num(charges?.copro), ent = num(charges?.entretien);
-  const PLAFOND_PEA = 150000;
+  const PLAFOND_PEA = PLAFONDS.pea;
   const nouveau = () => ({ pea: { v: 0, c: 0 }, cto: { v: 0, c: 0 } });
   const verser = (pf, x) => {
     if (!(x > 0)) return;
