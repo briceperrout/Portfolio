@@ -2,23 +2,25 @@
  *
  * Stratégies :
  *  - /api/*              → réseau uniquement (jamais intercepté : le flux SSE de l'assistant et les quotas restent intacts)
- *  - prix-m2.json        → cache d'abord, rempli au premier accès immobilier (3 Mo : hors pré-cache pour ne pas bloquer l'installation)
+ *  - dvf/*.json          → cache d'abord, rempli à la demande (index des communes, puis un fichier par département consulté ; hors pré-cache)
  *  - reste du site local → Stale-While-Revalidate (réponse instantanée depuis le cache, mise à jour silencieuse en arrière-plan)
  *  - navigation          → idem sur index.html, avec repli sur la copie en cache quand le réseau est coupé
  *
- * À CHAQUE DÉPLOIEMENT qui modifie un fichier du shell, incrémenter CACHE_VERSION : l'ancien cache est alors purgé à l'activation
- * (le SWR garde les modules cohérents d'une visite à l'autre, mais une visite peut mélanger anciennes et nouvelles versions).
+ * À CHAQUE DÉPLOIEMENT qui modifie un fichier du shell (ou des données dvf/), lancer « node outils/empreinte-shell.mjs » : il réécrit
+ * CACHE_VERSION et CACHE_DONNEES à partir d'une empreinte SHA-256 des fichiers (« --verifier » échoue en CI si elle est périmée).
+ * L'ancien cache est alors purgé à l'activation (le SWR garde les modules cohérents d'une visite à l'autre, mais une visite
+ * peut mélanger anciennes et nouvelles versions). Les données DVF ont leur propre empreinte : elles ne sont pas re-téléchargées à chaque déploiement de code.
  */
-const CACHE_VERSION = "plan-patrimoine-v29";
+const CACHE_VERSION = "plan-patrimoine-f0dd26342815";
 const CACHE_SHELL = CACHE_VERSION;
-const CACHE_DONNEES = `${CACHE_VERSION}-data`;
+const CACHE_DONNEES = "plan-patrimoine-dvf-6c843166468a";
 const PREFIXE = "plan-patrimoine-";
 
 // Shell applicatif : HTML, modules JS (moteur déterministe, fiches, lexique…), manifeste, icônes et polices locales (vendor/fonts/). Le CSS est inline dans index.html.
 const SHELL = [
   "./",
   "index.html",
-  "app.js", "assistant.js", "sync.js", "niveaux.js", "discretion.js",
+  "app.js", "utilitaires.js", "ui/commun.js", "vues/transmission.js", "vues/suivi.js", "vues/fiches.js", "vues/trajectoire.js", "vues/retraite.js", "vues/projection-commune.js", "assistant.js", "sync.js", "niveaux.js", "discretion.js",
   "plan.js", "devises.js", "moteur.js", "fiscal.js", "fiscalite/2026.js", "succession.js", "pension.js", "projection.js", "historique.js", "evolution-fiscale.js",
   "immobilier.js", "locatif.js", "credits.js", "alternatifs.js", "entreprises.js", "calendrier.js", "recap.js", "alertes.js",
   "fiches.js", "lexique.js",
@@ -70,7 +72,7 @@ async function staleWhileRevalidate(event, requete, cle = requete) {
   }
 }
 
-/** Cache d'abord : un seul téléchargement, ensuite 100 % hors-ligne (prix-m2.json). */
+/** Cache d'abord : un seul téléchargement, ensuite 100 % hors-ligne (fichiers dvf/). */
 async function cacheDabord(requete) {
   const cache = await caches.open(CACHE_DONNEES);
   const enCache = await cache.match(requete);
@@ -93,7 +95,7 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(staleWhileRevalidate(event, requete, URL_ACCUEIL()));
     return;
   }
-  if (url.pathname.endsWith("/prix-m2.json")) {
+  if (url.pathname.includes("/dvf/") && url.pathname.endsWith(".json")) {
     event.respondWith(cacheDabord(requete));
     return;
   }

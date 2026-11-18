@@ -218,9 +218,25 @@ const hotes = new Set([...html.matchAll(/(?:href|src)="(https?:\/\/[^"/]+)/g)].m
 verifier(hotes.size === 0, `index.html : aucune ressource chargée depuis un hôte externe (${[...hotes].join(", ") || "aucun"})`);
 const sw = lireFichier("service-worker.js");
 const shell = sw.match(/const SHELL = \[([\s\S]*?)\];/)[1];
-const importes = [...lireFichier("app.js").matchAll(/from "\.\/([\w-]+\.js)"/g)].map((m) => m[1]);
+// Parcours récursif des imports statiques à partir d'app.js (chemins relatifs ./ et ../)
+const importes = [];
+{
+  const vus = new Set(["app.js"]), file = ["app.js"];
+  while (file.length) {
+    const f = file.pop();
+    const dossier = f.includes("/") ? f.slice(0, f.lastIndexOf("/") + 1) : "";
+    for (const m of lireFichier(f).matchAll(/(?:^|\n)\s*(?:import|export)\b[^;"']*?from\s+"(\.{1,2}\/[^"]+\.js)"/g)) {
+      const chemin = new URL(m[1], `http://x/${dossier}`).pathname.slice(1);
+      if (!vus.has(chemin)) { vus.add(chemin); file.push(chemin); importes.push(chemin); }
+    }
+  }
+}
 verifier(importes.includes("sync.js") && importes.every((f) => shell.includes(`"${f}"`)), `service worker : tous les modules importés par app.js sont pré-cachés (${importes.filter((f) => !shell.includes(`"${f}"`)).join(", ") || "ok"})`);
-verifier(/CACHE_VERSION = "plan-patrimoine-v(\d+)"/.test(sw) && Number(sw.match(/-v(\d+)"/)[1]) >= 8, "service worker : CACHE_VERSION incrémentée");
+{
+  const { empreintes, versionsDeclarees } = await import("./outils/empreinte-shell.mjs");
+  const attendu = empreintes(new URL(".", import.meta.url).pathname), declare = versionsDeclarees(sw);
+  verifier(declare.shell === attendu.shell && declare.donnees === attendu.donnees, `service worker : empreintes du cache à jour (déclarées ${declare.shell}/${declare.donnees}, attendues ${attendu.shell}/${attendu.donnees}) : lance node outils/empreinte-shell.mjs`);
+}
 const wr = lireFichier("wrangler.toml");
 verifier(/main = "worker\.js"/.test(wr) && /run_worker_first = \["\/api\/\*"\]/.test(wr), "wrangler.toml : Worker + assets, /api/* d'abord");
 verifier(!/sk-[A-Za-z0-9]{20,}/.test(wr + lireFichier("worker.js") + lireFichier("sync.js")), "aucune clé OpenAI dans les fichiers déployés");

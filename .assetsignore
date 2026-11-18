@@ -12,6 +12,8 @@
 
 # Sources serveur, configuration et outillage (le Worker est déployé via « main », pas comme fichier statique)
 worker.js
+config-ia.json
+outils
 serveur.py
 wrangler.toml
 .assetsignore
@@ -32,9 +34,13 @@ package-lock.json
 CLAUDE.md
 Prompt
 
+# Données sources : prix-m2.json sert à générer dvf/ (outils/decouper-dvf.py), l'application ne charge que dvf/
+prix-m2.json
+
 # Tests
 test_*.mjs
 test_*.py
+e2e_*.mjs
 
 # Documentation et rapports d'audit (non nécessaires à l'application, parfois sensibles : faiblesses connues)
 *.md
