@@ -104,6 +104,13 @@ nav.onglets a:focus-visible, button:focus-visible, input:focus-visible, select:f
 .champ label { font-size: 0.9rem; }
 .ligne-ce { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
 .ligne-ce select, .ligne-ce input { min-width: 0; width: 100%; }
+.ligne-credit { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.ligne-credit select, .ligne-credit input[type="text"], .ligne-credit input[type="number"], .ligne-credit input[type="month"] { min-width: 0; width: 100%; }
+.ligne-credit label.coche { font-size: 0.85rem; }
+.ligne-credit .ligne-credit-etiq { font-size: 0.78rem; color: var(--muted); display: grid; gap: 2px; }
+.liste-priorite-credits { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.res-arbitrage-credit { display: grid; gap: 6px; margin-top: 8px; }
+.res-arbitrage-credit .verdict-credit { font-weight: 600; }
 .champ input[readonly] { color: var(--muted); cursor: default; }
 .champs .ligne-pd { display: grid; gap: 4px; }
 .ligne-pd button.lien { justify-self: start; padding-left: 0; color: var(--accent); text-decoration: underline; }
@@ -623,6 +630,13 @@ html.discret .num { letter-spacing: 0.05em; }
             <div class="champ"><label for="p-epargne">Épargne</label><div class="saisie" data-budget="epargneMensuelle"><input id="p-epargne" type="number" min="0" step="50" data-p="epargneMensuelle"><span>€/mois</span></div></div>
             <div class="champ"><label for="p-depenses">Dépenses (loyer et crédits compris)</label><div class="saisie" data-budget="depensesMensuelles"><input id="p-depenses" type="number" min="0" step="50" data-p="depensesMensuelles"><span>€/mois</span></div></div>
             <div class="champ" data-min="intermediaire"><label for="p-credits">Dont mensualités de crédits en cours (auto, conso…)</label><div class="saisie"><input id="p-credits" type="number" min="0" step="50" data-p="creditsMensuels"><span>€/mois</span></div></div>
+            <p class="note" id="note-credits-derives" data-min="intermediaire" style="margin:-4px 0 0" hidden>Calculé depuis la liste de crédits ci-dessous.</p>
+            <fieldset id="bloc-credits" data-min="intermediaire">
+              <legend>Tes crédits en cours</legend>
+              <p class="note" style="margin:0">Un crédit par ligne (auto, consommation, immobilier, étudiant, PTZ…). Quand la liste n'est pas vide, elle remplace la mensualité saisie ci-dessus. Le crédit de ta résidence se renseigne dans « Ton logement ».</p>
+              <div id="liste-credits"></div>
+              <div class="ligne-actions"><button type="button" id="ajout-credit">Ajouter un crédit</button></div>
+            </fieldset>
             <div id="bloc-budget-conjoint" data-min="intermediaire" class="champs sous-bloc">
               <h3 id="titre-budget-conjoint">Ton conjoint</h3>
               <div class="champ"><label for="c-salaire">Son salaire net après impôt</label><div class="saisie" data-budget-c="salaireNetMensuel"><input id="c-salaire" type="number" min="0" step="100" data-p="conjoint.salaireNetMensuel"><span>€/mois</span></div></div>
@@ -638,6 +652,19 @@ html.discret .num { letter-spacing: 0.05em; }
             <div class="champ" data-min="avance"><label for="p-salaire10">Ton salaire net après impôt espéré dans 10 ans (facultatif)</label><div class="saisie"><input id="p-salaire10" type="number" min="0" step="100" data-p="salaireDans10Ans" placeholder="estimé"><span>€/mois</span></div></div>
             <p class="note" id="aide-salaire10" data-min="avance" style="margin:-4px 0 0"></p>
           </fieldset></div>
+          <div class="panneau" data-min="intermediaire"><fieldset id="bloc-arbitrage-credit" data-min="intermediaire">
+            <legend>Rembourser un crédit ou placer ?</legend>
+            <p class="note" style="margin:0">Compare, sur la durée restante du crédit, l'économie d'intérêts d'un remboursement anticipé (certaine) au rendement d'un placement (incertain). Simulation indicative.</p>
+            <div id="liste-priorite-credits"></div>
+            <div id="formulaire-arbitrage-credit" class="champs">
+              <div class="champ"><label for="arb-credit">Crédit</label><select id="arb-credit"></select></div>
+              <div class="champ"><label for="arb-capital">Capital à rembourser</label><div class="saisie"><input id="arb-capital" type="number" min="0" step="500" placeholder="tout"><span>€</span></div></div>
+              <div class="champ"><label for="arb-mode">Après le remboursement</label><select id="arb-mode"><option value="duree">Garder la mensualité, raccourcir la durée</option><option value="mensualite">Garder la durée, baisser la mensualité</option></select></div>
+              <div class="champ"><label for="arb-enveloppe">Placement alternatif</label><select id="arb-enveloppe"></select></div>
+              <div class="champ"><label for="arb-ira">Indemnité de remboursement</label><select id="arb-ira"><option value="legale">Indemnité légale maximale</option><option value="aucune">Aucune indemnité (négociée)</option></select></div>
+            </div>
+            <div id="res-arbitrage-credit" class="res-arbitrage-credit" aria-live="polite"></div>
+          </fieldset></div>
           <div class="panneau"><fieldset>
             <legend>Ton logement</legend>
             <label class="coche"><input id="p-proprio" type="checkbox" data-p="proprietaire"> Déjà propriétaire d'un logement</label>
@@ -648,6 +675,8 @@ html.discret .num { letter-spacing: 0.05em; }
               <div class="estimateur" data-base="logement" data-min="intermediaire"></div>
               <div class="champ" data-min="intermediaire"><label for="lg-valeur">Valeur du logement entier aujourd'hui</label><div class="saisie"><input id="lg-valeur" type="number" min="0" step="5000" data-p="logement.valeur"><span>€</span></div></div>
               <div class="champ" data-min="intermediaire"><label for="lg-credit">Crédit restant à rembourser (ta part)</label><div class="saisie"><input id="lg-credit" type="number" min="0" step="1000" data-p="logement.creditRestant"><span>€</span></div></div>
+              <div class="champ" data-min="intermediaire"><label for="lg-taux">Taux de ce crédit (hors assurance)</label><div class="saisie"><input id="lg-taux" type="number" min="0" max="20" step="0.05" data-p="logement.tauxCredit" placeholder="non renseigné"><span>%</span></div></div>
+              <div class="champ" data-min="intermediaire"><label for="lg-assurance">Assurance de ce crédit (ta part)</label><div class="saisie"><input id="lg-assurance" type="number" min="0" step="5" data-p="logement.assuranceCredit" placeholder="0"><span>€/mois</span></div></div>
               <div class="champ" data-min="avance"><label for="lg-fin">Fin de ce crédit</label><div class="saisie"><input id="lg-fin" type="number" min="2026" max="2075" step="1" data-p="logement.finCredit" placeholder="année"><span>en</span></div></div>
               <div class="champ" data-min="intermediaire"><label for="lg-mens">Mensualité de ce crédit (ta part)</label><div class="saisie"><input id="lg-mens" type="number" min="0" step="10" data-p="logement.mensualite" placeholder="0"><span>€/mois</span></div></div>
               <div id="bloc-locatif" class="champs">
@@ -760,6 +789,27 @@ html.discret .num { letter-spacing: 0.05em; }
               <p class="note" style="margin:4px 0">1 euro = x devise. Laisse vide pour utiliser le taux automatique.</p>
               <div class="champs" id="champs-taux-change"></div>
             </details>
+          </fieldset></div>
+          <div class="panneau" data-min="avance"><fieldset id="bloc-scpi" data-min="avance">
+            <legend>SCPI : fiscalité et délai de jouissance</legend>
+            <p class="note" style="margin:0">Les loyers des SCPI sont imposés selon ta tranche d'imposition, plus les prélèvements sociaux. Pour une SCPI européenne, une part des revenus vient de l'étranger : elle est taxée sur place et sans prélèvements sociaux, mais elle relève ton taux en France. Le <a class="lien-fiche" href="#fiche-scpi">détail est dans la fiche SCPI</a>.</p>
+            <div class="champ"><label for="sc-etranger">Part des revenus de source étrangère</label><div class="saisie"><input id="sc-etranger" type="number" min="0" max="100" step="5" data-p="scpiDetail.partEtrangere" placeholder="0"><span>%</span></div></div>
+            <div class="champ"><label for="sc-impot-etr">Impôt moyen retenu à l'étranger sur ces revenus</label><div class="saisie"><input id="sc-impot-etr" type="number" min="0" max="60" step="1" data-p="scpiDetail.impotEtranger" placeholder="0"><span>%</span></div></div>
+            <div class="champ"><label for="sc-delai">Délai de jouissance des parts</label><div class="saisie"><input id="sc-delai" type="number" min="0" max="12" step="1" data-p="scpiDetail.delaiJouissanceMois" placeholder="hypothèse du plan"><span>mois</span></div></div>
+            <p class="note" id="res-scpi" style="margin:0" aria-live="polite"></p>
+          </fieldset></div>
+          <div class="panneau" data-min="avance"><fieldset id="bloc-nue-propriete" data-min="avance">
+            <legend>Nue-propriété de SCPI : et si je renonçais aux revenus ?</legend>
+            <p class="note" style="margin:0">Tu achètes la nue-propriété de parts à prix réduit pendant quelques années : pas de revenu, mais les parts t'appartiennent en pleine propriété à l'échéance. Compare avec la pleine propriété, revenus nets d'impôt. Simulation indicative.</p>
+            <div class="champs">
+              <div class="champ"><label for="np-montant">Montant investi</label><div class="saisie"><input id="np-montant" type="number" min="0" step="1000" placeholder="20000"><span>€</span></div></div>
+              <div class="champ"><label for="np-duree">Durée du démembrement</label><select id="np-duree"><option value="3">3 ans</option><option value="5">5 ans</option><option value="7">7 ans</option><option value="10" selected>10 ans</option><option value="15">15 ans</option></select></div>
+              <div class="champ"><label for="np-distribution">Taux de distribution des parts</label><div class="saisie"><input id="np-distribution" type="number" min="0" max="15" step="0.1" placeholder="rendement du plan"><span>%</span></div></div>
+              <div class="champ"><label for="np-reval">Revalorisation annuelle des parts</label><div class="saisie"><input id="np-reval" type="number" min="-10" max="10" step="0.1" placeholder="0"><span>%/an</span></div></div>
+              <div class="champ"><label for="np-decote">Décote de la nue-propriété (facultatif)</label><div class="saisie"><input id="np-decote" type="number" min="0" max="80" step="0.5" placeholder="estimée"><span>%</span></div></div>
+              <div class="champ"><label for="np-frais">Frais d'entrée</label><div class="saisie"><input id="np-frais" type="number" min="0" max="20" step="0.5" placeholder="frais du plan"><span>%</span></div></div>
+            </div>
+            <div id="res-nue-propriete" aria-live="polite"></div>
           </fieldset></div>
           <div class="panneau" data-min="intermediaire"><fieldset>
             <legend>Ouverture des contrats</legend>

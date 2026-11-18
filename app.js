@@ -1,7 +1,8 @@
 import { PLAN } from "./plan.js";
 import { analyserTaux, DEVISES, NOM_DEVISE, devisesParDefaut, DEVISES_COMPTES, TYPES_COMPTES_ETRANGERS, TAUX_REFERENCE, tauxEffectifs, consoliderEtrangers, avecComptesEtrangers, expositionChange } from "./devises.js";
-import { analyser, capitalDe, GROUPES_PLACEMENTS, grouperAllocation, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer, consequencesDepart, NOTE_CONSEQUENCES_DEPART, equilibreContributions } from "./moteur.js";
+import { analyser, tauxGains, foyerScpiDe, capitalDe, GROUPES_PLACEMENTS, grouperAllocation, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer, consequencesDepart, NOTE_CONSEQUENCES_DEPART, equilibreContributions } from "./moteur.js";
 import { projetLocatifDe, analyseLocatif, mensualitePret } from "./locatif.js";
+import { fiscaliteScpi, comparerNuePropriete, delaiJouissance, TMI_PAR_DEFAUT } from "./alternatifs.js";
 import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, libertePatrimoine, moisPrecaution, referenceSuivi, prevuA, moisEntre, situationFuture, contexteRetraite, evaluerRetraite, capitalNecessaire, CRISES, simulerCrise, fluxLocatif, backtesterHistorique, scenarioInflation, SCENARIO_INFLATION } from "./projection.js";
 import { HISTORIQUE } from "./historique.js";
 import { SCENARIOS_FISCAUX, NEUTRE, optionFiscale, comparerTaux } from "./evolution-fiscale.js";
@@ -18,6 +19,7 @@ import { plafondPEREstime, revenuImposableDe, economieInteressement, endettement
 import { monterAssistant } from "./assistant.js";
 import { masquerTexte, contientMontant } from "./discretion.js";
 import { detecterAlertes } from "./alertes.js";
+import { TYPES_CREDIT, creditsDuProfil, creditsMensuelsDe, mensualitesConso, prioriserCredits, arbitrerRemboursement, normaliserCredit } from "./credits.js";
 import { NIVEAUX, INFOS_NIVEAUX, visible, reglagesAvancesActifs, niveauLePlusBas, nomVue, libelleOnglet, suiteVue } from "./niveaux.js";
 import { genererCode, extraireCode, formaterCode, creerLien, estCleSynchronisable, synchroniser, effacerDistant, oublierCles } from "./sync.js";
 
@@ -82,8 +84,8 @@ const SUCCESSION_DEFAUT = { union: "mariage", regime: "communaute_legale", optio
 const DEPART_DEFAUT = { pays: "", destination: "ue", valeurTitres: null, plusValuesLatentes: null, moinsValuesLatentes: null, participation50: false, anneesResidence10: null };
 const PROFIL_EXEMPLE = {
   age: 32, salaireNetMensuel: 3200, epargneMensuelle: 1000, depensesMensuelles: 1800, tmi: "30",
-  pays: "FR", statutPro: "stable", eligibleLEP: false, creditsMensuels: 0,
-  comptesEtrangers: [], tauxChange: {},
+  pays: "FR", statutPro: "stable", eligibleLEP: false, creditsMensuels: 0, credits: [],
+  comptesEtrangers: [], tauxChange: {}, scpiDetail: { partEtrangere: 0, impotEtranger: 0, delaiJouissanceMois: null },
   futur: { actif: false, age: 40, capital: null, salaire: null, epargne: null },
   proprietaire: false, loyerMensuel: 900,
   placements: { livretA: 22950, ldds: 12000, livretBancaire: 5050, assuranceVie: 25000, assuranceVieUC: 0, pea: 30000, cto: 0, orPhysique: 0, plateformeCrypto: 5000, coldWallet: 0, scpi: 0, per: 0 },
@@ -91,7 +93,7 @@ const PROFIL_EXEMPLE = {
   assuranceVie: { ouverte: true, dateOuverture: "2019-06", type: "Banque traditionnelle" },
   projetRP: { actif: true, prix: 320000, type: "ancien", imperatif: false, horizonAnnees: 3, aideFamiliale: 0, ageChoisi: null, departement: "", commune: "", typeLogement: "appartement", surface: null, ptz: { ...PTZ_DEFAUT }, loyerEquivalent: null, chargesCoproMensuelles: null },
   salaireDans10Ans: null, rythmeReequilibrage: "", avPartEuros: 100,
-  logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
+  logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, tauxCredit: 1.3, assuranceCredit: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
   abondement: { acces: "?", actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false },
   independant: { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false },
   foyer: { actif: false, statut: "marie" },
@@ -101,13 +103,13 @@ const PROFIL_EXEMPLE = {
 
 const PROFIL_VIDE = {
   age: 30, salaireNetMensuel: 0, epargneMensuelle: 0, depensesMensuelles: 0, proprietaire: false, loyerMensuel: 0,
-  pays: "FR", statutPro: "", eligibleLEP: false, creditsMensuels: 0,
-  comptesEtrangers: [], tauxChange: {},
+  pays: "FR", statutPro: "", eligibleLEP: false, creditsMensuels: 0, credits: [],
+  comptesEtrangers: [], tauxChange: {}, scpiDetail: { partEtrangere: 0, impotEtranger: 0, delaiJouissanceMois: null },
   futur: { actif: false, age: null, capital: null, salaire: null, epargne: null },
   placements: {}, pea: { ouvert: false, versements: 0, etablissement: "" }, assuranceVie: { ouverte: false, type: "" },
   projetRP: { actif: false, prix: 0, type: "ancien", imperatif: false, horizonAnnees: 0, aideFamiliale: 0, ageChoisi: null, departement: "", commune: "", typeLogement: "appartement", surface: null, ptz: { ...PTZ_DEFAUT }, loyerEquivalent: null, chargesCoproMensuelles: null },
   salaireDans10Ans: null, rythmeReequilibrage: "", avPartEuros: 100,
-  logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
+  logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, tauxCredit: null, assuranceCredit: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
   abondement: { acces: "?", actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false },
   independant: { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false },
   foyer: { actif: false, statut: "marie" },
@@ -165,12 +167,14 @@ function completerProfil(p) {
   p.age = borne(p.age);
   if (p.conjoint) p.conjoint.age = borne(p.conjoint.age);
   if (p.futur?.age != null) p.futur.age = borne(p.futur.age);
-  p.logement = { usage: "rp", origine: "achat", part: 100, typeLogement: "appartement", ...(p.logement ?? {}) };
+  p.logement = { usage: "rp", origine: "achat", part: 100, typeLogement: "appartement", tauxCredit: null, assuranceCredit: 0, ...(p.logement ?? {}) };
+  if (!Array.isArray(p.credits)) p.credits = []; // anciens profils : un seul crédit au logement et l'agrégat creditsMensuels
   p.projetRP = { typeLogement: "appartement", loyerEquivalent: null, chargesCoproMensuelles: null, ...(p.projetRP ?? {}), ptz: { ...PTZ_DEFAUT, ...(p.projetRP?.ptz ?? {}) } };
   const acces0 = p.abondement?.acces ?? (p.abondement?.actif ? (p.abondement.plan === "pee" ? "pee" : "per") : "?");
   p.abondement = { actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false, ...(p.abondement ?? {}), acces: acces0 };
   p.succession = { ...SUCCESSION_DEFAUT, ...(p.succession ?? {}), donationAnterieure: { ...SUCCESSION_DEFAUT.donationAnterieure, ...(p.succession?.donationAnterieure ?? {}) }, projetDonation: { ...SUCCESSION_DEFAUT.projetDonation, ...(p.succession?.projetDonation ?? {}) } };
   p.simulationDepart = { ...DEPART_DEFAUT, ...(p.simulationDepart ?? {}) };
+  p.scpiDetail = { partEtrangere: 0, impotEtranger: 0, delaiJouissanceMois: null, ...(p.scpiDetail ?? {}) };
   if (!Array.isArray(p.comptesEtrangers)) p.comptesEtrangers = [];
   if (!p.tauxChange || typeof p.tauxChange !== "object" || Array.isArray(p.tauxChange)) p.tauxChange = {};
   if (p.placements) delete p.placements.comptesEtrangers; // solde dérivé au calcul, jamais enregistré
@@ -223,6 +227,7 @@ function normaliserProfil(source) {
   if (p.assuranceVie?.ouverte === false) p.assuranceVie = { ouverte: false, type: "" };
   if (p.proprietaire && (p.logement?.usage ?? "rp") === "rp") p.loyerMensuel = 0;
   if (!p.pea?.ouvert) p.pea = { ouvert: false, versements: 0 };
+  p.creditsMensuels = creditsMensuelsDe(p); // liste de crédits non vide : source unique de l'agrégat
   p.independant = { ...INDEPENDANT_VIDE, ...(p.independant ?? {}) };
   p.projetRP = { ...(p.projetRP ?? {}), ptz: { ...PTZ_DEFAUT, ...(p.projetRP?.ptz ?? {}) } };
   // Personnes du foyer pour le plafond du PTZ, si non saisies : toi, ton conjoint s'il y en a un, et les enfants
@@ -602,6 +607,8 @@ function rendreResultats() {
   const niveau = niveauCourant(), deb = niveau === "debutant";
   etat.resultat = res;
   majAlertes(sim.futur ? undefined : res, !!sim.futur); // point central de recalcul : au démarrage et après chaque changement du profil ou du plan
+  rendreArbitrageCredit();
+  rendreScpi();
   rendreEquilibre();
   if (!$("#vue-ideale").hidden) rendreEpargneIdeale();
   const etranger = sim.futur ? 0 : consoliderEtrangers(etat.profil, tauxEffectifs(etat.profil, etat.tauxDuJour).taux).totalEUR;
@@ -1129,7 +1136,7 @@ function calculerFiscal() {
     [`Placements après impôts à ${base.central[iF].age} ans`, reel(net(base, iF), iF), reel(net(r, iF), iF), ""],
   ];
   const pctD = (x) => `${Math.round(x * 100)} %`;
-  const taux = comparerTaux(plan, h).filter((l) => Math.abs(l.apres - l.avant) > 0.05 || l.avant > 0);
+  const taux = comparerTaux(plan, h, tauxGains(plan, profilPourMoteur(), "scpi")).filter((l) => Math.abs(l.apres - l.avant) > 0.05 || l.avant > 0);
   const sens = cacheFiscal.sens ?? [];
   const pire = sens[0];
   out.innerHTML = `<div class="tuiles">${tuiles.map(([k, a, b, u]) => `<div class="tuile"><span>${k}</span><b class="num">${eur(b)}${u}</b><span class="small">${ecartTxt(a, b, u)} par rapport aux règles actuelles (${eur(a)}${u})</span></div>`).join("")}
@@ -2704,6 +2711,191 @@ $("#bloc-comptes-etrangers").addEventListener("click", (e) => {
     apresSaisieProfil();
   }
 });
+// ---------------------------------------------------------------- crédits en cours et arbitrage « rembourser ou placer » (credits.js)
+// Liste dans profil.credits ; quand elle n'est pas vide, elle devient la source de creditsMensuels (champ « Dont mensualités » en lecture seule).
+// Aucune valeur saisie n'entre dans le DOM autrement que par value / textContent.
+const nouvelIdCredit = () => `cr-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const nd = (balise, attrs = {}, ...enfants) => { const e = document.createElement(balise); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); e.append(...enfants); return e; };
+function champCredit(libelle, controle) { const l = nd("label", { class: "ligne-credit-etiq" }); l.append(libelle, controle); return l; }
+function ligneCredit(c) {
+  const ligne = nd("div", { class: "ligne-credit", "data-cr-id": c.id });
+  const type = nd("select", { "data-cr": "type", "aria-label": "Type de crédit" });
+  for (const [id, nom] of Object.entries(TYPES_CREDIT)) { const o = nd("option", { value: id }); o.textContent = nom; type.append(o); }
+  type.value = c.type in TYPES_CREDIT ? c.type : "autre";
+  const nombreChamp = (cle, etiquette, attrs, valeur) => { const i = nd("input", { type: "number", min: "0", "data-cr": cle, ...attrs }); i.value = valeur != null && valeur !== "" && valeur !== 0 ? valeur : ""; return champCredit(etiquette, i); };
+  const libelle = nd("input", { type: "text", maxlength: "60", "data-cr": "libelle", placeholder: "Libellé (facultatif)", "aria-label": "Libellé du crédit" });
+  libelle.value = c.libelle ?? "";
+  const fin = nd("input", { type: "month", "data-cr": "finCredit", "aria-label": "Date de fin du crédit" });
+  fin.value = typeof c.finCredit === "string" ? c.finCredit : "";
+  const variable = nd("input", { type: "checkbox", "data-cr": "tauxVariable" });
+  variable.checked = !!c.tauxVariable;
+  const lVariable = nd("label", { class: "coche" }); lVariable.append(variable, " Taux variable");
+  const suppr = nd("button", { type: "button", class: "lien", "data-cr-suppr": c.id, "aria-label": "Supprimer ce crédit" });
+  suppr.textContent = "Supprimer";
+  ligne.append(
+    champCredit("Type", type), champCredit("Libellé", libelle),
+    nombreChamp("capitalRestant", "Capital restant dû (€)", { step: "100" }, c.capitalRestant),
+    nombreChamp("taux", "Taux annuel (%)", { step: "0.05", max: "30" }, c.taux),
+    champCredit("Fin du crédit", fin),
+    nombreChamp("mensualite", "Mensualité hors assurance (€, facultatif)", { step: "10", placeholder: "calculée" }, c.mensualite),
+    nombreChamp("assuranceMensuelle", "Assurance (€/mois)", { step: "1" }, c.assuranceMensuelle),
+    lVariable,
+  );
+  if (c.type === "immo") {
+    const usage = nd("select", { "data-cr": "usage", "aria-label": "Usage du bien" });
+    for (const [v, t] of [["residence", "Résidence"], ["locatif", "Bien locatif"]]) { const o = nd("option", { value: v }); o.textContent = t; usage.append(o); }
+    usage.value = c.usage === "locatif" ? "locatif" : "residence";
+    const reel = nd("input", { type: "checkbox", "data-cr": "regimeReel" });
+    reel.checked = !!c.regimeReel;
+    const lReel = nd("label", { class: "coche" }); lReel.append(reel, " Régime réel (intérêts déduits)");
+    ligne.append(champCredit("Usage du bien", usage), lReel);
+  }
+  ligne.append(suppr);
+  return ligne;
+}
+function majCreditsDerives() {
+  const p = etat.profil, actif = Array.isArray(p.credits) && p.credits.length > 0;
+  const champ = $("#p-credits");
+  if (actif) {
+    if (p.creditsMensuelsSaisis == null) p.creditsMensuelsSaisis = Number(p.creditsMensuels) || 0; // valeur saisie avant la liste
+    p.creditsMensuels = mensualitesConso(p);
+  } else if (p.creditsMensuelsSaisis != null) {
+    p.creditsMensuels = p.creditsMensuelsSaisis; // liste vidée : retour à la mensualité saisie
+    delete p.creditsMensuelsSaisis;
+  }
+  if (champ) { champ.readOnly = actif; champ.value = p.creditsMensuels; }
+  const note = $("#note-credits-derives"); if (note) note.hidden = !actif;
+}
+function rendreCredits() {
+  const liste = $("#liste-credits"); if (!liste) return;
+  liste.replaceChildren(...(etat.profil.credits ?? []).map(ligneCredit));
+  majCreditsDerives();
+}
+function saisieCredit(el) {
+  const c = (etat.profil.credits ?? []).find((x) => x.id === el.closest("[data-cr-id]")?.dataset.crId);
+  if (!c || !el.dataset.cr) return;
+  const k = el.dataset.cr, v = el.value;
+  if (k === "type") { if (v in TYPES_CREDIT) { c.type = v; if (v !== "immo") { delete c.usage; delete c.regimeReel; } if (v === "revolving") c.tauxVariable = true; rendreCredits(); } }
+  else if (k === "libelle") c.libelle = v.slice(0, 60);
+  else if (k === "finCredit") c.finCredit = /^\d{4}-\d{2}$/.test(v) ? v : null;
+  else if (k === "usage") c.usage = v === "locatif" ? "locatif" : "residence";
+  else if (k === "tauxVariable" || k === "regimeReel") c[k] = el.checked;
+  else if (k === "taux" || k === "mensualite") c[k] = v === "" || !Number.isFinite(Number(v)) ? null : Math.max(0, Number(v));
+  else if (k === "capitalRestant" || k === "assuranceMensuelle") c[k] = v === "" ? 0 : Math.max(0, Number(v) || 0);
+  majCreditsDerives();
+  apresSaisieProfil();
+}
+$("#bloc-credits").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.id === "ajout-credit") {
+    (etat.profil.credits ??= []).push({ id: nouvelIdCredit(), type: "conso", libelle: "", capitalRestant: 0, taux: null, finCredit: null, mensualite: null, assuranceMensuelle: 0, tauxVariable: false });
+    rendreCredits();
+    $("#liste-credits .ligne-credit:last-child [data-cr='capitalRestant']")?.focus();
+    apresSaisieProfil();
+  } else if (b.dataset.crSuppr) {
+    etat.profil.credits = (etat.profil.credits ?? []).filter((c) => c.id !== b.dataset.crSuppr);
+    rendreCredits();
+    apresSaisieProfil();
+  }
+});
+
+// Arbitrage : les listes déroulantes ne sont reconstruites que si leurs options changent (le focus et la saisie restent en place)
+const ENVELOPPES_ARBITRAGE = ["livretA", "ldds", "assuranceVie", "pea", "cto", "per"];
+function majOptions(select, options) {
+  const signature = JSON.stringify(options);
+  if (select.dataset.signature === signature) return;
+  const avant = select.value;
+  select.replaceChildren(...options.map(([v, t]) => { const o = nd("option", { value: v }); o.textContent = t; return o; }));
+  select.dataset.signature = signature;
+  if (options.some(([v]) => v === avant)) select.value = avant;
+}
+const montantNum = (v) => nd("b", { class: "num" }, eur(v));
+const ligneTexte = (...parts) => nd("p", { class: "small", style: "margin:0" }, ...parts);
+function rendreArbitrageCredit() {
+  const zone = $("#res-arbitrage-credit"), liste = $("#liste-priorite-credits");
+  if (!zone || !liste) return;
+  try {
+    const plan = etat.brouillon, profil = profilPourMoteur(), auj = new Date();
+    const P = prioriserCredits(plan, profil, auj);
+    // Liste priorisée : du crédit le plus coûteux au moins coûteux
+    const nomCredit = (c) => c.libelle || TYPES_CREDIT[c.type];
+    if (!P.credits.length && !P.exclus.length) {
+      liste.replaceChildren(nd("p", { class: "note", style: "margin:0" }, "Aucun crédit renseigné : ajoute-les ci-dessus ou dans « Ton logement »."));
+      zone.replaceChildren(); majOptions($("#arb-credit"), []);
+      return;
+    }
+    const items = P.credits.map((c) => {
+      const li = nd("li", { class: "small" });
+      li.append(`${nomCredit(c)} : coût ${pct(c.coutNet)}${c.coutNet !== c.taux ? ` net d'impôt (taux ${pct(c.taux)})` : ""}, reste `, montantNum(c.capitalRestant), `, indemnité éventuelle `, montantNum(c.iraTotale), c.prioritaire ? ` : coûte plus que l'épargne sans risque (${pct(P.rendementNetPrudent)})` : ` : moins cher que l'épargne sans risque (${pct(P.rendementNetPrudent)})`);
+      return li;
+    });
+    const ex = P.exclus.map((c) => nd("li", { class: "small muted" }, `${nomCredit(c)} : ${c.motif}`));
+    liste.replaceChildren(nd("p", { class: "note", style: "margin:0 0 4px" }, "Du plus coûteux au moins coûteux :"), nd("ol", { class: "liste-priorite-credits" }, ...items, ...ex));
+
+    const creditsListe = creditsDuProfil(profil, auj).filter((c) => c.type !== "ptz" && !c.incomplet && c.capitalRestant > 0);
+    majOptions($("#arb-credit"), creditsListe.map((c) => [c.id, `${nomCredit(c)} (${pct(c.taux)})`]));
+    majOptions($("#arb-enveloppe"), ENVELOPPES_ARBITRAGE.filter((id) => plan.enveloppes?.[id]).map((id) => [id, plan.enveloppes[id].libelle]));
+    const credit = creditsListe.find((c) => c.id === $("#arb-credit").value) ?? creditsListe[0];
+    if (!credit) { zone.replaceChildren(nd("p", { class: "note", style: "margin:0" }, "Complète le taux, la fin et le capital restant d'un crédit pour simuler un remboursement.")); return; }
+    const saisi = $("#arb-capital").value === "" ? credit.capitalRestant : Math.max(0, Number($("#arb-capital").value) || 0);
+    const a = arbitrerRemboursement(plan, profil, credit, saisi, { mode: $("#arb-mode").value, enveloppe: $("#arb-enveloppe").value, ira: $("#arb-ira").value, aujourdhui: auj });
+    const sorties = [];
+    if (a.verdict !== "sans-objet") {
+      const compare = a.rendementGaranti != null ? `${pct(a.rendementGaranti)} par an pour le remboursement (certain), contre ${pct(a.rendementNetEspere)} net espéré pour le placement${a.prime > 0 ? `, auquel j'ajoute ${pct(a.prime)} de prime de risque` : ""}.` : "Rendement du remboursement indéterminé.";
+      sorties.push(
+        ligneTexte("Indemnité de remboursement : ", montantNum(a.ira), ` (${a.regle}).`),
+        ligneTexte("Intérêts économisés : ", montantNum(a.interetsEconomises), " ; assurance économisée : ", montantNum(a.assuranceEconomisee), "."),
+        ligneTexte("Gain certain, indemnité déduite : ", nd("b", { class: "num" }, `${a.gainCertain >= 0 ? "+" : "−"}${eur(Math.abs(a.gainCertain))}`), "."),
+        ligneTexte("À la fin du crédit, après impôt : ", montantNum(a.valeurRembourser), " en remboursant, contre ", montantNum(a.valeurPlacer), " en plaçant ", montantNum(a.sortie), " (écart ", nd("b", { class: "num" }, `${a.ecart >= 0 ? "+" : "−"}${eur(Math.abs(a.ecart))}`), ")."),
+        ligneTexte(compare),
+        nd("p", { class: "verdict-credit small", style: "margin:0" }, a.verdict === "rembourser"
+          ? "Rembourser semble l'emporter : l'économie d'intérêts est certaine et dépasse ce que le placement peut raisonnablement rapporter."
+          : "Placer semble l'emporter, mais ce rendement n'est pas garanti : le crédit, lui, coûte à coup sûr."),
+      );
+    }
+    if (a.avertissements.length) sorties.push(nd("ul", { class: "small", style: "margin:0;padding-left:18px" }, ...a.avertissements.map((t) => nd("li", {}, t))));
+    sorties.push(nd("p", { class: "note", style: "margin:0" }, "Simulation indicative, fondée sur des hypothèses de rendement du plan : le décompte exact vient de ta banque. ", ...(FICHES["remboursement-anticipe"] ? [nd("a", { class: "lien-fiche", href: "#fiche-remboursement-anticipe" }, `Fiche ${FICHES["remboursement-anticipe"]}`)] : [])));
+    zone.replaceChildren(...sorties);
+  } catch (e) { console.warn("Arbitrage crédit indisponible", e); }
+}
+
+// SCPI : taux global d'imposition du foyer (tranche réelle, part européenne) et comparaison nue-propriété / pleine propriété (alternatifs.js)
+const nombreOuNull = (v) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+function rendreScpi() {
+  const note = $("#res-scpi");
+  if (!note) return;
+  try {
+    const profil = profilPourMoteur(), d = profil.scpiDetail ?? {};
+    const r = fiscaliteScpi(foyerScpiDe(profil), 1000, { partEtrangere: d.partEtrangere, impotEtranger: d.impotEtranger });
+    note.textContent = `Taux global d'imposition de tes revenus SCPI : ${pct(r.tauxGlobal)} (${r.mode === "exact" ? "calculé sur ton revenu imposable" : `estimé à partir de ta tranche${r.tmiEstimee ? ` (${TMI_PAR_DEFAUT} % par défaut, tranche inconnue)` : ""}`}). Il alimente l'impôt à la sortie de tes SCPI dans les projections.`;
+  } catch (e) { console.warn("Fiscalité SCPI indisponible", e); }
+  rendreNuePropriete();
+}
+function rendreNuePropriete() {
+  const zone = $("#res-nue-propriete");
+  if (!zone) return;
+  try {
+    const plan = etat.brouillon, profil = profilPourMoteur(), d = profil.scpiDetail ?? {}, H = plan.hypotheses ?? {};
+    const montant = nombreOuNull($("#np-montant").value) ?? 0;
+    const distribution = nombreOuNull($("#np-distribution").value) ?? H.rendements?.scpi ?? 0;
+    const frais = nombreOuNull($("#np-frais").value) ?? H.fraisEntree?.scpi ?? 0;
+    $("#np-distribution").placeholder = `${String(H.rendements?.scpi ?? 0).replace(".", ",")} (plan)`;
+    $("#np-frais").placeholder = `${String(H.fraisEntree?.scpi ?? 0).replace(".", ",")} (plan)`;
+    if (!(montant > 0)) { zone.replaceChildren(nd("p", { class: "note", style: "margin:0" }, "Saisis un montant pour lancer la comparaison.")); return; }
+    const fisc = fiscaliteScpi(foyerScpiDe(profil), (montant * distribution) / 100, { partEtrangere: d.partEtrangere, impotEtranger: d.impotEtranger });
+    const c = comparerNuePropriete({ montant, dureeAns: Number($("#np-duree").value), tauxDistribution: distribution, revalorisation: nombreOuNull($("#np-reval").value) ?? 0,
+      decote: nombreOuNull($("#np-decote").value), fraisEntree: frais, delaiJouissanceMois: delaiJouissance(H, d.delaiJouissanceMois), tauxFiscal: fisc.tauxGlobal });
+    if (!c) { zone.replaceChildren(); return; }
+    const signe = (x) => `${x >= 0 ? "+" : "−"}${Math.abs(x).toLocaleString("fr-FR", { maximumFractionDigits: 1 })}`;
+    zone.replaceChildren(
+      ligneTexte(`Décote de la nue-propriété : ${pct(c.decote)} (${c.decoteEstimee ? "estimée" : "saisie"}). Valeur des parts en pleine propriété à l'échéance : `, montantNum(c.valeurFinaleNP), "."),
+      ligneTexte(`Rendement annuel (TRI) : ${pct(c.triNP)} en nue-propriété, contre ${pct(c.triPP)} en pleine propriété, revenus nets d'impôt au taux de ${pct(fisc.tauxGlobal)} (écart ${signe(c.ecart)} point${Math.abs(c.ecart) >= 2 ? "s" : ""}).`),
+      ligneTexte("Revenus nets reçus en pleine propriété sur la période : ", montantNum(c.revenusNetsPP), "."),
+      nd("ul", { class: "small", style: "margin:0;padding-left:18px" }, ...c.avertissements.map((t) => nd("li", {}, t))),
+    );
+  } catch (e) { console.warn("Nue-propriété indisponible", e); }
+}
+
 // Bloc « Exposition au change » du rééquilibrage : part de chaque devise dans le patrimoine financier (devises.js, approximation documentée)
 function blocExpositionChange() {
   const profil = profilPourMoteur(), T = tauxEffectifs(etat.profil, etat.tauxDuJour);
@@ -2927,6 +3119,7 @@ function remplirProfil() {
   remplirAV();
   remplirPlacementsDebutant();
   rendreComptesEtrangers();
+  rendreCredits();
   chargerTauxDuJour();
   rendreChoixProfil();
   majVisibiliteProfil();
@@ -3176,6 +3369,9 @@ function rendreEquilibre() {
 $("#profil").addEventListener("input", (e) => {
   const el = e.target;
   if (el.closest("#bloc-comptes-etrangers")) { saisieComptesEtrangers(el); return; }
+  if (el.closest("#bloc-credits")) { saisieCredit(el); return; }
+  if (el.closest("#bloc-arbitrage-credit")) { rendreArbitrageCredit(); return; }
+  if (el.closest("#bloc-nue-propriete")) { rendreNuePropriete(); return; }
   if (el.id === "av-total" || el.id === "av-euros") { saisieAV(); apresSaisieProfil(); return; }
   if (el.dataset.groupe) { saisieGroupeDebutant(el); return; }
   if (!el.dataset.p) return;
@@ -4191,7 +4387,7 @@ const GROUPES = [
     { c: "fiscalite.gains.assuranceVie", l: "Assurance-vie (plus de 8 ans)", u: "%", pas: 0.1 },
     { c: "fiscalite.gains.livretBancaire", l: "Livret bancaire", u: "%", pas: 0.1 },
     { c: "fiscalite.gains.plateformeCrypto", l: "Bitcoin", u: "%", pas: 0.1 },
-    { c: "fiscalite.gains.scpi", l: "SCPI", u: "%", pas: 0.1 },
+    { c: "fiscalite.gains.scpi", l: "SCPI (vide : suit ta tranche d'imposition)", u: "%", pas: 0.1, vide: true },
     { c: "fiscalite.or.taxeForfaitaire", l: "Or : taxe sur le prix de vente", u: "%", pas: 0.1 },
     { c: "fiscalite.or.plusValue", l: "Or : taxe sur la plus-value", u: "%", pas: 0.1 },
     { c: "fiscalite.or.abattementParAnApres2Ans", l: "Or : abattement par an après 2 ans", u: "%", pas: 1 },
@@ -5117,6 +5313,8 @@ function migrer(stocke) {
       }
       if (plan.fiscalite?.gains && plan.fiscalite.gains.comptesEtrangers == null) plan.fiscalite.gains.comptesEtrangers = PLAN.fiscalite.gains.comptesEtrangers;
     }
+    // Version 11 : la fiscalité des SCPI suit la tranche réelle du foyer (l'ancienne valeur figée, 30 % + prélèvements sociaux, redevient « automatique »)
+    if ((stocke?.version ?? 1) < 11 && plan.fiscalite?.gains && plan.fiscalite.gains.scpi === 30 + PRELEVEMENTS.PS_PATRIMOINE) plan.fiscalite.gains.scpi = null;
     plan.version = PLAN.version;
   }
   return plan;

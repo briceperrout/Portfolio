@@ -8,7 +8,7 @@ import { fluxLocatif, projetLocatifDe, echeancier } from "./locatif.js";
 import { PRELEVEMENTS, PFU, PLAFONDS, foyerFiscal, revenuImposablePension } from "./fiscal.js";
 import { planifierRetraits, impotsAuDeces, STRATEGIES_DECUMULATION } from "./pension.js";
 import { droitsSurRegistre, reserveAVTransmissible } from "./succession.js";
-import { totalGroupe, allocationCible, actuelParClasse, repartirEnEnveloppes, capitalDe, achatResidence, analyser, chargesProprietaire, normaliserFoyer, resideEnFrance, paysDe, facteurSalaire, interessementPlace, locatifFinancable } from "./moteur.js";
+import { totalGroupe, allocationCible, actuelParClasse, repartirEnEnveloppes, tauxGains, capitalDe, achatResidence, analyser, chargesProprietaire, normaliserFoyer, resideEnFrance, paysDe, facteurSalaire, interessementPlace, locatifFinancable } from "./moteur.js";
 
 const somme = (o) => Object.values(o).reduce((s, x) => s + x, 0);
 
@@ -154,7 +154,7 @@ export function achatPourProjection(plan, profil) {
 function fabriqueTauxDe(plan, profil, F) {
   const alias = { coldWallet: "plateformeCrypto", assuranceVieUC: "assuranceVie" };
   const tauxPays = resideEnFrance(profil) ? null : paysDe(plan, profil).impotGains;
-  return (e) => tauxPays ?? F.gains[alias[e] ?? e] ?? F.gains[e] ?? 0;
+  return (e) => tauxPays ?? (F.gains[alias[e] ?? e] === undefined ? tauxGains(plan, profil, e) : tauxGains(plan, profil, alias[e] ?? e));
 }
 
 // Impôt si tout était vendu : % des gains selon le compte, régime le plus favorable pour l'or

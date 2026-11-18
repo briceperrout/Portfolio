@@ -60,9 +60,9 @@ export const MATRICE = {
     // « Ton activité d'indépendant » (bloc entier) et résidence fiscale
     "bloc-independant": A, "p-pays": A, "ligne-impot-pays": A,
     // « Ton budget »
-    "p-credits": I, "bloc-budget-conjoint": I, "c-part-charges": I, "eq-resultat": I, "p-vue": A, "p-carriere": I, "p-salaire10": A,
+    "p-credits": I, "bloc-credits": I, "bloc-arbitrage-credit": I, "bloc-budget-conjoint": I, "c-part-charges": I, "eq-resultat": I, "p-vue": A, "p-carriere": I, "p-salaire10": A,
     // « Ton logement » (le choix propriétaire/locataire et le loyer restent visibles partout)
-    "lg-valeur": I, "lg-credit": I, "lg-mens": I,
+    "lg-valeur": I, "lg-credit": I, "lg-taux": I, "lg-assurance": I, "lg-mens": I,
     "lg-usage": A, "lg-origine": A, "lg-part": A, "lg-fin": A, "lg-loyer": A, "lg-charges": A, "lg-regime": A,
     // Blocs entiers
     "Tes impôts": I, "p-plafond-per": A,
@@ -70,6 +70,7 @@ export const MATRICE = {
     "Foyer": I, "c-pea-date": A, "c-pea-etab": A, "c-pea-vers": A,
     "Tester une situation future": A,
     "bloc-comptes-etrangers": A,
+    "bloc-scpi": A, "bloc-nue-propriete": A,
     "Placements actuels": I, // le débutant a sa version regroupée (bloc data-seul="debutant" « Ton argent placé aujourd'hui »)
     "Ouverture des contrats": I,
     "Argent versé et frais réels": A,

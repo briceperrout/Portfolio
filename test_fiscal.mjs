@@ -1,6 +1,6 @@
 // Tests de la fiscalité des indépendants et de la centralisation des taux — node test_fiscal.mjs
 import { alerteMillesime, FISCALITE, MILLESIME, PLAFONDS, BAREME, PFU, PRELEVEMENTS, DECOTE, PLAFOND_DEMI_PART, partsEnfants, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes, exitTax, economieDeduction, tauxMarginalEffectif, impotSelonStatut, revenusImposablesConjoints } from "./fiscal.js";
-import { conseilPER, revenuImposableDe, normaliserFoyer } from "./moteur.js";
+import { conseilPER, tauxGains, revenuImposableDe, normaliserFoyer } from "./moteur.js";
 import { PLAN } from "./plan.js";
 import { estimerPension } from "./pension.js";
 
@@ -69,7 +69,7 @@ verifier("PRELEVEMENTS gelé", Object.isFrozen(PRELEVEMENTS), true);
 verifier("plan cto", PLAN.fiscalite.gains.cto, 31.4, 0);
 verifier("plan pea", PLAN.fiscalite.gains.pea, 18.6, 0);
 verifier("plan assurance-vie", PLAN.fiscalite.gains.assuranceVie, 24.7, 0);
-verifier("plan scpi", PLAN.fiscalite.gains.scpi, 47.2, 0);
+verifier("plan scpi : suit la tranche du foyer (null), TMI 30 % → 47,2 %", tauxGains(PLAN, { tmi: "30" }, "scpi"), 47.2, 0.01);
 verifier("plan abondement", PLAN.abondement.prelevements, 9.7, 0);
 
 // Optimisation de la rémunération (SASU)

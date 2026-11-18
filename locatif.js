@@ -126,6 +126,13 @@ export function impotPlusValue(prixAchat, prixVente, n, amortissementsReintegres
   return pv * (1 - abIR) * (PRELEVEMENTS.IR_PV_IMMO / 100) + pv * (1 - abPS) * (PRELEVEMENTS.PS_PATRIMOINE / 100);
 }
 
+// Taux de rendement interne annuel (décimal : 0,05 = 5 %) de flux annuels : flux[0] à aujourd'hui (négatif : la mise), flux[k] à la fin de l'année k. Bissection.
+export function triAnnuel(flux) {
+  const van = (r) => flux.reduce((t, c, i) => t + c / Math.pow(1 + r, i), 0);
+  let bas = -0.99, haut = 1;
+  for (let i = 0; i < 80; i++) { const m = (bas + haut) / 2; if (van(m) > 0) bas = m; else haut = m; }
+  return (bas + haut) / 2;
+}
 // TRI net (taux de rendement interne) sur n années, et le même argent placé sur un PEA
 export function analyseLocatif(plan, projet, n = 20) {
   if (!projet) return null;
@@ -137,12 +144,7 @@ export function analyseLocatif(plan, projet, n = 20) {
   const impotPV = impotPlusValue(projet.prix, vente, n, amortReint);
   const final = vente - dette - impotPV;
   cf[cf.length - 1] += final;
-  const triDe = (flux) => {
-    const van = (r) => flux.reduce((t, c, i) => t + c / Math.pow(1 + r, i), 0);
-    let bas = -0.99, haut = 1;
-    for (let i = 0; i < 80; i++) { const m = (bas + haut) / 2; if (van(m) > 0) bas = m; else haut = m; }
-    return (bas + haut) / 2;
-  };
+  const triDe = triAnnuel;
   const tri = triDe(cf);
   // Même argent sur un PEA : l'apport, puis chaque année l'effort (cash-flow négatif) ; un cash-flow positif est retiré
   const rb = (plan.hypotheses?.rendements?.bourse ?? 8) / 100;

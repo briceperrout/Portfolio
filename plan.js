@@ -16,7 +16,7 @@ import { PRELEVEMENTS, PFU, PLAFONDS } from "./fiscal.js";
 const AV_8ANS = Math.round((PRELEVEMENTS.IR_AV_8ANS + PRELEVEMENTS.PS_PATRIMOINE) * 10) / 10; // 24,7 %
 
 export const PLAN = {
-  version: 10,
+  version: 11,
   misAJourLe: "2026-11-17",
 
   // -------------------------------------------------------------------
@@ -301,11 +301,15 @@ export const PLAN = {
     volatilites: {       // PROPOSITION
       securite: 0, projet: 0, prudent: 1, bourse: 16, or: 15, bitcoin: 60, scpi: 5,
     },
+    // Prime de risque (points de %) ajoutée au rendement garanti d'un remboursement anticipé quand le placement alternatif est risqué (credits.js) : hypothèse, non réglementaire
+    primeRisqueRemboursement: 2,
     // Corrélations entre classes dans les tirages au hasard : "dynamiques" (deux régimes, normal et crise : en crise,
     // bourse, bitcoin et SCPI chutent ensemble) ou "independantes" (chaque classe tirée séparément).
     correlations: "dynamiques",
     // Frais payés à l'entrée, en % de chaque versement
     fraisEntree: { scpi: 10 },  // PROPOSITION : frais de souscription SCPI courants : 8 à 12 %
+    // Délai de jouissance des parts de SCPI : mois sans revenu après la souscription (hypothèse, non réglementaire ; le profil peut préciser le sien)
+    scpi: { delaiJouissanceMois: 5 },
     inflation: 2,
     hausseSalaireParAn: 1.5,
     epargneSuitLeSalaire: true,
@@ -403,7 +407,7 @@ export const PLAN = {
       assuranceVie: AV_8ANS, assuranceVieUC: AV_8ANS,
       pea: PRELEVEMENTS.PS_CAPITAL, cto: PFU, comptesEtrangers: PFU,
       plateformeCrypto: PFU, coldWallet: PFU,
-      scpi: 30 + PRELEVEMENTS.PS_PATRIMOINE /* TMI 30 % supposée */, per: PFU,
+      scpi: null /* null : suit la tranche d'imposition réelle du foyer (moteur.js, tauxGains) ; un nombre saisi dans les réglages la remplace */, per: PFU,
     },
     // Or : le moins cher des deux régimes
     or: { taxeForfaitaire: 11.5, plusValue: 37.6, abattementParAnApres2Ans: 5 },
