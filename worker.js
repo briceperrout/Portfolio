@@ -28,34 +28,41 @@
 //    OPENAI_QUOTA_RAISONNEMENT_MAX  défaut 225000 (pool gratuit 250 k d'o3 ; au-delà : gpt-5.4-mini en effort « high »)
 //    OPENAI_DAILY_TOKEN_ALERT défaut 2200000
 //    ALLOWED_ORIGIN           ex. https://plan-patrimoine.pages.dev (sinon : même origine seulement)
-//  Liaisons (optionnelles) : ASSETS pour servir aussi les fichiers statiques ; SYNC_KV (namespace KV) pour la synchronisation
+//  Liaisons (optionnelles) : QUOTA_IA (Durable Object QuotaIA) et LIMITE_CHAT (rate limiting) : voir ci-dessous ;
+//  ASSETS pour servir aussi les fichiers statiques ; SYNC_KV (namespace KV) pour la synchronisation
 //  (absente : /api/sync répond 503 « sync_indisponible » et l'application reste 100 % locale).
 //
-//  Limites assumées : un Worker n'a pas de mémoire partagée entre isolats. Le compteur
-//  de tokens et la limite de débit ci-dessous sont donc « au mieux » (par isolat) ;
-//  pour un plafond strict, ajouter une règle de rate limiting Cloudflare ou un KV.
+//  Quota et débit : le quota journalier de tokens est partagé entre tous les isolats par le Durable Object
+//  QuotaIA (liaison QUOTA_IA, strict) ; la limite de débit par IP est celle de la liaison Cloudflare Rate Limiting
+//  LIMITE_CHAT (30 requêtes par minute). Sans ces liaisons (développement, tests), repli sur des compteurs en
+//  mémoire, « au mieux » (par isolat). POST /api/chat exige un en-tête Origin (même origine ou ALLOWED_ORIGIN).
 // =====================================================================
+
+import CONFIG_IA from "./config-ia.json" with { type: "json" };
 
 const URL_OPENAI = "https://api.openai.com/v1/chat/completions";
 
 // Routage multi-modèles (miroir exact de serveur.py).
-export const MODEL_FAST = "gpt-5.4-mini";      // chat général, synthèse, RAG
-export const MODEL_REASONING = "o3";           // arbitrages patrimoniaux complexes (modèle phare : pool gratuit de 250 k tokens/jour)
+export const MODEL_FAST = CONFIG_IA.modeles.rapide;      // chat général, synthèse, RAG
+export const MODEL_REASONING = CONFIG_IA.modeles.raisonnement;        // arbitrages patrimoniaux complexes (modèle phare : pool gratuit de 250 k tokens/jour)
 // Mots-clés (normalisés : minuscules, sans accents ni tirets) qui déclenchent MODEL_REASONING.
-const MOTS_COMPLEXES = ["sasu", "eurl", "holding", "demembrement", "usufruit", "nue-propriete", "succession", "donation", "ifi", "decumulation", "audit complet"];
+const MOTS_COMPLEXES = CONFIG_IA.motsComplexes;
 // Deux pools gratuits Data Sharing, comptés séparément (prompt + completion, raisonnement inclus) :
 //   « rapide »       : modèles mini, 2,5 M tokens/jour → plafond de sécurité 2 350 000 (au-delà : refus 429, repli local côté client)
 //   « raisonnement » : modèles phares (o3), 250 k tokens/jour → plafond 225 000 (au-delà : repli sur MODEL_FAST en effort « high »)
-const PLAFOND_RAPIDE = 2350000;
-const PLAFOND_RAISONNEMENT = 225000;
-const ALERTE_RAPIDE = 2200000;
-const ALERTE_RAISONNEMENT = 200000;
-const MAX_COMPLETION_RAISONNEMENT = 2500;      // o3 (et repli « high ») : reasoning_tokens + réponse + balises [[ACTION]] / [[SUGGESTION]]
-const MAX_COMPLETION_RAPIDE = 1500;            // famille gpt-5 rapide (effort « low »)
+const PLAFOND_RAPIDE = CONFIG_IA.plafonds.rapide;
+const PLAFOND_RAISONNEMENT = CONFIG_IA.plafonds.raisonnement;
+const ALERTE_RAPIDE = CONFIG_IA.alertes.rapide;
+const ALERTE_RAISONNEMENT = CONFIG_IA.alertes.raisonnement;
+const MAX_COMPLETION_RAISONNEMENT = CONFIG_IA.maxCompletion.raisonnement;      // o3 (et repli « high ») : reasoning_tokens + réponse + balises [[ACTION]] / [[SUGGESTION]]
+const MAX_COMPLETION_RAPIDE = CONFIG_IA.maxCompletion.rapide;            // famille gpt-5 rapide (effort « low »)
 // Codes HTTP d'OpenAI pour lesquels un modèle de raisonnement refusé est remplacé par MODEL_FAST en effort « high » :
 // 400 (paramètre ou streaming refusé), 403 (organisation non vérifiée), 404 (model_not_found, déprécié), 429 (limite du modèle).
 // Pas 401 (clé invalide : MODEL_FAST échouerait aussi).
-const STATUTS_REPLI = [400, 403, 404, 429];
+const STATUTS_REPLI = CONFIG_IA.statutsRepli;
+const EFFORT_RAPIDE = CONFIG_IA.efforts.rapide;
+const EFFORT_RAISONNEMENT = CONFIG_IA.efforts.raisonnement;
+const EFFORT_REPLI = CONFIG_IA.efforts.repli;
 const MAX_CORPS = 64 * 1024;
 const MAX_SYSTEME = 24000;
 const MAX_PROFIL = 4000;
@@ -156,13 +163,13 @@ export function choisirModele(d, env, tokens = {}) {
   const demande = d.approfondi === true || questionComplexe(d.question || "");
   const lourd = modeleRaisonnement(env);
   if (demande && lourd && (tokens.raisonnement || 0) < entierEnv(env.OPENAI_QUOTA_RAISONNEMENT_MAX, PLAFOND_RAISONNEMENT)) {
-    return { modele: lourd, libelle: lourd, pool: "raisonnement", effort: "medium", maxCompletion: entierEnv(env.OPENAI_MAX_COMPLETION_TOKENS, MAX_COMPLETION_RAISONNEMENT) };
+    return { modele: lourd, libelle: lourd, pool: "raisonnement", effort: EFFORT_RAISONNEMENT, maxCompletion: entierEnv(env.OPENAI_MAX_COMPLETION_TOKENS, MAX_COMPLETION_RAISONNEMENT) };
   }
   if ((tokens.rapide || 0) >= entierEnv(env.OPENAI_QUOTA_RAPIDE_MAX, PLAFOND_RAPIDE)) throw new ErreurAPI(429, "quota_journalier");
   if (demande && lourd) { // quota du modèle phare épuisé : le modèle rapide prend le relais en effort élevé
-    return { modele: rapide, libelle: `${rapide} (raisonnement élevé · quota ${lourd} préservé)`, pool: "rapide", effort: "high", maxCompletion: entierEnv(env.OPENAI_MAX_COMPLETION_TOKENS, MAX_COMPLETION_RAISONNEMENT) };
+    return { modele: rapide, libelle: `${rapide} (raisonnement élevé · quota ${lourd} préservé)`, pool: "rapide", effort: EFFORT_REPLI, maxCompletion: entierEnv(env.OPENAI_MAX_COMPLETION_TOKENS, MAX_COMPLETION_RAISONNEMENT) };
   }
-  return { modele: rapide, libelle: rapide, pool: "rapide", effort: "low", maxCompletion: entierEnv(env.OPENAI_MAX_COMPLETION_TOKENS_FAST, MAX_COMPLETION_RAPIDE) };
+  return { modele: rapide, libelle: rapide, pool: "rapide", effort: EFFORT_RAPIDE, maxCompletion: entierEnv(env.OPENAI_MAX_COMPLETION_TOKENS_FAST, MAX_COMPLETION_RAPIDE) };
 }
 
 /**
@@ -174,7 +181,7 @@ export function choixRepli(choix, statut, env, tokens = {}) {
   if (choix.pool !== "raisonnement" || !STATUTS_REPLI.includes(statut)) return null;
   if ((tokens.rapide || 0) >= entierEnv(env.OPENAI_QUOTA_RAPIDE_MAX, PLAFOND_RAPIDE)) return null;
   const rapide = modeleChat(env);
-  return { modele: rapide, libelle: `${rapide} (raisonnement élevé · ${choix.modele} indisponible)`, pool: "rapide", effort: "high", maxCompletion: entierEnv(env.OPENAI_MAX_COMPLETION_TOKENS, MAX_COMPLETION_RAISONNEMENT) };
+  return { modele: rapide, libelle: `${rapide} (raisonnement élevé · ${choix.modele} indisponible)`, pool: "rapide", effort: EFFORT_REPLI, maxCompletion: entierEnv(env.OPENAI_MAX_COMPLETION_TOKENS, MAX_COMPLETION_RAISONNEMENT) };
 }
 
 /**
@@ -206,11 +213,11 @@ function roulement() { // minuit UTC passé : les compteurs repartent de zéro
   const jour = new Date().toISOString().slice(0, 10);
   if (suivi.jour !== jour) Object.assign(suivi, { jour, tokens: { rapide: 0, raisonnement: 0 }, alertes: { rapide: false, raisonnement: false } });
 }
-function compterTokens(usage, env, pool = "rapide") {
-  if (!usage) return;
+const seuilAlerte = (env, pool) => (pool === "raisonnement" ? entierEnv(env.OPENAI_DAILY_TOKEN_ALERT_REASONING, ALERTE_RAISONNEMENT) : entierEnv(env.OPENAI_DAILY_TOKEN_ALERT, ALERTE_RAPIDE));
+function compterMemoire(n, env, pool) {
   roulement();
-  suivi.tokens[pool] += (usage.prompt_tokens || 0) + (usage.completion_tokens || 0);
-  const seuil = pool === "raisonnement" ? entierEnv(env.OPENAI_DAILY_TOKEN_ALERT_REASONING, ALERTE_RAISONNEMENT) : entierEnv(env.OPENAI_DAILY_TOKEN_ALERT, ALERTE_RAPIDE);
+  suivi.tokens[pool] += n;
+  const seuil = seuilAlerte(env, pool);
   if (suivi.tokens[pool] >= seuil && !suivi.alertes[pool]) {
     suivi.alertes[pool] = true;
     console.warn(`ALERTE QUOTA (${pool}) : ${suivi.tokens[pool]} tokens aujourd'hui sur cet isolat (seuil ${seuil}).`);
@@ -220,6 +227,69 @@ function compterTokens(usage, env, pool = "rapide") {
 export function tokensDuJour(pool) {
   roulement();
   return pool ? suivi.tokens[pool] : { ...suivi.tokens };
+}
+
+// ---------------------------------------------------------------- Durable Object : quota journalier partagé
+/**
+ * Compteur de tokens du jour (UTC) partagé par tous les isolats. Les requêtes d'un même Durable Object sont
+ * sérialisées par Cloudflare : aucun verrou nécessaire. Routes internes : POST /lire, POST /ajouter.
+ */
+export class QuotaIA {
+  constructor(state, env) {
+    this.storage = state.storage;
+    this.env = env || {};
+    this.maintenant = () => Date.now();
+  }
+  async charger() {
+    const jour = new Date(this.maintenant()).toISOString().slice(0, 10);
+    let etat = await this.storage.get("etat");
+    if (!etat || etat.jour !== jour) {
+      etat = { jour, tokens: { rapide: 0, raisonnement: 0 }, alertes: { rapide: false, raisonnement: false } };
+    }
+    return etat;
+  }
+  async fetch(request) {
+    const chemin = new URL(request.url).pathname;
+    if (request.method !== "POST" || (chemin !== "/lire" && chemin !== "/ajouter")) return json(404, { erreur: "introuvable" });
+    const etat = await this.charger();
+    if (chemin === "/lire") return json(200, { jour: etat.jour, tokens: etat.tokens });
+    let corps; try { corps = await request.json(); } catch { return json(400, { erreur: "requete_invalide" }); }
+    const pool = corps?.pool, n = corps?.tokens;
+    if ((pool !== "rapide" && pool !== "raisonnement") || !Number.isInteger(n) || n < 0) return json(400, { erreur: "requete_invalide" });
+    etat.tokens[pool] += Math.min(n, 1e7);
+    let alerte = null;
+    const seuil = seuilAlerte(this.env, pool);
+    if (etat.tokens[pool] >= seuil && !etat.alertes[pool]) { etat.alertes[pool] = true; alerte = pool; }
+    await this.storage.put("etat", etat);
+    return json(200, { jour: etat.jour, tokens: etat.tokens, alerte });
+  }
+}
+
+const souche = (env) => (env.QUOTA_IA ? env.QUOTA_IA.get(env.QUOTA_IA.idFromName("global")) : null);
+/** Tokens du jour { rapide, raisonnement } : Durable Object si présent, sinon (ou en cas d'erreur) compteurs mémoire. */
+async function lireQuota(env) {
+  const s = souche(env);
+  if (s) {
+    try { return (await (await s.fetch("https://quota/lire", { method: "POST" })).json()).tokens; } catch { /* repli mémoire */ }
+  }
+  return tokensDuJour();
+}
+/** Crédite `n` tokens au pool : toujours en mémoire, et dans le Durable Object s'il est lié. */
+async function ajouterQuota(env, pool, n) {
+  compterMemoire(n, env, pool);
+  const s = souche(env);
+  if (!s) return;
+  try {
+    const r = await (await s.fetch("https://quota/ajouter", { method: "POST", body: JSON.stringify({ pool, tokens: n }) })).json();
+    if (r.alerte) console.warn(`ALERTE QUOTA (${r.alerte}) : ${r.tokens?.[r.alerte]} tokens aujourd'hui (seuil ${seuilAlerte(env, r.alerte)}).`);
+  } catch { /* le compteur mémoire a déjà été mis à jour */ }
+}
+/** Compte l'usage OpenAI (prompt + completion, raisonnement inclus) ; hors flux, `ctx.waitUntil` évite d'allonger la réponse. */
+function compterTokens(usage, env, pool, ctx) {
+  if (!usage) return undefined;
+  const p = ajouterQuota(env, pool, (usage.prompt_tokens || 0) + (usage.completion_tokens || 0));
+  if (ctx?.waitUntil) { ctx.waitUntil(p); return undefined; }
+  return p;
 }
 function limiteAtteinte() {
   const t = Date.now();
@@ -233,9 +303,9 @@ function limiteAtteinte() {
 const ENTETES = { "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store" };
 const json = (statut, objet, extra = {}) => new Response(JSON.stringify(objet), { status: statut, headers: { ...ENTETES, ...extra, "Content-Type": "application/json; charset=utf-8" } });
 
-function origineOk(request, env) {
+function origineOk(request, env, { exiger = false } = {}) {
   const origine = request.headers.get("Origin");
-  if (!origine) return true;
+  if (!origine) return !exiger;
   return origine === new URL(request.url).origin || (!!env.ALLOWED_ORIGIN && origine === env.ALLOWED_ORIGIN);
 }
 
@@ -250,12 +320,30 @@ async function turnstileOk(request, env) {
   if (ip) f.append("remoteip", ip);
   try {
     const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: f });
-    return (await r.json()).success === true;
+    const rep = await r.json();
+    if (rep.success !== true) return false;
+    if (rep.hostname) {
+      const attendus = [new URL(request.url).hostname];
+      try { if (env.ALLOWED_ORIGIN) attendus.push(new URL(env.ALLOWED_ORIGIN).hostname); } catch { /* ALLOWED_ORIGIN invalide */ }
+      return attendus.includes(rep.hostname);
+    }
+    return true;
   } catch { return false; }
 }
 
+/** Limite de débit par IP : liaison Cloudflare Rate Limiting si présente, sinon compteur mémoire par isolat. */
+async function debitDepasse(request, env) {
+  if (env.LIMITE_CHAT?.limit) {
+    try {
+      const { success } = await env.LIMITE_CHAT.limit({ key: request.headers.get("CF-Connecting-IP") || "inconnu" });
+      return !success;
+    } catch { /* liaison défaillante : repli mémoire */ }
+  }
+  return limiteAtteinte();
+}
+
 // Flux OpenAI → flux normalisé { modele } puis { delta } … puis { fin, modele, masques }
-function fluxNormalise(amont, modele, masques, env, pool) {
+function fluxNormalise(amont, modele, masques, env, pool, ctx) {
   const enc = new TextEncoder(), dec = new TextDecoder();
   let tampon = "", usage = null, termine = false; // « [DONE] » manquant : réponse tronquée
   const evenement = (o) => enc.encode(`data: ${JSON.stringify(o)}\n\n`);
@@ -277,10 +365,11 @@ function fluxNormalise(amont, modele, masques, env, pool) {
       tampon = lignes.pop();
       for (const l of lignes) traiter(l, controleur);
     },
-    flush(controleur) {
+    async flush(controleur) {
       if (tampon) traiter(tampon, controleur);
-      compterTokens(usage, env, pool);
+      const p = compterTokens(usage, env, pool, ctx);
       controleur.enqueue(evenement(termine ? { fin: true, modele, masques } : { fin: true, modele, masques, interrompu: true }));
+      if (p) await p;
     },
   })).getReader();
   // Coupure côté OpenAI en plein flux : on prévient le navigateur par un événement d'erreur au lieu d'un flux tronqué.
@@ -290,7 +379,7 @@ function fluxNormalise(amont, modele, masques, env, pool) {
         const { done, value } = await lecteur.read();
         if (done) controleur.close(); else controleur.enqueue(value);
       } catch {
-        compterTokens(usage, env, pool);
+        await compterTokens(usage, env, pool, ctx);
         controleur.enqueue(evenement({ erreur: "flux" }));
         controleur.close();
       }
@@ -299,8 +388,8 @@ function fluxNormalise(amont, modele, masques, env, pool) {
   });
 }
 
-async function chat(request, env) {
-  if (!origineOk(request, env)) throw new ErreurAPI(403, "origine_refusee");
+async function chat(request, env, ctx) {
+  if (!origineOk(request, env, { exiger: true })) throw new ErreurAPI(403, "origine_refusee");
   if (!(request.headers.get("Content-Type") || "").toLowerCase().startsWith("application/json")) throw new ErreurAPI(415, "json_attendu");
   const brut = await request.text();
   if (!brut || brut.length > MAX_CORPS) throw new ErreurAPI(413, "trop_long");
@@ -308,11 +397,12 @@ async function chat(request, env) {
 
   const cle = cleValide(env);
   if (!cle) throw new ErreurAPI(503, "no_key");
+  if (await debitDepasse(request, env)) throw new ErreurAPI(429, "trop_de_requetes");
   if (!(await turnstileOk(request, env))) throw new ErreurAPI(403, "turnstile");
   const donnees = validerRequete(payload);
-  if (limiteAtteinte()) throw new ErreurAPI(429, "trop_de_requetes");
 
-  let choix = choisirModele(donnees, env, tokensDuJour());
+  const quota = await lireQuota(env); // lu une seule fois : le repli réutilise la même lecture
+  let choix = choisirModele(donnees, env, quota);
   let amont, corps, modele, libelle, pool;
   for (let tentative = 1; ; tentative++) { // 2e tentative seulement si le modèle de raisonnement est refusé (voir choixRepli)
     [corps, modele] = corpsOpenAI(donnees, env, choix);
@@ -327,17 +417,17 @@ async function chat(request, env) {
     } catch { throw new ErreurAPI(504, "reseau"); }
     if (amont.ok) break;
     console.warn(`OpenAI a répondu ${amont.status} (modèle ${modele})`);
-    const repli = tentative === 1 ? choixRepli(choix, amont.status, env, tokensDuJour()) : null;
+    const repli = tentative === 1 ? choixRepli(choix, amont.status, env, quota) : null;
     if (!repli) throw new ErreurAPI(amont.status === 429 ? 429 : 502, `openai_${amont.status}`);
     console.warn(`Repli : ${repli.modele} en effort « ${repli.effort} » à la place de ${modele}.`);
     choix = repli;
   }
   if (!donnees.stream) {
     const data = await amont.json();
-    compterTokens(data.usage, env, pool);
+    await compterTokens(data.usage, env, pool, ctx);
     return json(200, { reponse: data.choices?.[0]?.message?.content || "", modele: libelle, masques: donnees.masques }, { "X-Model-Used": modele });
   }
-  return new Response(fluxNormalise(amont.body, libelle, donnees.masques, env, pool), {
+  return new Response(fluxNormalise(amont.body, libelle, donnees.masques, env, pool, ctx), {
     status: 200,
     headers: { ...ENTETES, "Content-Type": "text/event-stream; charset=utf-8", "X-Accel-Buffering": "no", "X-Model-Used": modele },
   });
@@ -444,7 +534,7 @@ async function tauxBCE() {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     try {
       if (url.pathname.startsWith("/api/sync/")) return await sync(request, env, url.pathname.slice("/api/sync/".length));
@@ -452,7 +542,7 @@ export default {
         if (!origineOk(request, env)) throw new ErreurAPI(403, "origine_refusee");
         return json(200, { actif: cleValide(env) !== null, modele: modeleChat(env) });
       }
-      if (url.pathname === "/api/chat" && request.method === "POST") return await chat(request, env);
+      if (url.pathname === "/api/chat" && request.method === "POST") return await chat(request, env, ctx);
       if (url.pathname === "/api/taux") {
         if (request.method !== "GET") return json(405, { erreur: "methode_non_autorisee" }, { Allow: "GET" });
         return await tauxBCE();

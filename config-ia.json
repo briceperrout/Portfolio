@@ -1,0 +1,10 @@
+{
+  "_commentaire": "Source unique du routage IA (worker.js et serveur.py). Toute modification : relancer node --test test_*.mjs et python3 test_routage.py, puis mettre à jour CLAUDE.md.",
+  "modeles": { "rapide": "gpt-5.4-mini", "raisonnement": "o3" },
+  "efforts": { "rapide": "low", "raisonnement": "medium", "repli": "high" },
+  "plafonds": { "rapide": 2350000, "raisonnement": 225000 },
+  "alertes": { "rapide": 2200000, "raisonnement": 200000 },
+  "maxCompletion": { "rapide": 1500, "raisonnement": 2500 },
+  "statutsRepli": [400, 403, 404, 429],
+  "motsComplexes": ["sasu", "eurl", "holding", "demembrement", "usufruit", "nue-propriete", "succession", "donation", "ifi", "decumulation", "audit complet"]
+}
