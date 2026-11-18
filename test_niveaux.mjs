@@ -124,7 +124,7 @@ verifier(visible("valeur-inconnue", "debutant") === false && visible("valeur-inc
 
 // ---------------------------------------------------------------- copies locales des profils d'app.js (app.js touche au DOM : non importable en Node)
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const SUCCESSION_DEFAUT = { union: "mariage", regime: "communaute_legale", optionConjoint: "auto", donationDernierVivant: false, enfantsNonCommuns: 0, testament: false, enfantMineurAuFoyer: false, biensPropres: 0, clauseAV: "conjoint_puis_enfants", quotiteAssuranceEmprunteur: 100, donationAnterieure: { annee: null, montantParEnfant: 0 }, projetDonation: { valeur: 0, croissance: 3, annees: 15 } };
+const SUCCESSION_DEFAUT = { union: "mariage", regime: "communaute_legale", optionConjoint: "auto", donationDernierVivant: false, enfantsNonCommuns: 0, testament: false, enfantMineurAuFoyer: false, biensPropres: 0, patrimoineConjointPropre: 0, clauseAV: "conjoint_puis_enfants", quotiteAssuranceEmprunteur: 100, donationAnterieure: { annee: null, montantParEnfant: 0 }, projetDonation: { valeur: 0, croissance: 3, annees: 15 } };
 const PTZ_DEFAUT = { actif: false, zone: "B1", tranche: 2, typeOperation: "collectifNeuf", personnes: null, travauxPctCout: 0 };
 const PROFIL_EXEMPLE = {
   age: 32, salaireNetMensuel: 3200, epargneMensuelle: 1000, depensesMensuelles: 1800, tmi: "30",

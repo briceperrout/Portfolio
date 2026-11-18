@@ -78,7 +78,7 @@ const lienFiche = (id, texte) => (FICHES[id] ? `<a class="lien-fiche" href="#fic
 
 // ---------------------------------------------------------------- état
 const PTZ_DEFAUT = { actif: false, zone: "B1", tranche: 2, typeOperation: "collectifNeuf", personnes: null, travauxPctCout: 0 };
-const SUCCESSION_DEFAUT = { union: "mariage", regime: "communaute_legale", optionConjoint: "auto", donationDernierVivant: false, enfantsNonCommuns: 0, testament: false, enfantMineurAuFoyer: false, biensPropres: 0, clauseAV: "conjoint_puis_enfants", quotiteAssuranceEmprunteur: 100, donationAnterieure: { annee: null, montantParEnfant: 0 }, projetDonation: { valeur: 0, croissance: 3, annees: 15 } };
+const SUCCESSION_DEFAUT = { union: "mariage", regime: "communaute_legale", optionConjoint: "auto", donationDernierVivant: false, enfantsNonCommuns: 0, testament: false, enfantMineurAuFoyer: false, biensPropres: 0, patrimoineConjointPropre: 0, clauseAV: "conjoint_puis_enfants", quotiteAssuranceEmprunteur: 100, donationAnterieure: { annee: null, montantParEnfant: 0 }, projetDonation: { valeur: 0, croissance: 3, annees: 15 } };
 const DEPART_DEFAUT = { pays: "", destination: "ue", valeurTitres: null, plusValuesLatentes: null, moinsValuesLatentes: null, participation50: false, anneesResidence10: null };
 const PROFIL_EXEMPLE = {
   age: 32, salaireNetMensuel: 3200, epargneMensuelle: 1000, depensesMensuelles: 1800, tmi: "30",
@@ -4959,7 +4959,7 @@ function rendreTransmission() {
   montre("#tm-ch-testament", sit === "pacs" || sit === "concubin"); montre("#tm-ch-mineur", sit === "seul" || sit === "concubin");
   montre("#tm-ch-clause", sit !== "seul");
   montre("#tm-ch-option", sit === "mariage" && avecEnfants && entree.regime !== "communaute_universelle"); montre("#tm-ch-ddv", sit === "mariage" && avecEnfants);
-  montre("#tm-ch-noncommuns", sit === "mariage" && avecEnfants); montre("#tm-ch-propres", sit !== "seul" && entree.regime !== "communaute_universelle");
+  montre("#tm-ch-noncommuns", sit === "mariage" && avecEnfants); montre("#tm-ch-propres", sit !== "seul" && entree.regime !== "communaute_universelle"); montre("#tm-ch-propres-conjoint", sit !== "seul" && entree.regime !== "communaute_universelle");
   $("#tm-noncommuns").max = String(entree.enfants);
   // Options du conjoint impossibles dans cette situation : grisées (« auto » reste toujours disponible) ; si la valeur enregistrée
   // est devenue impossible, simulerSuccession se replie sur le quart en pleine propriété et l'indique dans les hypothèses

@@ -96,7 +96,7 @@ export const MATRICE = {
   // Transmission : ids de index.html (champs liés à succession.*) et du gabarit de rendreTransmission() (app.js)
   transmission: {
     "tm-ch-union": I, "tm-ch-regime": I, "tm-ch-testament": I, "tm-ch-mineur": I, "tm-ch-clause": I,
-    "tm-ch-option": A, "tm-ch-ddv": A, "tm-ch-noncommuns": A, "tm-ch-propres": A, "tm-ch-assurance": A, "tm-ch-donation-anterieure": A, "tm-ch-donation-annee": A,
+    "tm-ch-option": A, "tm-ch-ddv": A, "tm-ch-noncommuns": A, "tm-ch-propres": A, "tm-ch-propres-conjoint": A, "tm-ch-assurance": A, "tm-ch-donation-anterieure": A, "tm-ch-donation-annee": A,
     "tm-options": A, "tm-statuts": I, "tm-partage": A, "tm-donation": I, "bloc-depart": A,
     "tm-ch-don-valeur": I, "tm-ch-don-croissance": I, "tm-ch-don-annees": I,
   },

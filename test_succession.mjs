@@ -210,5 +210,17 @@ verifier("réserve AV : seul sans enfant", resA({ actif: false }, "enfants", 0),
   verifier("comparateur : héritier légal seulement mariage", c.lignes.map((l) => l.heritierLegal).join(","), "false,false,false,false,true");
 }
 
+// 19. Patrimoine propre du conjoint (profil -> entrée -> 2e décès)
+{
+  const p200 = { ...profilMarie, succession: { ...profilMarie.succession, patrimoineConjointPropre: 200000 } };
+  const p0 = { ...profilMarie, succession: { ...profilMarie.succession, patrimoineConjointPropre: 0 } };
+  verifier("conjoint propre : partage B.propres", partageDepuisProfil(p200, 2026).B.propres, 200000);
+  verifier("conjoint propre : entrée", entreeDepuisProfil(p200, 2026).patrimoineConjoint.propre, 200000);
+  const c200 = comparerOptionsConjoint(entreeDepuisProfil(p200, 2026)), c0 = comparerOptionsConjoint(entreeDepuisProfil(p0, 2026));
+  verifier("conjoint propre : droits du 2e décès en hausse", c200.some((l) => l.droits2eDeces > (c0.find((x) => x.option === l.option)?.droits2eDeces ?? Infinity)), true);
+  verifier("conjoint propre : défaut 0", entreeDepuisProfil(profilMarie, 2026).patrimoineConjoint.propre, 0);
+  verifier("conjoint propre : négatif borné", entreeDepuisProfil({ ...profilMarie, succession: { ...profilMarie.succession, patrimoineConjointPropre: -5 } }, 2026).patrimoineConjoint.propre, 0);
+}
+
 console.log(`${ok} vérifications réussies, ${ko} échec(s)`);
 process.exit(ko ? 1 : 0);

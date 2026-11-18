@@ -20,7 +20,7 @@
 //   per: { valeur },
 //   clauseAV: "conjoint_puis_enfants" | "enfants",
 //   donations: [{ annee, montant }],  // par enfant, de ce parent
-//   patrimoineConjoint: { propre }    // biens propres du conjoint/partenaire (2e décès)
+//   patrimoineConjoint: { propre }    // biens propres du conjoint/partenaire (2e décès) ; profil.succession.patrimoineConjointPropre
 // }
 // Toutes les fonctions sont déterministes et ne mutent jamais leurs arguments.
 // =====================================================================
@@ -501,7 +501,7 @@ export function entreeDepuisProfil(profil, annee = 2026) {
     per: { valeur: euros(p.placements?.per) },
     clauseAV: s.clauseAV === "enfants" ? "enfants" : "conjoint_puis_enfants",
     donations,
-    patrimoineConjoint: { propre: 0 },
+    patrimoineConjoint: { propre: euros(s.patrimoineConjointPropre) },
   };
 }
 
@@ -593,7 +593,7 @@ export function partageSeparation(entree, { quotePartA = 50 } = {}) {
 export function partageDepuisProfil(profil, annee = 2026) {
   const foyer = profil?.foyerSuccession ?? profil?.foyer;
   if (!foyer?.actif) return null;
-  return partageSeparation({ ...entreeDepuisProfil(profil, annee), patrimoineConjointPropre: profil?.succession?.patrimoineConjointPropre });
+  return partageSeparation(entreeDepuisProfil(profil, annee));
 }
 
 // Assurance-vie d'avant 70 ans à garder pour l'abattement de 152 500 € par bénéficiaire (art. 990 I) : utile pour les enfants et un
