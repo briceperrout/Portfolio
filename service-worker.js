@@ -9,7 +9,7 @@
  * À CHAQUE DÉPLOIEMENT qui modifie un fichier du shell, incrémenter CACHE_VERSION : l'ancien cache est alors purgé à l'activation
  * (le SWR garde les modules cohérents d'une visite à l'autre, mais une visite peut mélanger anciennes et nouvelles versions).
  */
-const CACHE_VERSION = "plan-patrimoine-v23";
+const CACHE_VERSION = "plan-patrimoine-v24";
 const CACHE_SHELL = CACHE_VERSION;
 const CACHE_DONNEES = `${CACHE_VERSION}-data`;
 const PREFIXE = "plan-patrimoine-";
@@ -18,7 +18,7 @@ const PREFIXE = "plan-patrimoine-";
 const SHELL = [
   "./",
   "index.html",
-  "app.js", "assistant.js", "sync.js", "niveaux.js",
+  "app.js", "assistant.js", "sync.js", "niveaux.js", "discretion.js",
   "plan.js", "devises.js", "moteur.js", "fiscal.js", "fiscalite/2026.js", "succession.js", "pension.js", "projection.js", "historique.js", "evolution-fiscale.js",
   "immobilier.js", "locatif.js", "entreprises.js", "calendrier.js", "recap.js",
   "fiches.js", "lexique.js",

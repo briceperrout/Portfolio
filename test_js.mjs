@@ -11,6 +11,7 @@ import { impotBaremeIndexe, margeTranche } from "./fiscal.js";
 import { FICHES, PARCOURS_DEBUTANT } from "./fiches.js";
 import { FAMILLES_ALLOCATION, grouperAllocation, GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent } from "./moteur.js";
 import { HISTORIQUE } from "./historique.js";
+import { RE_MONTANT, contientMontant, masquerTexte } from "./discretion.js";
 import { DEVISES, DEVISES_COMPTES, TAUX_REFERENCE, TYPES_COMPTES_ETRANGERS, analyserTaux, tauxEffectifs, convertir, consoliderEtrangers, avecComptesEtrangers, expositionChange } from "./devises.js";
 import { capitalDe, repartirEnEnveloppes, accepteArgentNeuf, consequencesDepart } from "./moteur.js";
 import { encoderProfilPartage, decoderProfilPartage } from "./recap.js";
@@ -788,6 +789,36 @@ egal(libelleModele(undefined), "", "libellé absent");
   verifier(!/Dupont|Fidelity|UBS|Zurich/.test(resume), "assistant : aucun libellé de compte étranger");
   verifier(!/\d\s?(€|euros?)/i.test(resume) && !/90\s?000|\b5\s?000\b/.test(resume), "assistant : aucun montant en euros");
   verifier(/Exposition au change[^\n]*USD \d/.test(resume) && /1 de retraite, 1 d'épargne/.test(resume), "assistant : exposition en pourcentages et nombre de comptes par famille");
+}
+
+// ---- discretion.js : masquage des montants (pur)
+{
+  const fr = (devise, n) => new Intl.NumberFormat("fr-FR", { style: "currency", currency: devise }).format(n);
+  const cas = [
+    ["22 950 €", "•••• €"], ["−1 234,56 €", "•••• €"], ["-1 234,56 €", "•••• €"], ["+500 €", "•••• €"], ["12 k€", "•• k€"], ["1 234 euros", "•••• euros"], ["1 234 Euro", "•••• euro"],
+    ["1 234,00 $US", "•••• $US"], ["5 000 CHF", "•••• CHF"], ["3 000 £GB", "•••• £GB"], ["$1,234", "$••••"], ["£1,234", "£••••"], ["1 234 USD", "•••• USD"], ["2 500 CAD", "•••• CAD"],
+    ["1\u00a0234,50\u00a0€", "•••• €"], ["1\u202f234,50\u202f€", "•••• €"], ["Livret A (22 950 €) et 100 000 € par enfant", "Livret A (•••• €) et •••• € par enfant"],
+    ["en 2026 22 950 €", "en 2026 •••• €"],
+    ["1,5 M€", "•••• M€"], ["1,5 M €", "•••• M€"], ["2 Md€", "•••• Md€"], ["12,5 Mds €", "•••• Mds€"], ["100 k €", "•• k€"], ["1,5 M$", "•••• M$"],
+    ["5 millions d'euros", "•••• millions d'euros"], ["595 milliards d’euros", "•••• milliards d’euros"], ["2 millions de dollars", "•••• millions de dollars"],
+    ["12-20 €", "12-•••• €"]
+  ];
+  for (const [entree, attendu] of cas) verifier(masquerTexte(entree) === attendu, `discrétion : « ${entree} » -> « ${attendu} » (obtenu « ${masquerTexte(entree)} »)`);
+  const intl = [];
+  for (const dev of ["EUR", "USD", "CAD", "CHF", "GBP"]) for (const n of [1234, -1234567.5, 0.5]) intl.push(fr(dev, n));
+  for (const s of intl) verifier(masquerTexte(s) !== s && !/\d/.test(masquerTexte(s)), `discrétion : sortie Intl fr-FR masquée « ${s} »`);
+  const neutres = ["TMI 30 %", "en 2026", "à 64 ans", "4 600", "12,5 %", "tranche 2", "Étape 3 sur 5"];
+  for (const s of neutres) verifier(masquerTexte(s) === s && !contientMontant(s), `discrétion : « ${s} » inchangé`);
+  for (const s of [...cas.map((c) => c[0]), ...intl, ...neutres]) {
+    verifier(masquerTexte(masquerTexte(s)) === masquerTexte(s), `discrétion : idempotence « ${s} »`);
+    verifier(contientMontant(masquerTexte(s)) === false, `discrétion : pas de montant après masquage « ${s} » (aucune boucle de l'observer)`);
+  }
+  verifier(contientMontant("5 000 €") && contientMontant("5 000 €") && contientMontant("5 000 €") && !contientMontant("12 %") && contientMontant("5 000 €"), "discrétion : contientMontant stable sur appels répétés");
+  verifier(RE_MONTANT.global, "discrétion : RE_MONTANT est globale");
+  // Pas de coût quadratique sur une longue suite de chiffres sans unité (58 s avant correctif)
+  const t0 = performance.now(); masquerTexte("1".repeat(200000) + "!"); masquerTexte("1 ".repeat(100000) + "%");
+  const duree = performance.now() - t0;
+  verifier(duree < 500, `discrétion : 200 000 chiffres traités en ${Math.round(duree)} ms (< 500 ms)`);
 }
 
 if (typeof process !== "undefined" && process.argv?.[1]?.endsWith("test_js.mjs")) {

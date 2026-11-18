@@ -45,6 +45,7 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 - `fiches.js` & `lexique.js` : Fiches pédagogiques et infobulles automatiques du lexique financier.
 - `serveur.py` / `worker.js` / `assistant.js` : Couche assistant IA, streaming SSE, OCR/Vision et mode vocal ; route `/api/taux` (proxy des taux de change BCE, cache 6 h, aucune donnée utilisateur).
 - `niveaux.js` : niveaux de lecture Débutant / Intermédiaire / Avancé (matrice « élément → niveau minimal », table unique des libellés d'onglets `LIBELLES_VUES`, règles pures, détection des réglages avancés actifs). Aucun DOM, aucun calcul métier : le niveau ne change que l'affichage, jamais `etat.profil` ni les résultats. Niveau mémorisé par appareil (clé `niveau`), jamais synchronisé.
+- `discretion.js` : détection et masquage des montants (€, devises, « euros ») pour le mode discrétion. Pur, aucun DOM ; le masquage réversible du DOM est dans app.js.
 - `sync.js` : synchronisation multi-appareils chiffrée de bout en bout (WebCrypto AES-GCM + PBKDF2, fusion par fiche, client `/api/sync`) ; routes serveur dans `worker.js` (Cloudflare KV, liaison `SYNC_KV`) et `serveur.py` (stockage dev `.sync_local/`, ignoré par Git). Le serveur ne doit jamais voir de données en clair.
 - `wrangler.toml` / `_headers` / `.assetsignore` : déploiement Cloudflare (Worker + assets), CSP stricte et liste des fichiers jamais publiés (secrets, sources serveur, tests) : tout fichier absent de `.assetsignore` est public.
 

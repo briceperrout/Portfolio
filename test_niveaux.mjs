@@ -245,7 +245,7 @@ for (const groupe of ["livrets", "assuranceVie", "bourse"]) for (const montant o
   verifier(/@font-face[^}]*font-family:\s*"Inter"/.test(html) && /@font-face[^}]*font-family:\s*"Manrope"/.test(html), "index.html : @font-face Inter et Manrope déclarés");
 }
 
-// Téléchargements (lecture de app.js, sans DOM)
+// Mode discrétion et téléchargements (lecture de app.js, sans DOM)
 {
   const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
   const debut = app.indexOf("async function telechargerFichier");
@@ -254,6 +254,8 @@ for (const groupe of ["livrets", "assuranceVie", "bourse"]) for (const montant o
   const hors = app.slice(0, Math.max(debut, 0)) + app.slice(fin < 0 ? 0 : fin);
   verifier(debut >= 0 && /etat\.downloads\.save\(/.test(corps), "app.js : telechargerFichier appelle etat.downloads.save");
   verifier(!/etat\.downloads\.save\(/.test(hors), "app.js : etat.downloads.save n'est appelé que dans telechargerFichier");
+  verifier(/OPTIONS_OBSERVATEUR_DISCRET\s*=\s*\{[^}]*attributes:\s*true/.test(app), "app.js : l'observateur du mode discret déclare attributes: true");
+  verifier(/import \{[^}]*masquerTexte[^}]*\} from "\.\/discretion\.js"/.test(app), "app.js : importe discretion.js");
 }
 
 console.log(`test_niveaux : ${resultats.ok} vérifications OK, ${resultats.echecs.length} échec(s)`);

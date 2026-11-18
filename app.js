@@ -16,6 +16,7 @@ import { decomposerSalaire, foyerFiscal, impotBareme, tauxMarginalEffectif, BARE
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
 import { plafondPEREstime, revenuImposableDe, economieInteressement, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER, etatReleve, comparerReleve } from "./moteur.js";
 import { monterAssistant } from "./assistant.js";
+import { masquerTexte, contientMontant } from "./discretion.js";
 import { NIVEAUX, INFOS_NIVEAUX, visible, reglagesAvancesActifs, niveauLePlusBas, nomVue, libelleOnglet, suiteVue } from "./niveaux.js";
 import { genererCode, extraireCode, formaterCode, creerLien, estCleSynchronisable, synchroniser, effacerDistant, oublierCles } from "./sync.js";
 
@@ -2142,28 +2143,72 @@ function demarrerSynchro() {
 // ---------------------------------------------------------------- mode discrétion
 // Remplace les montants en euros par •••• (les pourcentages restent visibles), pour montrer son profil à quelqu'un
 let discret = false;
-const RE_MONTANT = /−?-?\+?\d[\d\s\u00a0\u202f.,]*\s?k?€/g;
+// Registre des originaux (réversibilité) : nœud texte -> { original, masque } ; élément -> { [attribut]: { original, masque } }
+const originaux = new Map();
+const ATTRIBUTS_DISCRETS = ["title", "data-bulle", "aria-label", "placeholder"];
+const SANS_MASQUE = /^(SCRIPT|STYLE|TEXTAREA|INPUT)$/;
+function elaguerOriginaux() {
+  if (originaux.size <= 5000) return;
+  for (const n of [...originaux.keys()]) if (!n.isConnected) originaux.delete(n);
+}
+function masquerNoeudTexte(n) {
+  const v = n.nodeValue;
+  if (!contientMontant(v) || SANS_MASQUE.test(n.parentNode?.nodeName ?? "")) return;
+  // Si le nœud était déjà masqué et que la valeur diffère du masque, l'app l'a réécrit : la valeur actuelle est le nouvel original
+  const masque = masquerTexte(v);
+  n.nodeValue = masque;
+  originaux.set(n, { original: v, masque });
+  elaguerOriginaux();
+}
+function masquerAttribut(el, nom) {
+  if (!el?.hasAttribute?.(nom)) return;
+  const v = el.getAttribute(nom);
+  if (!contientMontant(v)) return;
+  const masque = masquerTexte(v);
+  el.setAttribute(nom, masque);
+  const entree = originaux.get(el) ?? {};
+  entree[nom] = { original: v, masque };
+  originaux.set(el, entree);
+  elaguerOriginaux();
+}
 function masquerDans(racine) {
   if (!racine) return;
-  if (racine.nodeType === 3) { if (/\d\s?k?€/.test(racine.nodeValue)) racine.nodeValue = racine.nodeValue.replace(RE_MONTANT, (m) => (m.includes("k€") ? "•• k€" : "•••• €")); return; }
-  if (racine.nodeType !== 1 || /^(SCRIPT|STYLE|TEXTAREA|INPUT)$/.test(racine.nodeName)) return;
-  const w = document.createTreeWalker(racine, NodeFilter.SHOW_TEXT);
-  const noeuds = []; while (w.nextNode()) noeuds.push(w.currentNode);
-  for (const n of noeuds) masquerDans(n);
-  for (const el of racine.querySelectorAll?.("[title]") ?? []) if (/\d\s?k?€/.test(el.title)) el.title = el.title.replace(RE_MONTANT, "•••• €");
-  for (const el of [racine, ...(racine.querySelectorAll?.("[data-bulle]") ?? [])]) { if (!el.hasAttribute("data-bulle")) continue; const b = el.getAttribute("data-bulle"); if (/\d\s?k?€/.test(b)) el.setAttribute("data-bulle", b.replace(RE_MONTANT, "•••• €")); } // bulles de survol des graphiques
-  for (const el of [racine, ...(racine.querySelectorAll?.("[aria-label]") ?? [])]) { if (!el.hasAttribute("aria-label")) continue; const a = el.getAttribute("aria-label"); if (/\d\s?k?€/.test(a)) el.setAttribute("aria-label", a.replace(RE_MONTANT, "•••• €")); } // lecteurs d'écran : barres de répartition, graphiques
+  if (racine.nodeType === 3) { masquerNoeudTexte(racine); return; }
+  if (racine.nodeType !== 1) return;
+  if (!SANS_MASQUE.test(racine.nodeName)) {
+    const w = document.createTreeWalker(racine, NodeFilter.SHOW_TEXT);
+    const noeuds = []; while (w.nextNode()) noeuds.push(w.currentNode);
+    for (const n of noeuds) masquerNoeudTexte(n);
+  }
+  // Infobulles, bulles de survol des graphiques, lecteurs d'écran, placeholders
+  const selecteur = ATTRIBUTS_DISCRETS.map((a) => `[${a}]`).join(",");
+  for (const el of [racine, ...racine.querySelectorAll(selecteur)]) for (const nom of ATTRIBUTS_DISCRETS) masquerAttribut(el, nom);
 }
-const observateurDiscret = new MutationObserver((ms) => { for (const m of ms) { if (m.type === "characterData") masquerDans(m.target); else m.addedNodes.forEach(masquerDans); } });
+function restaurerOriginaux() {
+  for (const [cle, e] of originaux) {
+    if (cle.nodeType === 3) { if (cle.nodeValue === e.masque) cle.nodeValue = e.original; continue; }
+    for (const [nom, x] of Object.entries(e)) if (cle.getAttribute(nom) === x.masque) cle.setAttribute(nom, x.original);
+  }
+  originaux.clear();
+}
+const OPTIONS_OBSERVATEUR_DISCRET = { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRIBUTS_DISCRETS };
+const observateurDiscret = new MutationObserver((ms) => {
+  for (const m of ms) {
+    if (m.type === "characterData") { if (m.target.nodeType === 3) masquerNoeudTexte(m.target); }
+    else if (m.type === "attributes") masquerAttribut(m.target, m.attributeName);
+    else m.addedNodes.forEach(masquerDans);
+  }
+});
 function appliquerDiscret(on) {
   discret = on;
   document.documentElement.classList.toggle("discret", on);
   const b = $("#btn-discret"); b.setAttribute("aria-pressed", String(on)); b.textContent = on ? "👁 Afficher les montants" : "👁 Masquer les montants";
   memo.set("discret", on);
-  if (on) { masquerDans(document.body); observateurDiscret.observe(document.body, { childList: true, subtree: true, characterData: true }); }
+  if (on) { masquerDans(document.body); observateurDiscret.observe(document.body, OPTIONS_OBSERVATEUR_DISCRET); }
   else {
     observateurDiscret.disconnect();
-    // On redessine tout pour retrouver les vrais montants
+    restaurerOriginaux(); // textes statiques et blocs non redessinés
+    // On redessine ensuite tout pour retrouver les vrais montants
     rendreChampsPlacements(); remplirProfil(); rendreResultats(); rendreVue(); planifierTrajectoire();
   }
 }
