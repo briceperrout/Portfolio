@@ -12,7 +12,7 @@ import { LEXIQUE, lierTermes } from "./lexique.js";
 import { DEPARTEMENTS, chargerPrix, prixCharges, estimer, estimerLoyer, libelleCommune, chercherCommunes, codeCommune } from "./immobilier.js";
 import { estimerPension, ageEnTexte } from "./pension.js";
 import { entreeDepuisProfil, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, optionsPossibles, reserveAVTransmissible } from "./succession.js";
-import { decomposerSalaire, foyerFiscal, impotBareme, BAREME, exitTax, PRELEVEMENTS, PFU, PLAFONDS, ABATTEMENT_AV, SEUIL_PRIMES_AV } from "./fiscal.js";
+import { decomposerSalaire, foyerFiscal, impotBareme, BAREME, exitTax, PRELEVEMENTS, PFU, PLAFONDS, ABATTEMENT_AV, SEUIL_PRIMES_AV, alerteMillesime } from "./fiscal.js";
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
 import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER, etatReleve, comparerReleve } from "./moteur.js";
 import { monterAssistant } from "./assistant.js";
@@ -5205,12 +5205,42 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || ["localho
   });
 }
 
+// Alerte de millésime fiscal : bandeau d'information, masquable ; le masquage est mémorisé par appareil (jamais synchronisé)
+function montrerAlerteMillesime() {
+  try {
+    const alerte = alerteMillesime();
+    if (!alerte) return;
+    const cle = `alerte-millesime-vue:${alerte.annee}`;
+    let vue = false;
+    try { vue = localStorage.getItem(cle) === "1"; } catch { /* stockage indisponible : on affiche le bandeau */ }
+    const ancre = $("#bandeau-scenario");
+    if (vue || !ancre) return;
+    const b = document.createElement("div");
+    b.className = "bandeau";
+    b.id = "alerte-millesime";
+    b.setAttribute("role", "status");
+    b.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px 12px;flex-wrap:wrap;margin:0 0 12px";
+    const texte = document.createElement("span");
+    texte.textContent = alerte.texte;
+    const bouton = document.createElement("button");
+    bouton.type = "button";
+    bouton.textContent = "Masquer";
+    bouton.addEventListener("click", () => {
+      try { localStorage.setItem(cle, "1"); } catch { /* sans effet bloquant */ }
+      b.remove();
+    });
+    b.append(texte, bouton);
+    ancre.insertAdjacentElement("beforebegin", b);
+  } catch { /* l'alerte ne doit jamais empêcher le démarrage */ }
+}
+
 // ---------------------------------------------------------------- démarrage
 rendreChampsPlacements();
 remplirProfil();
 rendreReglages();
 rendreVue();
 apresChangementPlan();
+montrerAlerteMillesime();
 majBandeauScenario(); // lien partagé ouvert au chargement : bandeau « Scénario partagé »
 // Assistant : lit le plan, le profil et le dernier résultat à chaque question (aucun état dupliqué)
 monterAssistant({

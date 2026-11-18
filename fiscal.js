@@ -21,6 +21,17 @@ export const PFU = Math.round((PRELEVEMENTS.IR_PFU + PRELEVEMENTS.PS_CAPITAL) * 
 
 export const DECOTE = FISCALITE.ir.decote;
 
+// Alerte de millésime : une loi de finances plus récente que les barèmes embarqués a pu les modifier. Pure, sans montant.
+export function alerteMillesime(millesime = MILLESIME, date = new Date()) {
+  const annee = date.getFullYear();
+  if (annee <= millesime) return null;
+  return {
+    niveau: "info",
+    annee,
+    texte: "Les barèmes fiscaux de l'application sont ceux de la loi de finances " + millesime + ". La loi de finances " + annee + " a pu modifier les tranches, plafonds et abattements : les résultats sont à vérifier.",
+  };
+}
+
 // Parts pour enfants à charge : 0,5 pour chacun des deux premiers, 1 à partir du troisième
 export const partsEnfants = (n) => { const k = Math.max(0, Math.round(Number(n) || 0)); return Math.min(k, 2) * 0.5 + Math.max(0, k - 2); };
 export const PLAFOND_DEMI_PART = FISCALITE.ir.plafondDemiPart; // avantage maximal par demi-part pour enfant

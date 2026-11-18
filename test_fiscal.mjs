@@ -1,5 +1,5 @@
 // Tests de la fiscalité des indépendants et de la centralisation des taux — node test_fiscal.mjs
-import { FISCALITE, MILLESIME, PLAFONDS, BAREME, PFU, PRELEVEMENTS, DECOTE, PLAFOND_DEMI_PART, partsEnfants, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes, exitTax } from "./fiscal.js";
+import { alerteMillesime, FISCALITE, MILLESIME, PLAFONDS, BAREME, PFU, PRELEVEMENTS, DECOTE, PLAFOND_DEMI_PART, partsEnfants, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes, exitTax } from "./fiscal.js";
 import { PLAN } from "./plan.js";
 import { estimerPension } from "./pension.js";
 
@@ -232,6 +232,18 @@ verifier("barème indexé 1,1", impotBaremeIndexe(33000, 2, 2, 1.1).impot, impot
   verifier("PLAN reprend les plafonds (PER)", PLAN.per.plafondMax, P.per.plafondMax, 0);
   verifier("PLAN reprend les plafonds (PASS)", PLAN.retraitePublique.pass, P.pass, 0);
   verifier("PLAN reprend l'abondement PEE", PLAN.abondement.plafondPEE, P.abondement.pee, 0);
+}
+
+// ---- Alerte de millésime ----
+{
+  verifier("alerte millésime : fin 2026 (aucune)", alerteMillesime(2026, new Date("2026-12-31")), null);
+  verifier("alerte millésime : année du millésime avec défaut", alerteMillesime(MILLESIME, new Date(MILLESIME, 5, 1)), null);
+  const a = alerteMillesime(2026, new Date("2027-01-01T12:00:00"));
+  verifier("alerte millésime : objet en 2027", typeof a, "object");
+  verifier("alerte millésime : année", a?.annee, 2027, 0);
+  verifier("alerte millésime : niveau", a?.niveau, "info");
+  verifier("alerte millésime : cite 2026 et 2027", a.texte.includes("2026") && a.texte.includes("2027"), true);
+  verifier("alerte millésime : aucun montant", /\d[\d\s]*€/.test(a.texte), false);
 }
 
 console.log(`${ok} vérifications réussies, ${ko} échec(s)`);
