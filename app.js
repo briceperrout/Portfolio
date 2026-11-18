@@ -644,7 +644,7 @@ function rendreResultats() {
     ${bandeauFutur}
     <div class="panneau entete-res">
       <div class="qui-res"><b>${echapper(nomProfil || "Profil")}</b><span class="small muted">${p.agePrincipal ?? p.age} ans · ${eur(res.capital)} placés · ${eur(p.epargneMensuelle)} d'épargne par mois<span id="res-profil-risque" data-min="intermediaire"> · profil ${echapper(profilRisque(plan, p).libelle ?? "")}</span></span></div>
-      <div class="ligne-actions"><a class="bouton" href="#mon-profil">Modifier mon profil</a>${etat.downloads ? `<button type="button" id="btn-recap">Télécharger le récapitulatif</button>` : ""}</div>
+      <div class="ligne-actions"><a class="bouton" href="#mon-profil">Modifier mon profil</a><button type="button" id="btn-recap">Télécharger le récapitulatif</button></div>
       ${recapMessage ? `<p class="small muted" style="margin:0;flex-basis:100%">${echapper(recapMessage)}</p>` : ""}
     </div>
     <div class="grille-res${colDroite ? "" : " une-colonne"}">
@@ -697,11 +697,20 @@ $("#resultats").addEventListener("change", (e) => {
   planifierSauvegardeProfil();
 });
 
+// Téléchargement unique : API « downloads » de l'hôte si elle existe, sinon Blob + <a download> (localhost, Cloudflare Pages)
+async function telechargerFichier(fichier, blob) {
+  if (etat.downloads) { await etat.downloads.save({ filename: fichier, data: blob }); return; }
+  const a = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  a.href = url; a.download = fichier;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
 // Récapitulatif téléchargeable
 let recapMessage = "";
 const slug = (s) => (s || "profil").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 $("#resultats").addEventListener("click", async (e) => {
-  if (e.target.id !== "btn-recap" || !etat.downloads) return;
+  if (e.target.id !== "btn-recap") return;
   const bouton = e.target; bouton.disabled = true; bouton.textContent = "Préparation…";
   try {
     const plan = etat.brouillon, res = etat.resultat;
@@ -713,7 +722,7 @@ $("#resultats").addEventListener("click", async (e) => {
     const planDate = etat.source === "partage" && etat.majLe ? new Date(etat.majLe).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }) : null;
     const html = genererRecapHTML({ plan, nom, profil: res.profil, res, proj, echeances, fiches: CONTENU_FICHES, planDate, niveauNom: INFOS_NIVEAUX[niveauCourant()].nom, tauxDuJour: etat.tauxDuJour });
     const d = new Date();
-    await etat.downloads.save({ filename: `plan-action-${slug(nom)}-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}.html`, data: new Blob([html], { type: "text/html" }) });
+    await telechargerFichier(`plan-action-${slug(nom)}-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}.html`, new Blob([html], { type: "text/html" }));
     recapMessage = "Fichier enregistré : ouvre-le dans un navigateur, puis « Imprimer ou enregistrer en PDF ».";
   } catch (err) {
     recapMessage = err?.code === "declined" ? "Téléchargement annulé." : `Téléchargement impossible ici (${err?.code ?? err?.message ?? "erreur"}).`;
@@ -1957,8 +1966,7 @@ async function exporterDonnees() {
   const d = new Date(), fichier = `plan-patrimoine-${slug(nom)}-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}.json`;
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   try {
-    if (etat.downloads) await etat.downloads.save({ filename: fichier, data: blob });
-    else { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fichier; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
+    await telechargerFichier(fichier, blob);
     $("#msg-donnees").textContent = `Fichier « ${fichier} » prêt (${(data.suivi?.releves ?? []).length} relevé(s)).`;
   } catch (e) { $("#msg-donnees").textContent = e?.code === "dismissed" || e?.code === "declined" ? "Export annulé." : `Export impossible (${e?.code ?? e?.message ?? "erreur"}).`; }
 }
@@ -3510,7 +3518,7 @@ function blocCalendrier() {
         <div class="note">${echapper(e.detail)}${e.fiche ? ` ${lienFiche(e.fiche)}` : ""}</div></div></li>`).join("")}</ul>`).join("");
   const choix = proches.auteur && proches.liste.length + proches.situations.length > 0
     ? `<label for="cal-vue" class="small">Afficher</label><select id="cal-vue" style="width:auto"><option value="profil" ${calendrier.vue === "profil" ? "selected" : ""}>Ce profil</option><option value="tous" ${calendrier.vue === "tous" ? "selected" : ""}>Tous mes proches</option></select>` : "";
-  const exporter = etat.downloads ? `<button type="button" id="cal-export">Exporter pour un agenda (CSV)</button>` : "";
+  const exporter = `<button type="button" id="cal-export">Exporter pour un agenda (CSV)</button>`;
   return `<section class="panneau"><h2>Prochaines échéances</h2>
     <p class="note" style="margin:4px 0 10px">Dates clés des ${etat.brouillon.calendrier?.horizonAnnees ?? 15} prochaines années. « Vers » : date estimée à partir de l'âge.</p>
     ${choix || exporter ? `<div class="ligne-actions" style="margin-bottom:8px">${choix}${exporter}</div>` : ""}
@@ -3523,9 +3531,9 @@ function blocCalendrier() {
 $("#suivi").addEventListener("change", (e) => { if (e.target.id === "cal-vue") { calendrier.vue = e.target.value; calendrier.message = ""; rendreSuivi(); } });
 $("#suivi").addEventListener("click", async (e) => {
   if (e.target.id === "cal-tout") { calendrier.complet = !calendrier.complet; rendreSuivi(); }
-  if (e.target.id === "cal-export" && etat.downloads) {
+  if (e.target.id === "cal-export") {
     try {
-      await etat.downloads.save({ filename: "echeances-plan-patrimoine.csv", data: new Blob(["﻿" + versCSV(evenementsCalendrier())], { type: "text/csv" }) });
+      await telechargerFichier("echeances-plan-patrimoine.csv", new Blob(["﻿" + versCSV(evenementsCalendrier())], { type: "text/csv" }));
       calendrier.message = "Fichier enregistré. Dans Google Agenda : Paramètres > Importer et exporter > Importer ; dans Outlook : Fichier > Ouvrir et exporter > Importer.";
     } catch (err) {
       calendrier.message = err?.code === "declined" ? "Export annulé." : `Export impossible ici (${err?.code ?? "erreur"}).`;
