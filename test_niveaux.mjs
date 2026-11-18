@@ -2,7 +2,7 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { PLAN } from "./plan.js";
 import { analyser, GROUPES_PLACEMENTS, totalGroupe, repartirGroupe, repartirCapitalPrudent } from "./moteur.js";
-import { NIVEAUX, INFOS_NIVEAUX, MATRICE, LIBELLES_VUES, nomVue, libelleOnglet, suiteVue, rang, visible, reglagesAvancesActifs, niveauLePlusBas } from "./niveaux.js";
+import { NIVEAUX, INFOS_NIVEAUX, MATRICE, COMPTES_AUTRES, LIBELLES_VUES, nomVue, libelleOnglet, suiteVue, rang, visible, reglagesAvancesActifs, niveauLePlusBas } from "./niveaux.js";
 
 export const resultats = { ok: 0, echecs: [] };
 const verifier = (condition, message) => { if (condition) resultats.ok++; else resultats.echecs.push(message); };
@@ -173,6 +173,13 @@ for (const n of NIVEAUX) egal(reglagesAvancesActifs(copie(PROFIL_VIDE), n, PROFI
 const exDeb = reglagesAvancesActifs(copie(PROFIL_EXEMPLE), "debutant", PROFIL_VIDE);
 const exInter = reglagesAvancesActifs(copie(PROFIL_EXEMPLE), "intermediaire", PROFIL_VIDE);
 const exAv = reglagesAvancesActifs(copie(PROFIL_EXEMPLE), "avance", PROFIL_VIDE);
+egal(reglagesAvancesActifs(copie(PROFIL_EXEMPLE), "debutant", PROFIL_EXEMPLE), [], "profil d'exemple comparé à lui-même : aucun réglage signalé");
+const exTmi = copie(PROFIL_EXEMPLE); exTmi.tmi = String(exTmi.tmi) === "11" ? "30" : "11";
+egal(reglagesAvancesActifs(exTmi, "debutant", PROFIL_EXEMPLE).map((r) => r.libelle), ["Tranche d'imposition saisie à la main"], "exemple modifié (tmi) : seule la tranche est signalée");
+const exAutres = copie(PROFIL_EXEMPLE), cptAutre = COMPTES_AUTRES[0];
+exAutres.placements = { ...exAutres.placements, [cptAutre]: (Number(exAutres.placements?.[cptAutre]) || 0) + 1234 };
+egal(reglagesAvancesActifs(exAutres, "debutant", PROFIL_EXEMPLE).map((r) => r.libelle), ["Placements détaillés dans des comptes « Autres »"], "exemple avec un compte « Autres » modifié : la règle « Autres » est signalée");
+egal(reglagesAvancesActifs({ ...copie(PROFIL_VIDE), placements: { [cptAutre]: 500 } }, "debutant", PROFIL_VIDE).map((r) => r.libelle), ["Placements détaillés dans des comptes « Autres »"], "profil vide avec un compte « Autres » > 0 : règle signalée (non-régression)");
 verifier(exDeb.length > 0, `profil Exemple : réglages avancés signalés en débutant (${exDeb.map((r) => r.libelle).join(" ; ")})`);
 verifier(exInter.length < exDeb.length, `profil Exemple : liste plus courte en intermédiaire (${exInter.length} < ${exDeb.length})`);
 egal(exAv, [], "profil Exemple : rien de signalé en avancé");

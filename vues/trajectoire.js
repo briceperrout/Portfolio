@@ -2,6 +2,7 @@
 // au démarrage) et n'a aucun effet de bord au niveau module. Elle importe ui/commun.js et les modules métier, et des
 // fonctions (jamais de const/let) d'app.js : import circulaire sûr car ces fonctions sont hissées.
 import { $, etat, memo, echapper, keur, cleProfilCourant, GEOM, ORDRE, COULEUR, TYPES_EV } from "../ui/commun.js";
+import { eurArrondi, eurEnviron, arrondiLisible } from "../utilitaires.js";
 import { eur, pct, diagnosticAchat, carriereDe, tauxGains, profilRisque } from "../moteur.js";
 import { libertePatrimoine, moisPrecaution, CRISES, projeter, projeterCentral, simulerCrise, backtesterHistorique, scenarioInflation, SCENARIO_INFLATION } from "../projection.js";
 import { HISTORIQUE } from "../historique.js";
@@ -83,7 +84,8 @@ function resumeAchat(res) {
   // Aucun âge finançable : on montre l'apport qui manque à l'âge où l'écart est le plus faible (colonne « Verdict » du tableau)
   const pires = a.serie.map((p) => diagnosticAchat(plan, p)).filter((d) => !d.tropTard);
   const meilleur = pires.reduce((m, d) => (!m || d.manqueTotal < m.manqueTotal ? d : m), null);
-  return meilleur ? { ok: false, age: meilleur.age, manque: meilleur.manqueTotal } : { ok: false, age: null, impossible: true, manque: 0 };
+  // Même borne que l'alerte du moteur (« hors de portée avant <ageMaxFinPret − 1> ans », plan.achatRP.ageMaxFinPret)
+  return meilleur ? { ok: false, age: meilleur.age, manque: meilleur.manqueTotal, horsPortee: (plan.achatRP?.ageMaxFinPret ?? 65) - 1 } : { ok: false, age: null, impossible: true, manque: 0 };
 }
 
 // « Mon avenir en 3 chiffres » (niveau Débutant) : tout vient du scénario central, sans tirages au hasard
@@ -104,15 +106,16 @@ function avenirEnTroisChiffres(r, defl, iR) {
     const A = resumeAchat(etat.resultat);
     if (!A) { tuile3 = ["Achat de ta résidence", "prix à renseigner", "dans Mon profil"]; phrase3 = "Renseigne le prix visé dans Mon profil pour savoir à quel âge acheter ta résidence principale."; }
     else if (A.impossible) { tuile3 = ["Achat de ta résidence", A.age ? `impossible à ${A.age} ans` : "hors de portée", "revois l'âge ou le prix dans Mon profil"]; phrase3 = "Ton projet de résidence principale n'est pas finançable en l'état."; }
-    else if (A.ok) { tuile3 = ["Achat de ta résidence", `finançable à ${A.age} ans`, A.aVendre > 0.5 ? `en vendant ${eur(A.aVendre)} de placements` : "apport couvert"]; phrase3 = `Ta résidence principale serait finançable à ${A.age} ans.`; }
-    else { tuile3 = ["Achat de ta résidence", `apport manquant : ${eur(A.manque)}`, `pour acheter à ${A.age} ans`]; phrase3 = `Il te manque encore ${eur(A.manque)} d'apport pour acheter ta résidence principale à ${A.age} ans.`; }
+    else if (A.ok) { tuile3 = ["Achat de ta résidence", `finançable à ${A.age} ans`, A.aVendre > 0.5 ? `en vendant ${eurEnviron(A.aVendre)} de placements` : "apport couvert"]; phrase3 = `Ta résidence principale serait finançable à ${A.age} ans.`; }
+    else if (A.horsPortee) { tuile3 = ["Achat de ta résidence", `hors de portée avant ${A.horsPortee} ans`, `il manque au mieux ${eurEnviron(A.manque)} (à ${A.age} ans)`]; phrase3 = `Avec ces revenus, ton projet n'est pas finançable avant ${A.horsPortee} ans : il manque au mieux environ ${eurArrondi(A.manque)} d'apport (à ${A.age} ans).`; }
+    else { tuile3 = ["Achat de ta résidence", `apport manquant : ${eurEnviron(A.manque)}`, `pour acheter à ${A.age} ans`]; phrase3 = `Il te manque encore environ ${eurArrondi(A.manque)} d'apport pour acheter ta résidence principale à ${A.age} ans.`; }
   } else {
     const p0 = profilPourMoteur(), mois = moisPrecaution(p0.placements, p0.depensesMensuelles);
     tuile3 = ["Épargne de précaution", mois == null ? "dépenses à renseigner" : `${(Math.round(mois * 10) / 10).toLocaleString("fr-FR")} mois de dépenses`, "en livrets, avant d'investir"];
     phrase3 = mois == null ? "" : mois < 3 ? "Ton épargne de précaution couvre moins de 3 mois de dépenses : c'est la première priorité." : mois < 6 ? "Ton épargne de précaution couvre déjà plusieurs mois de dépenses : c'est solide." : "Ton épargne de précaution couvre 6 mois de dépenses ou plus : tu es à l'abri des imprévus.";
   }
-  const tuiles = [[`Ton patrimoine à la retraite`, eur(net), `net, à ${ageR} ans, en euros d'aujourd'hui`], ["Liberté financière", libre, libreSous], tuile3];
-  const phrase = `En suivant ton plan, tu aurais environ ${eur(net)} à ${ageR} ans, en euros d'aujourd'hui. ${phraseLibre} ${phrase3}`.replace(/\s+/g, " ").trim();
+  const tuiles = [[`Ton patrimoine à la retraite`, `${eurEnviron(net)}`, `net, à ${ageR} ans, en euros d'aujourd'hui`], ["Liberté financière", libre, libreSous], tuile3];
+  const phrase = `En suivant ton plan, tu aurais ${arrondiLisible(net) === 0 ? "" : "environ "}${eurArrondi(net)} à ${ageR} ans, en euros d'aujourd'hui. ${phraseLibre} ${phrase3}`.replace(/\s+/g, " ").trim();
   return `<section class="panneau" id="tr-avenir" data-seul="debutant"><h2>Mon avenir en 3 chiffres</h2>
     <div class="tuiles trois">${tuiles.map(([k, v, sous]) => `<div class="tuile"><span>${k}</span><b class="num">${v}</b>${sous ? `<span class="small muted">${sous}</span>` : ""}</div>`).join("")}</div>
     <p class="note" style="margin:0">${echapper(phrase)}</p>

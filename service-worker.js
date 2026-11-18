@@ -11,7 +11,7 @@
  * L'ancien cache est alors purgé à l'activation (le SWR garde les modules cohérents d'une visite à l'autre, mais une visite
  * peut mélanger anciennes et nouvelles versions). Les données DVF ont leur propre empreinte : elles ne sont pas re-téléchargées à chaque déploiement de code.
  */
-const CACHE_VERSION = "plan-patrimoine-f0dd26342815";
+const CACHE_VERSION = "plan-patrimoine-6277f5a78e1a";
 const CACHE_SHELL = CACHE_VERSION;
 const CACHE_DONNEES = "plan-patrimoine-dvf-6c843166468a";
 const PREFIXE = "plan-patrimoine-";

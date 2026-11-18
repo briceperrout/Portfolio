@@ -3,6 +3,7 @@
 // fonctions (jamais de const/let) d'app.js : import circulaire sûr car ces fonctions sont hissées.
 import { $, etat, memo, echapper, keur, ORDRE, COULEUR, pause } from "../ui/commun.js";
 import { eur, pct } from "../moteur.js";
+import { eurArrondi, eurEnviron } from "../utilitaires.js";
 import { libertePatrimoine, projeter, capitalNecessaire, contexteRetraite, evaluerRetraite } from "../projection.js";
 import { ABATTEMENT_AV, PRELEVEMENTS, SEUIL_PRIMES_AV } from "../fiscal.js";
 import { reserveAVTransmissible } from "../succession.js";
@@ -80,6 +81,14 @@ function blocDroitsSuccession(D, priorite) {
     </tbody></table></div>
     <p class="note" style="margin:6px 0 0">Droits estimés pour ta situation familiale, sur la part transmise par les placements ; la résidence principale n'y est pas imputée. <a class="lien-fiche" href="#transmission">Voir le détail dans l'onglet Transmission</a>.</p>`;
 }
+// « N chances sur 100 » : formulation lisible d'une probabilité (0..1), sans pourcentage ni faux 0 / 100
+function chancesSur100(p) {
+  const n = Math.round(100 * p);
+  if (n <= 0) return p > 0 ? "moins d'une chance sur 100" : "0 chance sur 100";
+  if (n >= 100) return p < 1 ? "presque à coup sûr (plus de 99 chances sur 100)" : "100 chances sur 100";
+  return `${n} ${n === 1 ? "chance" : "chances"} sur 100`;
+}
+
 export function rendreRetraite() {
   if (niveauCourant() === "debutant") { rendreRetraiteDebutant(); return; }
   const plan = etat.brouillon, H = plan.hypotheses;
@@ -118,7 +127,7 @@ export function rendreRetraite() {
   const iR = R.iR, iF = R.dernier;
   const capR = reel(C[iR].financier, iR), capF = reel(C[iF].financier, iF);
   const medF = reel(E[iF].p50, iF), p10F = reel(E[iF].p10, iF);
-  const probaTxt = `${Math.round(100 * R.probaDure)} %`;
+  const probaTxt = chancesSur100(R.probaDure);
   const tuiles = [
     [`Capital à ${C[iR].age} ans (central)`, eur(capR)],
     [`Capital à ${C[iR].age} ans (médiane)`, eur(reel(E[iR].p50, iR))],
@@ -128,7 +137,7 @@ export function rendreRetraite() {
     [`À transmettre à ${C[iF].age} ans (médiane)`, eur(Math.max(0, medF))],
   ];
   const ok = R.probaDure >= SEUIL_TENABLE, moyen = R.probaDure >= SEUIL_FRAGILE;
-  const verdict = `<p class="verdict ${ok ? "ok" : "ko"}"><b>${ok ? "Objectif tenable." : moyen ? "Objectif fragile." : "Objectif risqué."}</b> Avec ${eur(R.revenu)} par mois (en euros d'aujourd'hui)${R.pension > 0 ? `, dont ${eur(R.pension)} de retraite publique` : ""}, l'argent dure jusqu'à ${C[iF].age} ans dans ${probaTxt} des scénarios.${R.epuiseA ? ` Dans le scénario central, les placements sont épuisés à ${R.epuiseA} ans.` : ` Dans le scénario central, il reste ${eur(Math.max(0, capF))} (en euros d'aujourd'hui) à ${C[iF].age} ans.`}${R.revenuPreserve != null ? ` Pour transmettre au moins le capital de départ (${eur(capR)}), le revenu possible est d'environ ${eur(R.revenuPreserve)} par mois.` : ""}${ok ? "" : " Leviers : épargner plus, partir plus tard, viser un revenu plus bas, ou garder une part de bourse plus importante à la retraite."}</p>`;
+  const verdict = `<p class="verdict ${ok ? "ok" : "ko"}"><b>${ok ? "Objectif tenable." : moyen ? "Objectif fragile." : "Objectif risqué."}</b> Avec ${eur(R.revenu)} par mois (en euros d'aujourd'hui)${R.pension > 0 ? `, dont ${eur(R.pension)} de retraite publique` : ""}, il y a ${probaTxt} que l'argent dure jusqu'à ${C[iF].age} ans (scénarios simulés).${R.epuiseA ? ` Dans le scénario central, les placements sont épuisés à ${R.epuiseA} ans.` : ` Dans le scénario central, il reste ${eur(Math.max(0, capF))} (en euros d'aujourd'hui) à ${C[iF].age} ans.`}${R.revenuPreserve != null ? ` Pour transmettre au moins le capital de départ (${eur(capR)}), le revenu possible est d'environ ${eur(R.revenuPreserve)} par mois.` : ""}${ok ? "" : " Leviers : épargner plus, partir plus tard, viser un revenu plus bas, ou garder une part de bourse plus importante à la retraite."}</p>`;
 
   // Évolution pendant la retraite (en euros d'aujourd'hui)
   const defl = (i) => Math.pow(1 + infl, -(i + iR));
@@ -297,15 +306,15 @@ function rendreRetraiteDebutant() {
     : "Retraite publique : pas encore estimée (indique ton salaire dans « Mon profil »). Pour l'instant, tes placements paient tout.";
   const proba = R.probaDure, k = verdictRetraite(proba);
   const titre = { tenable: "Tenable", fragile: "Fragile", "pas-tenable": "Pas tenable" }[k];
-  const probaTxt = `${Math.round(100 * proba)} %`;
+  const probaTxt = chancesSur100(proba);
   const capR = reel(C[R.iR].financier, R.iR);
   const cle = JSON.stringify([etat.brouillon, etat.profil]);
   if (cacheNecessaire.cle !== cle) cacheNecessaire = { cle, r: capitalNecessaire(etat.brouillon, profilPourMoteur(), { inclureAchat: true }) };
   const nec = cacheNecessaire.r ? reel(cacheNecessaire.r.capital, R.iR) : null;
   const ecart = nec == null ? "" : capR >= nec
     ? (k === "tenable" ? "" : ` Avec des rendements moyens, ton capital suffirait ; mais quelques mauvaises années de bourse au mauvais moment suffisent à le vider : c'est ce qui rend le résultat ${k === "fragile" ? "fragile" : "risqué"}.`)
-    : ` Il manque environ ${eur(nec - capR)} pour tenir avec des rendements moyens.`;
-  const verdict = `<p class="verdict ${k === "tenable" ? "ok" : "ko"}" id="ret-verdict"><b>${titre}.</b> Avec ${eur(R.revenu)} par mois (en euros d'aujourd'hui), ton argent dure jusqu'à ${R.ageFin} ans dans ${probaTxt} des cas simulés (bonnes et mauvaises années de bourse).${k === "tenable" ? "" : " Plus ce chiffre est bas, plus tu risques de manquer d'argent."}${ecart}</p>`;
+    : ` Il manque environ ${eurArrondi(nec - capR)} pour tenir avec des rendements moyens.`;
+  const verdict = `<p class="verdict ${k === "tenable" ? "ok" : "ko"}" id="ret-verdict"><b>${titre}.</b> Avec ${eur(R.revenu)} par mois (en euros d'aujourd'hui), il y a ${probaTxt} que ton argent dure jusqu'à ${R.ageFin} ans, sur des milliers de scénarios de bourse simulés, bons et mauvais.${k === "tenable" ? "" : " Plus ce chiffre est bas, plus tu risques de manquer d'argent."}${ecart}</p>`;
   let suggestion = "";
   if (k !== "tenable") {
     const memoire = suggestionRetraite.cle === cle ? suggestionRetraite.res : null;
@@ -313,8 +322,8 @@ function rendreRetraiteDebutant() {
     if (!memoire) { const jeton = ++jetonSuggestion; chercherSuggestionRetraite(R, ageLegal, jeton, cle); }
   } else jetonSuggestion++;
   const tuiles = [
-    [`Capital nécessaire à ${R.age} ans`, nec != null ? eur(nec) : "—", `pour que l'argent dure jusqu'à ${R.ageFin} ans (rendements moyens)`],
-    [`Capital prévu à ${R.age} ans`, eur(capR), "ce que ton plan aura mis de côté (rendements moyens)"],
+    [`Capital nécessaire à ${R.age} ans`, nec != null ? `${eurEnviron(nec)}` : "—", `pour que l'argent dure jusqu'à ${R.ageFin} ans (rendements moyens)`],
+    [`Capital prévu à ${R.age} ans`, `${eurEnviron(capR)}`, "ce que ton plan aura mis de côté (rendements moyens)"],
   ];
   $("#retraite").innerHTML = reglages + `<section class="panneau" id="ret-verdict-bloc" data-seul="debutant"><h2>Est-ce que ma retraite tient ?</h2>
       ${verdict}

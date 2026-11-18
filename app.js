@@ -549,8 +549,20 @@ export function rendreResultats() {
   const toutOk = res.reeq.comptes.every((l) => l.statut === "ok");
   const eqTexte = toutOk ? "Les placements sont à l'équilibre." : eq == null ? "Équilibre non atteint en 10 ans avec ces réglages." : eq <= 1 ? "Équilibre atteint dès ce mois-ci." : `Équilibre atteint en environ ${eq} mois.`;
   const libMvt = (m) => m.sens === "arbitrage" ? `${m.transfert ? "Transférer de" : "Arbitrer de"} ${env(m.enveloppe)} vers ${env(m.vers)}` : `${m.sens === "retrait" ? (m.annuel ? "Vendre une fois cette année sur" : "Retirer de") : "Verser sur"} ${env(m.enveloppe)}`;
-  const mvts = res.mouvements.map((m) => `<tr><td>${texteLie(libMvt(m))}${m.note ? `<div class="note">${texteLie(m.note)}</div>` : ""}</td>
+  const ordreMvt = (m) => (m.sens === "versement" ? 1 : 0); // opérations ponctuelles d'abord, versements ensuite (tri stable)
+  const mouvementsTries = [...res.mouvements].sort((a, b) => ordreMvt(a) - ordreMvt(b));
+  const aRetraits = mouvementsTries.some((m) => m.sens === "retrait");
+  const idxVersement = mouvementsTries.findIndex((m) => m.sens === "versement");
+  const mvts = mouvementsTries.map((m, i) => (aRetraits && i === idxVersement ? '<tr><td class="muted small" colspan="2">Puis verser :</td></tr>' : "") + `<tr><td>${texteLie(libMvt(m))}${m.note ? `<div class="note">${texteLie(m.note)}</div>` : ""}</td>
     <td class="m"><span class="${m.sens === "retrait" ? "ecart-moins" : m.sens === "versement" ? "ecart-plus" : "muted"}">${m.sens === "retrait" ? "−" : m.sens === "versement" ? "+" : "⇄ "}${eur(m.montant)}</span></td></tr>`).join("");
+  const sommeMvt = (sens) => res.mouvements.filter((m) => m.sens === sens).reduce((s, m) => s + m.montant, 0);
+  const bilanMvts = (() => {
+    if (!aRetraits) return "";
+    const E = res.profil.epargneMensuelle, R = sommeMvt("retrait"), V = sommeMvt("versement");
+    return Math.abs(V - (E + R)) <= 1
+      ? `Tu verses <b>${eur(V)}</b> : tes ${eur(E)} d'épargne du mois et ${eur(R)} retirés ou vendus.`
+      : `Épargne du mois ${eur(E)} · retraits et ventes ${eur(R)} · versements ${eur(V)}.`;
+  })();
   const item = (c) => `<li><span>${texteLie(c.texte)}</span>${(c.fiche && FICHES[c.fiche]) || VIDEOS[c.video] ? `<span class="fiche small">${c.fiche && FICHES[c.fiche] ? lienFiche(c.fiche) : ""}${VIDEOS[c.video] ? `${c.fiche ? " · " : ""}<a class="lien-video" href="${VIDEOS[c.video].url}" target="_blank" rel="noopener">▶ Vidéo : ${echapper(VIDEOS[c.video].titre)}</a>` : ""}</span>` : ""}</li>`;
   const parNiveau = (n) => res.consignes.filter((c) => c.niveau === n);
   const aFaire = parNiveau("action"), alertes = parNiveau("alerte"), infos = parNiveau("info");
@@ -589,7 +601,7 @@ export function rendreResultats() {
           ${aFaireHTML}</section>
         <section class="panneau"><h2>Ce mois-ci · ${eur(p.epargneMensuelle)} d'épargne à répartir</h2>
           <p class="note" style="margin:4px 0 0">Les virements à faire ce mois-ci pour rapprocher chaque compte de sa cible.</p>
-          <div class="table-wrap" style="margin-top:8px"><table><tbody>${mvts || '<tr><td class="muted">Aucun mouvement ce mois-ci.</td></tr>'}</tbody></table></div></section>
+          <div class="table-wrap" style="margin-top:8px"><table><tbody>${mvts || '<tr><td class="muted">Aucun mouvement ce mois-ci.</td></tr>'}</tbody></table></div>${bilanMvts ? `<p class="note" id="res-bilan-mvts" style="margin:8px 0 0">${bilanMvts}</p>` : ""}</section>
         ${siNiveau("intermediaire", () => `<section class="panneau" id="res-montants" data-min="intermediaire"><h2>Montant visé sur chaque compte</h2><p class="note" style="margin:4px 0 8px">${eqTexte} L'argent déjà placé reste sur son compte quand le plan l'autorise ; l'épargne du mois comble les manques et les excédents sont déplacés petit à petit.</p>
           ${rythme ? `<div id="res-rythme" data-min="avance">${rythme}</div>` : ""}
           <div class="table-wrap"><table><thead><tr><th>Compte</th><th class="m">Actuel</th><th class="m">Cible</th><th class="m">Écart</th></tr></thead><tbody>${comptes}</tbody></table></div></section>`)}
@@ -1050,7 +1062,8 @@ function majSelecteurNiveau() {
 }
 function majBadgeAvances() {
   const el = $("#badge-avances"); if (!el) return;
-  const L = reglagesAvancesActifs(etat.profil, niveauCourant(), PROFIL_VIDE);
+  const exemple = cleProfilCourant() === "exemple:exemple";
+  const L = reglagesAvancesActifs(etat.profil, niveauCourant(), exemple ? PROFIL_EXEMPLE : PROFIL_VIDE);
   el.hidden = L.length === 0;
   if (!L.length) { el.removeAttribute("title"); return; }
   $("#badge-avances-titre").textContent = `⚙ ${L.length} réglage${L.length > 1 ? "s" : ""} avancé${L.length > 1 ? "s" : ""} actif${L.length > 1 ? "s" : ""}`;
@@ -2049,7 +2062,7 @@ function majVisibiliteProfil() {
   $("#ab-placer").disabled = $("#ab-sur-inter").disabled = !(Number(p.abondement?.interessement) > 0);
   $("#p-av-type").disabled = $("#p-av-date").disabled = $("#p-av-apres70").disabled = !p.assuranceVie?.ouverte;
   $("#p-futur-age").disabled = $("#p-futur-cap").disabled = $("#p-futur-sal").disabled = $("#p-futur-ep").disabled = !p.futur?.actif;
-  $("#p-rp-h").disabled = !rp || !p.projetRP?.imperatif;
+  $("#ligne-rp-h").hidden = !rp || !p.projetRP?.imperatif; // la durée ne sert qu'à un achat impératif : sinon on masque le champ (la valeur reste dans le profil)
 }
 export function apresSaisieProfil() {
   memo.set("profil-v2", etat.profil);
@@ -2248,7 +2261,7 @@ function rendreEtatProfil() {
   let t;
   if (etat.partage) t = "Scénario partagé : rien n'est enregistré.";
   else if (etat.simulation) t = "Simulation What-If en cours : rien n'est enregistré.";
-  else if (proches.courant.col === "exemple") t = "Profil d'exemple : rien n'est enregistré.";
+  else if (proches.courant.col === "exemple") t = "Profil d'exemple : tes modifications restent dans ce navigateur (jamais synchronisées) ; choisir à nouveau « Exemple » les efface.";
   else if (proches.statut) t = proches.statut;
   else t = d?.majLe ? `Enregistré automatiquement · mis à jour le ${new Date(d.majLe).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}` : "Enregistré automatiquement.";
   if (!etat.partage && !etat.simulation) {
@@ -2804,7 +2817,26 @@ function rendreVue() {
   if (vue === "fiches") rendreFiches();
   if (vue === "ideale") rendreEpargneIdeale();
   if (avant !== `vue-${vue}` || vue === "fiches") window.scrollTo(0, 0);
+  centrerOngletActif();
+  majDebordementOnglets();
 }
+// Barre d'onglets défilante (mobile) : centre l'onglet actif sans toucher au défilement vertical de la page
+function centrerOngletActif() {
+  const nav = document.querySelector("nav.onglets"), lien = nav?.querySelector('a[aria-current="page"]');
+  if (!lien || nav.scrollWidth <= nav.clientWidth) return;
+  const reduit = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const x = lien.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft;
+  nav.scrollTo({ left: x - (nav.clientWidth - lien.offsetWidth) / 2, behavior: reduit ? "auto" : "smooth" });
+}
+// Pose les classes qui estompent le bord de la barre quand des onglets dépassent à gauche ou à droite
+function majDebordementOnglets() {
+  const nav = document.querySelector("nav.onglets"); if (!nav) return;
+  nav.classList.toggle("deborde-g", nav.scrollLeft > 2);
+  nav.classList.toggle("deborde-d", nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 2);
+}
+document.querySelector("nav.onglets")?.addEventListener("scroll", majDebordementOnglets, { passive: true });
+window.addEventListener("resize", majDebordementOnglets);
+document.addEventListener("niveau:change", majDebordementOnglets);
 window.addEventListener("hashchange", () => { ouvrirLienPartage(); rendreVue(); });
 
 // ---------------------------------------------------------------- chargement du plan enregistré

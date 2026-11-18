@@ -87,6 +87,9 @@ header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: 
 .statut.sale::before { background: var(--warn); }
 
 nav.onglets { display: flex; gap: 4px; overflow-x: auto; margin: 20px 0 16px; border-bottom: 1px solid var(--line); }
+nav.onglets.deborde-d { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
+nav.onglets.deborde-g { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px); mask-image: linear-gradient(to right, transparent, #000 32px); }
+nav.onglets.deborde-g.deborde-d { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
 nav.onglets a { padding: 10px 14px; color: var(--muted); text-decoration: none; font-weight: 600;
   border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; flex: none; }
 nav.onglets a[aria-current="page"] { color: var(--fg); border-color: var(--accent); }
@@ -537,7 +540,13 @@ html.discret .num { letter-spacing: 0.05em; }
 .assistant-saisie { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); padding: 7px 9px; font: inherit; font-size: 0.86rem; min-width: 0; }
 .assistant-pied { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px 10px; font-size: 0.68rem; color: var(--faint); }
 .assistant-pied .assistant-btn { font-size: 0.72rem; padding: 4px 8px; }
-@media (max-width: 640px) { .assistant-panneau { right: 0; bottom: 0; width: 100vw; height: min(80vh, 600px); border-radius: 14px 14px 0 0; } }
+@media (max-width: 640px) {
+  .assistant-panneau { right: 0; bottom: 0; width: 100vw; height: min(80vh, 600px); border-radius: 14px 14px 0 0; }
+  .assistant-suggestions, .assistant-suivi { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+  .assistant-suggestions::-webkit-scrollbar, .assistant-suivi::-webkit-scrollbar { display: none; }
+  .assistant-suggestions .assistant-puce, .assistant-suivi .assistant-puce, .assistant-suivi .assistant-action { flex: none; white-space: nowrap; }
+  body { padding-bottom: 72px; }
+}
 @media print { .assistant { display: none !important; } }
 /* Hors-ligne (PWA) : pastille discrète dans l'en-tête + bandeau dans le chat. Les simulateurs restent actifs, seule l'IA en ligne est suspendue. */
 .indicateur-horsligne { display: inline-flex; align-items: center; gap: 5px; font-size: 0.76rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--warn); background: var(--warn-soft); color: var(--warn); white-space: nowrap; }
@@ -840,7 +849,7 @@ html.discret .num { letter-spacing: 0.05em; }
             <div class="champ"><label for="p-rp-prix">Prix du bien</label><div class="saisie"><input id="p-rp-prix" type="number" min="0" step="5000" data-p="projetRP.prix"><span>€</span></div></div>
             <div class="champ" data-min="intermediaire"><label for="p-rp-type">Type</label><select id="p-rp-type" data-p="projetRP.type"><option value="ancien">Ancien</option><option value="neuf">Neuf</option></select></div>
             <label class="coche"><input id="p-rp-imp" type="checkbox" data-p="projetRP.imperatif"> Achat impératif à une date fixée</label>
-            <div class="champ"><label for="p-rp-h">Achat dans</label><div class="saisie"><input id="p-rp-h" type="number" min="0" max="30" step="1" data-p="projetRP.horizonAnnees"><span>ans</span></div></div>
+            <div class="champ" id="ligne-rp-h" hidden><label for="p-rp-h">Achat dans</label><div class="saisie"><input id="p-rp-h" type="number" min="0" max="30" step="1" data-p="projetRP.horizonAnnees"><span>ans</span></div></div>
             <div class="champ" data-min="intermediaire"><label for="p-rp-aide" data-terme="apport">Aide de la famille pour l'apport (don, prêt familial)</label><div class="saisie"><input id="p-rp-aide" type="number" min="0" step="1000" data-p="projetRP.aideFamiliale"><span>€</span></div></div>
             <div class="champ" data-min="avance"><label for="p-rp-copro">Charges de copropriété non récupérables (facultatif)</label><div class="saisie"><input id="p-rp-copro" type="number" min="0" step="10" data-p="projetRP.chargesCoproMensuelles" placeholder="estimé"><span>€/mois</span></div></div>
             <div class="champ" data-min="avance"><label for="p-rp-loyer-eq">Loyer d'un logement équivalent (facultatif)</label><div class="saisie"><input id="p-rp-loyer-eq" type="number" min="0" step="10" data-p="projetRP.loyerEquivalent" placeholder="loyer estimé"><span>€/mois</span></div></div>

@@ -118,22 +118,22 @@ const nombre = (v) => Number(v) || 0;
 // Chaque règle : un réglage masqué à certains niveaux, et la façon de savoir qu'il s'écarte du défaut.
 const REGLES = [
   { libelle: "Activité d'indépendant renseignée", niveauRequis: A, actif: (p, d) => !vide(p.independant?.forme) && p.independant.forme !== d.independant?.forme },
-  { libelle: "Résidence fiscale hors de France", niveauRequis: A, actif: (p) => !vide(p.pays) && p.pays !== "FR" },
+  { libelle: "Résidence fiscale hors de France", niveauRequis: A, actif: (p, d) => !vide(p.pays) && p.pays !== "FR" && p.pays !== d.pays },
   { libelle: "Simulation d'une situation à un âge futur", niveauRequis: A, actif: (p, d) => !!p.futur?.actif && !d.futur?.actif },
   { libelle: "Projet d'investissement locatif", niveauRequis: A, actif: (p, d) => !!p.projetLocatif?.actif && !d.projetLocatif?.actif },
   { libelle: "Prêt à taux zéro (PTZ) activé", niveauRequis: A, actif: (p, d) => !!p.projetRP?.ptz?.actif && !d.projetRP?.ptz?.actif },
   { libelle: "Frais réels ou montants versés saisis", niveauRequis: A, actif: (p, d) => ["frais", "verses"].some((k) => Object.entries(p[k] ?? {}).some(([c, v]) => !vide(v) && !egal(v, d[k]?.[c]))) },
   { libelle: "Salaire espéré dans 10 ans saisi", niveauRequis: A, actif: (p, d) => !vide(p.salaireDans10Ans) && !egal(p.salaireDans10Ans, d.salaireDans10Ans) },
   { libelle: "Conjoint et foyer pris en compte", niveauRequis: I, actif: (p, d) => !!p.foyer?.actif && !d.foyer?.actif },
-  { libelle: "Enfants à charge renseignés", niveauRequis: I, actif: (p) => nombre(p.enfants) > 0 },
+  { libelle: "Enfants à charge renseignés", niveauRequis: I, actif: (p, d) => nombre(p.enfants) > nombre(d.enfants) },
   { libelle: "Mensualités de crédits en cours", niveauRequis: I, actif: (p, d) => nombre(p.creditsMensuels) > nombre(d.creditsMensuels) },
   { libelle: "Abondement de l'employeur actif", niveauRequis: I, actif: (p, d) => !!p.abondement?.actif && !d.abondement?.actif },
-  { libelle: "Événements de vie prévus", niveauRequis: I, actif: (p) => Array.isArray(p.evenements) && p.evenements.length > 0 },
+  { libelle: "Événements de vie prévus", niveauRequis: I, actif: (p, d) => Array.isArray(p.evenements) && p.evenements.length > (Array.isArray(d.evenements) ? d.evenements.length : 0) },
   { libelle: "Profil de risque choisi à la main", niveauRequis: I, actif: (p, d) => !vide(p.profilRisque) && p.profilRisque !== d.profilRisque },
   { libelle: "Tranche d'imposition saisie à la main", niveauRequis: I, actif: (p, d) => !vide(p.tmi) && !egal(String(p.tmi), String(d.tmi ?? "")) },
-  { libelle: "Retraite publique saisie à la main", niveauRequis: I, actif: (p) => !vide(p.retraite?.modePension) && p.retraite.modePension !== "auto" },
-  { libelle: "Comptes à l'étranger renseignés", niveauRequis: A, actif: (p) => Array.isArray(p.comptesEtrangers) && p.comptesEtrangers.length > 0 },
-  { libelle: "Placements détaillés dans des comptes « Autres »", niveauRequis: I, actif: (p) => Object.entries(p.placements ?? {}).some(([c, v]) => COMPTES_AUTRES.includes(c) && nombre(v) > 0) },
+  { libelle: "Retraite publique saisie à la main", niveauRequis: I, actif: (p, d) => !vide(p.retraite?.modePension) && p.retraite.modePension !== "auto" && p.retraite.modePension !== d.retraite?.modePension },
+  { libelle: "Comptes à l'étranger renseignés", niveauRequis: A, actif: (p, d) => Array.isArray(p.comptesEtrangers) && p.comptesEtrangers.length > (Array.isArray(d.comptesEtrangers) ? d.comptesEtrangers.length : 0) },
+  { libelle: "Placements détaillés dans des comptes « Autres »", niveauRequis: I, actif: (p, d) => Object.entries(p.placements ?? {}).some(([c, v]) => COMPTES_AUTRES.includes(c) && nombre(v) > 0 && nombre(v) !== nombre(d.placements?.[c])) },
 ];
 
 /**

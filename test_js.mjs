@@ -12,11 +12,11 @@ import { impotBaremeIndexe, margeTranche } from "./fiscal.js";
 import { FICHES, PARCOURS_DEBUTANT } from "./fiches.js";
 import { FAMILLES_ALLOCATION, grouperAllocation, GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent } from "./moteur.js";
 import { HISTORIQUE } from "./historique.js";
-import { echapper } from "./utilitaires.js";
+import { echapper, arrondiLisible, eurArrondi, eurEnviron } from "./utilitaires.js";
 import { lierTermes } from "./lexique.js";
 import { RE_MONTANT, contientMontant, masquerTexte } from "./discretion.js";
 import { DEVISES, DEVISES_COMPTES, TAUX_REFERENCE, TYPES_COMPTES_ETRANGERS, analyserTaux, tauxEffectifs, convertir, consoliderEtrangers, avecComptesEtrangers, expositionChange } from "./devises.js";
-import { capitalDe, repartirEnEnveloppes, accepteArgentNeuf, consequencesDepart } from "./moteur.js";
+import { eur, capitalDe, repartirEnEnveloppes, accepteArgentNeuf, consequencesDepart } from "./moteur.js";
 import { encoderProfilPartage, decoderProfilPartage } from "./recap.js";
 import { BITCOIN_DEBUT, comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS, projeter, projeterCentral, libertePatrimoine, moisPrecaution, capitalNecessaire, generateur, fenetresHistoriques, backtesterHistorique, MATRICES_CORRELATION, REGIMES, cholesky, etalonnerRegimes, preparerCorrelations, rendementsCorreles, SCENARIO_INFLATION, scenarioInflation } from "./projection.js";
 
@@ -901,6 +901,13 @@ egal(libelleModele(undefined), "", "libellé absent");
   const intl = [];
   for (const dev of ["EUR", "USD", "CAD", "CHF", "GBP"]) for (const n of [1234, -1234567.5, 0.5]) intl.push(fr(dev, n));
   for (const s of intl) verifier(masquerTexte(s) !== s && !/\d/.test(masquerTexte(s)), `discrétion : sortie Intl fr-FR masquée « ${s} »`);
+  for (const [v, att] of [[114574, 115000], [32557, 32600], [147130, 147000], [847, 850], [2345678, 2350000], [-32557, -32600]]) verifier(arrondiLisible(v) === att, `arrondiLisible(${v}) = ${att} (obtenu ${arrondiLisible(v)})`);
+  verifier(Number.isNaN(arrondiLisible(NaN)), "arrondiLisible(NaN) = NaN");
+  verifier(eurArrondi(114574) === eur(115000), "eurArrondi(114574) = eur(115000)");
+  verifier(eurEnviron(0) === eur(0), "eurEnviron(0) sans « ≈ »");
+  verifier(eurEnviron(114574) === "≈ " + eur(115000), "eurEnviron(114574) = « ≈ » + eur(115000)");
+  verifier(eurEnviron(4) === eur(0), "eurEnviron(4) arrondi à 0, sans « ≈ »");
+  verifier(contientMontant(`≈ ${eurArrondi(114574)}`) && contientMontant("≈ 115 000 €"), "discrétion : « ≈ 115 000 € » détecté");
   const neutres = ["TMI 30 %", "en 2026", "à 64 ans", "4 600", "12,5 %", "tranche 2", "Étape 3 sur 5"];
   for (const s of neutres) verifier(masquerTexte(s) === s && !contientMontant(s), `discrétion : « ${s} » inchangé`);
   for (const s of [...cas.map((c) => c[0]), ...intl, ...neutres]) {
