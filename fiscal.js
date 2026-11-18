@@ -19,11 +19,11 @@ export const PRELEVEMENTS = Object.freeze({
 });
 export const PFU = Math.round((PRELEVEMENTS.IR_PFU + PRELEVEMENTS.PS_CAPITAL) * 10) / 10; // 31,4 %
 
-const DECOTE = { seul: 897, couple: 1483, taux: 45.25 };
+export const DECOTE = { seul: 897, couple: 1483, taux: 45.25 };
 
 // Parts pour enfants à charge : 0,5 pour chacun des deux premiers, 1 à partir du troisième
 export const partsEnfants = (n) => { const k = Math.max(0, Math.round(Number(n) || 0)); return Math.min(k, 2) * 0.5 + Math.max(0, k - 2); };
-const PLAFOND_DEMI_PART = 1807; // avantage maximal par demi-part pour enfant (2026)
+export const PLAFOND_DEMI_PART = 1807; // avantage maximal par demi-part pour enfant (2026)
 
 // Impôt annuel d'un foyer à partir de son revenu imposable (après l'abattement de 10 %).
 // partsBase : parts sans les enfants (1 ou 2), pour plafonner l'avantage des enfants.

@@ -83,7 +83,7 @@ Avant d'ajouter une fonction, vérifie si son domaine est déjà couvert par l'u
 1. **Planification :** Pour toute tâche touchant plus de 2 fichiers ou introduisant une logique fiscale/financière complexe, expose d'abord ton plan d'action concis et attends validation avant d'écrire du code.
 2. **Contrôles obligatoires avant de rendre la main :**
    - Vérifie la syntaxe JavaScript (`node --check` sur les fichiers modifiés) et Python (`python3 -m py_compile serveur.py` le cas échéant).
-   - Lance les tests : `node test_niveaux.mjs` (cohérence `data-min` ↔ `MATRICE`, invariance des calculs, shell du service worker), `node test_js.mjs`, `test_fiscal.mjs`, `test_succession.mjs`, `test_immobilier.mjs`, `test_releves.mjs`, `test_sync.mjs` et `python3 test_routage.py` : tout doit passer.
+   - Lance les tests : `node test_niveaux.mjs` (cohérence `data-min` ↔ `MATRICE`, invariance des calculs, shell du service worker), `node test_js.mjs`, `test_fiscal.mjs`, `test_succession.mjs`, `test_immobilier.mjs`, `test_releves.mjs`, `test_sync.mjs` et `python3 test_routage.py` : tout doit passer. `node --test test_*.mjs` lance d'un coup toutes les suites JS (échec si l'une échoue) ; la CI `.github/workflows/tests.yml` les rejoue à chaque push.
    - Vérifie qu'aucun import ES6 n'est cassé et qu'aucun lien mort (ex. `favicon.svg`, `manifest.json`) ne génère d'erreur 404.
    - Vérifie avec `git diff` qu'aucune clé secrète, donnée personnelle ou régression n'a été introduite.
 3. **Granularité Git :** Termine chaque étape validée en proposant un message de commit clair et atomique (ex. `feat(fiscal): ajoute simulateur de réforme fiscale dynamique`).

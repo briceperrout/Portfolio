@@ -24,6 +24,7 @@ package-lock.json
 # Dépôt, éditeur, IA
 .git
 .gitignore
+.github
 .claude
 .vscode
 .idea

@@ -1,0 +1,28 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntaxe JavaScript
+        run: |
+          for f in *.js *.mjs; do
+            node --check "$f"
+          done
+      - name: Suites JavaScript
+        run: node --test test_*.mjs
+      - name: Syntaxe Python
+        run: python3 -m py_compile serveur.py
+      - name: Tests de routage
+        run: python3 test_routage.py

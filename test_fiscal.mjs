@@ -1,5 +1,5 @@
 // Tests de la fiscalité des indépendants et de la centralisation des taux — node test_fiscal.mjs
-import { PFU, PRELEVEMENTS, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes, exitTax } from "./fiscal.js";
+import { PFU, PRELEVEMENTS, DECOTE, PLAFOND_DEMI_PART, partsEnfants, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes, exitTax } from "./fiscal.js";
 import { PLAN } from "./plan.js";
 import { estimerPension } from "./pension.js";
 
@@ -155,6 +155,55 @@ verifier("barème indexé 1,1", impotBaremeIndexe(33000, 2, 2, 1.1).impot, impot
   verifier("exit non assujetti sursis", exitTax({ valeurTitres: 1 }).sursis, null);
   const vide = exitTax({}), junk = exitTax({ valeurTitres: "x", plusValuesLatentes: NaN, moinsValuesLatentes: undefined, anneesResidence10: "abc" });
   for (const r of [vide, junk]) verifier("exit sans NaN", [r.base, r.impotIR, r.prelevementsSociaux, r.total].every(Number.isFinite), true);
+}
+
+// ---- Décote, quotient familial et tranches (calculs à la main, revenu net imposable en entrée) ----
+{
+  // Seul, RNI 20 000 : brut (20 000 − 11 600) × 11 % = 924 ; décote 897 − 0,4525 × 924 = 478,89 → 445,11
+  let r = impotBareme(20000);
+  verifier("décote seul impôt", r.impot, 445.11, 1);
+  verifier("décote seul TMI", r.tmi, 11, 0);
+  verifier("DECOTE.seul exporté", DECOTE.seul, 897, 0);
+  verifier("PLAFOND_DEMI_PART exporté", PLAFOND_DEMI_PART, 1807, 0);
+  // Limite de la première tranche
+  verifier("RNI 11 600 impôt", impotBareme(11600).impot, 0, 0);
+  verifier("RNI 11 600 TMI", impotBareme(11600).tmi, 0, 0);
+  // Écart documenté : à 11 601 le brut (0,11 €) est effacé par la décote ; le code renvoie alors tmi 0 (tmi = 0 quand impôt = 0)
+  verifier("RNI 11 601 impôt effacé par la décote", impotBareme(11601).impot, 0, 0);
+  verifier("RNI 11 601 TMI (0 car impôt nul)", impotBareme(11601).tmi, 0, 0);
+  // Seul, RNI 40 000 : brut 17 979 × 11 % + 10 421 × 30 % = 1 977,69 + 3 126,30 = 5 103,99 ; décote nulle
+  r = impotBareme(40000);
+  verifier("sans décote seul impôt", r.impot, 5103.99, 1);
+  verifier("sans décote seul TMI", r.tmi, 30, 0);
+  // Couple 2 parts, RNI 30 000 : QF 15 000, brut/part 374, total 748 ; décote 1 483 − 0,4525 × 748 = 1 144,53 > 748 → 0
+  r = impotBareme(30000, 2);
+  verifier("décote couple impôt nul", r.impot, 0, 0);
+  verifier("DECOTE.couple exporté", DECOTE.couple, 1483, 0);
+  // Couple 2 parts, RNI 50 000 : QF 25 000, brut/part 1 474 (13 400 × 11 %), total 2 948 ; décote 1 483 − 0,4525 × 2 948 = 148,03 → 2 798,97
+  verifier("décote couple partielle", impotBareme(50000, 2).impot, 2798.97, 1);
+  // Plafonnement : couple 2 enfants (3 parts, base 2), RNI 100 000
+  // 3 parts : 3 × 3 103,99 = 9 311,97 ; 2 parts : 2 × 8 103,99 = 16 207,98 ; avantage 6 896,01 > 2 × 1 807 = 3 614 → 16 207,98 − 3 614 = 12 593,98
+  r = impotBareme(100000, 3, 2);
+  verifier("QF plafonné impôt", r.impot, 12593.98, 1);
+  verifier("QF plafonné TMI", r.tmi, 30, 0);
+  // QF non plafonné : couple 1 enfant (2,5 parts, base 2), RNI 40 000
+  // 2,5 parts : QF 16 000, (16 000 − 11 600) × 11 % = 484 × 2,5 = 1 210 ; 2 parts : QF 20 000, 924 × 2 = 1 848 ; avantage 638 < 1 807 → on garde 1 210
+  // décote couple (base 2) : 1 483 − 0,4525 × 1 210 = 935,475 → impôt 274,525
+  r = impotBareme(40000, 2.5, 2);
+  verifier("QF non plafonné impôt", r.impot, 274.525, 1);
+  verifier("QF non plafonné TMI", r.tmi, 11, 0);
+  // Bornes de tranches (seul)
+  verifier("TMI juste au-dessus de 29 579", impotBareme(29580).tmi, 30, 0);
+  verifier("TMI à 29 579", impotBareme(29579).tmi, 11, 0);
+  verifier("TMI juste au-dessus de 84 577", impotBareme(84578).tmi, 41, 0);
+  verifier("TMI à 84 577", impotBareme(84577).tmi, 30, 0);
+  verifier("TMI juste au-dessus de 181 917", impotBareme(181918).tmi, 45, 0);
+  verifier("TMI à 181 917", impotBareme(181917).tmi, 41, 0);
+  // Parts pour enfants
+  verifier("partsEnfants 0", partsEnfants(0), 0, 0);
+  verifier("partsEnfants 1", partsEnfants(1), 0.5, 0);
+  verifier("partsEnfants 2", partsEnfants(2), 1, 0);
+  verifier("partsEnfants 3", partsEnfants(3), 2, 0);
 }
 
 console.log(`${ok} vérifications réussies, ${ko} échec(s)`);
