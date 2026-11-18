@@ -2,7 +2,7 @@ import { PLAN } from "./plan.js";
 import { analyserTaux, DEVISES, NOM_DEVISE, devisesParDefaut, DEVISES_COMPTES, TYPES_COMPTES_ETRANGERS, TAUX_REFERENCE, tauxEffectifs, consoliderEtrangers, avecComptesEtrangers, expositionChange } from "./devises.js";
 import { analyser, capitalDe, GROUPES_PLACEMENTS, grouperAllocation, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent, eur, pct, pretTauxZero, profilRisque, dureeTexte, diagnosticAchat, facteurSalaire, carriereDe, hausseReelle, normaliserFoyer, consequencesDepart, NOTE_CONSEQUENCES_DEPART } from "./moteur.js";
 import { projetLocatifDe, analyseLocatif, mensualitePret } from "./locatif.js";
-import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, libertePatrimoine, moisPrecaution, referenceSuivi, situationFuture, contexteRetraite, evaluerRetraite, capitalNecessaire, CRISES, simulerCrise, fluxLocatif, backtesterHistorique, scenarioInflation, SCENARIO_INFLATION } from "./projection.js";
+import { comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, achatPourProjection, comparaisonAchatLocation, projeter, projeterCentral, libertePatrimoine, moisPrecaution, referenceSuivi, prevuA, moisEntre, situationFuture, contexteRetraite, evaluerRetraite, capitalNecessaire, CRISES, simulerCrise, fluxLocatif, backtesterHistorique, scenarioInflation, SCENARIO_INFLATION } from "./projection.js";
 import { HISTORIQUE } from "./historique.js";
 import { SCENARIOS_FISCAUX, NEUTRE, optionFiscale, comparerTaux } from "./evolution-fiscale.js";
 import { echeancesProfil, echeancesGenerales, versCSV } from "./calendrier.js";
@@ -17,6 +17,7 @@ import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
 import { plafondPEREstime, revenuImposableDe, economieInteressement, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER, etatReleve, comparerReleve } from "./moteur.js";
 import { monterAssistant } from "./assistant.js";
 import { masquerTexte, contientMontant } from "./discretion.js";
+import { detecterAlertes } from "./alertes.js";
 import { NIVEAUX, INFOS_NIVEAUX, visible, reglagesAvancesActifs, niveauLePlusBas, nomVue, libelleOnglet, suiteVue } from "./niveaux.js";
 import { genererCode, extraireCode, formaterCode, creerLien, estCleSynchronisable, synchroniser, effacerDistant, oublierCles } from "./sync.js";
 
@@ -600,6 +601,7 @@ function rendreResultats() {
   const plan = etat.brouillon;
   const niveau = niveauCourant(), deb = niveau === "debutant";
   etat.resultat = res;
+  majAlertes(sim.futur ? undefined : res, !!sim.futur); // point central de recalcul : au démarrage et après chaque changement du profil ou du plan
   if (!$("#vue-ideale").hidden) rendreEpargneIdeale();
   const etranger = sim.futur ? 0 : consoliderEtrangers(etat.profil, tauxEffectifs(etat.profil, etat.tauxDuJour).taux).totalEUR;
   $("#total-capital").textContent = eur(res.capital);
@@ -3590,19 +3592,9 @@ $("#suivi").addEventListener("click", async (e) => {
 // ---------------------------------------------------------------- suivi dans le temps
 // Stocké dans le document du profil : suivi = { reference: { date, points }, releves: [{ date, placements, total }] }
 const moisCourant = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
-const moisEntre = (a, b) => { const [y1, m1] = a.split("-").map(Number), [y2, m2] = b.split("-").map(Number); return (y2 - y1) * 12 + (m2 - m1); };
 const ajouterMois = (a, n) => { const [y, m] = a.split("-").map(Number); const t = y * 12 + (m - 1) + n; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`; };
 const libMois = (a) => { const [y, m] = a.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }); };
 const totalPlacements = (pl) => Object.values(pl ?? {}).reduce((s, x) => s + (Number(x) || 0), 0);
-
-function prevuA(ref, mois) {
-  if (!ref || mois < 0) return null;
-  const t = mois / 12, i = Math.floor(t), f = t - i, n = ref.points.length - 1;
-  if (i > n) return null;
-  const a = ref.points[Math.min(i, n)], b = ref.points[Math.min(i + 1, n)];
-  const k = (x) => a[x] + (b[x] - a[x]) * f;
-  return { c: k("c"), p10: k("p10"), p50: k("p50"), p90: k("p90") };
-}
 
 // Familles de comptes pour le graphique « évolution par compte »
 const FAMILLES = [
@@ -5292,6 +5284,61 @@ function montrerAlerteMillesime() {
     b.append(texte, bouton);
     ancre.insertAdjacentElement("beforebegin", b);
   } catch { /* l'alerte ne doit jamais empêcher le démarrage */ }
+}
+
+// Centre d'alertes proactives (alertes.js) : calcul local, masquage par période, par profil et par appareil (jamais synchronisé).
+// Le niveau de lecture est géré en CSS par data-min ; textContent seulement (le texte vient de calculs, jamais de HTML).
+let alertesCourantes = [], alertesProfil = null; // dernières alertes calculées sur le profil réel, et le profil concerné
+const cleMasquageAlerte = (a) => `alerte-vue:${cleProfilCourant()}:${a.cle}`;
+function afficherAlertes() {
+  const bloc = $("#bloc-alertes");
+  if (!bloc) return;
+  const visibles = alertesCourantes.filter((a) => !memo.get(cleMasquageAlerte(a)));
+  bloc.replaceChildren();
+  for (const a of visibles) {
+    const carte = document.createElement("div");
+    carte.className = `alerte-carte ${a.niveau}`;
+    if (a.min) carte.dataset.min = a.min;
+    const titre = document.createElement("b"); titre.textContent = a.titre;
+    const texte = document.createElement("p"); texte.textContent = a.texte;
+    const actions = document.createElement("div"); actions.className = "alerte-actions";
+    if (a.vue) {
+      const voir = document.createElement("a");
+      voir.className = "lien-fiche"; voir.href = `#${a.vue}`; voir.textContent = "Voir";
+      actions.append(voir);
+    }
+    if (a.fiche && FICHES[a.fiche]) {
+      const fiche = document.createElement("a");
+      fiche.className = "lien-fiche"; fiche.href = `#fiche-${a.fiche}`; fiche.textContent = `Fiche ${FICHES[a.fiche]}`;
+      actions.append(fiche);
+    }
+    const masquer = document.createElement("button");
+    masquer.type = "button"; masquer.textContent = "Masquer";
+    masquer.addEventListener("click", () => { memo.set(cleMasquageAlerte(a), true); afficherAlertes(); }); // aucun recalcul
+    actions.append(masquer);
+    carte.append(titre, texte, actions);
+    bloc.append(carte);
+  }
+  bloc.hidden = visibles.length === 0;
+}
+// `gele` : situation future simulée. Profil partagé : aucune alerte. Simulation What-If ou situation future : on garde
+// les dernières alertes du profil réel, sans rien recalculer.
+function majAlertes(analyse, gele = false) {
+  try {
+    const bloc = $("#bloc-alertes");
+    if (!bloc) return;
+    if (etat.partage) { alertesCourantes = []; alertesProfil = null; bloc.replaceChildren(); bloc.hidden = true; return; }
+    if (etat.simulation || gele) {
+      if (alertesProfil !== cleProfilCourant()) { alertesCourantes = []; alertesProfil = null; }
+      afficherAlertes();
+      return;
+    }
+    let releves = null, reference = null;
+    try { const { suivi, test } = suiviCourant(); if (!test && suivi?.releves?.length) { releves = suivi.releves; reference = suivi.reference ?? null; } } catch { /* sans Suivi : pas de bilan mensuel */ }
+    try { alertesCourantes = detecterAlertes(etat.brouillon, profilPourMoteur(), { analyse, releves, reference }); alertesProfil = cleProfilCourant(); }
+    catch (e) { console.warn("Alertes indisponibles", e); alertesCourantes = []; }
+    afficherAlertes();
+  } catch (e) { console.warn("Alertes : rendu impossible", e); }
 }
 
 // ---------------------------------------------------------------- démarrage

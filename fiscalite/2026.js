@@ -103,6 +103,19 @@ export const FISCALITE_2026 = deepFreeze({
     VERIFIE_LE: "2026-11-17",
   },
 
+  // Plus-values sur valeurs mobilières (compte-titres) : une moins-value s'impute sur les plus-values de même nature de l'année,
+  // puis se reporte sur les années suivantes — art. 150-0 D CGI
+  plusValues: { reportMoinsValuesAns: 10, VERIFIE_LE: "2026-11-17" },
+
+  // Marché : calendrier de règlement-livraison et jours fermés de la Bourse de Paris en fin d'année.
+  // Une moins-value ne compte pour l'année que si l'ordre est exécuté assez tôt pour être réglé avant le 31/12.
+  // Le passage au règlement T+1 est prévu dans l'UE en octobre 2027 : 2027.js devra en tenir compte (reglementJoursOuvres: 1).
+  marche: {
+    reglementJoursOuvres: 2,
+    feriesBourseDecembre: ["12-25", "12-26"], // MM-JJ ; les samedis et dimanches sont fermés dans tous les cas
+    VERIFIE_LE: "2026-11-17",
+  },
+
   // Plafonds réglementaires en €
   plafonds: {
     livretA: 22950,  // Livret A, par personne — art. L221-1 Code monétaire et financier

@@ -288,6 +288,15 @@ ul.infos li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 2p
 ul.infos li:last-child { border-bottom: 0; padding-bottom: 0; }
 ul.infos li::before { content: "i"; width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 0.75rem; display: grid; place-items: center; font-family: var(--font-display); margin-top: 1px; }
 .panneau.attention { border-left: 3px solid var(--warn); }
+/* Centre d'alertes (onglet Profil) : une carte par alerte, liseré selon le niveau */
+.bloc-alertes { display: grid; gap: 8px; margin: 0 0 12px; }
+.bloc-alertes[hidden] { display: none; }
+.alerte-carte { display: grid; gap: 4px; padding: 10px 14px; border-radius: var(--r); border-left: 4px solid var(--accent); background: var(--accent-soft); color: var(--fg); font-size: 0.9rem; }
+.alerte-carte.action { border-left-color: var(--act); background: var(--act-soft); }
+.alerte-carte.alerte { border-left-color: var(--warn); background: var(--warn-soft); }
+.alerte-carte b { font-family: var(--font-display); font-weight: 600; }
+.alerte-carte p { margin: 0; }
+.alerte-carte .alerte-actions { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
 .note.attention { color: var(--fg); background: var(--warn-soft); border-left: 3px solid var(--warn); padding: 6px 10px; border-radius: 6px; }
 .panneau.attention ul.infos li::before { content: "!"; background: var(--warn-soft); color: var(--warn); }
 .panneau.attention h2 { color: var(--warn); }
@@ -565,6 +574,7 @@ html.discret .num { letter-spacing: 0.05em; }
 
   <!-- ===================== 1. MON PROFIL ===================== -->
   <section id="vue-profil">
+    <div id="bloc-alertes" class="bloc-alertes" hidden aria-live="polite"></div>
     <div class="etape"><p><b>Étape 1 sur 4.</b> Décris ta situation d'aujourd'hui. Les résultats se mettent à jour à chaque saisie, dans « <span data-lib="reequilibrage">Rééquilibrage</span> » et « <span data-lib="trajectoire">Trajectoire</span> ».</p></div>
     <p class="conseil" data-seul="debutant" id="intro-debutant">Quelques questions suffisent : tout le reste est réglé avec des hypothèses prudentes. Tu pourras affiner plus tard en passant en mode Intermédiaire.</p>
     <div class="cta-decouverte" id="cta-decouverte" hidden>

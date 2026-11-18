@@ -71,6 +71,8 @@ export const SEUIL_PRIMES_AV = FISCALITE.assuranceVie.seuilPrimes; // primes net
 // ==== Droits de mutation à titre gratuit (successions et donations) — voir fiscalite/2026.js ====
 export const DMTG = FISCALITE.dmtg;
 export const AV_DECES = FISCALITE.avDeces;
+export const PLUS_VALUES = FISCALITE.plusValues;  // report des moins-values sur valeurs mobilières (art. 150-0 D CGI)
+export const MARCHE = FISCALITE.marche;          // règlement-livraison (jours ouvrés) et jours fériés de Bourse en décembre
 // Art. 669 CGI : [âge de l'usufruitier strictement inférieur à, % de l'usufruit]
 export const BAREME_USUFRUIT = FISCALITE.baremeUsufruit;
 export const ABATTEMENT_AV_DECES = AV_DECES.ABATTEMENT_990I;                  // art. 990 I, par bénéficiaire

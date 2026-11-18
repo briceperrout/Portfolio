@@ -5,14 +5,16 @@
 //  Les âges ne sont connus qu'en années : ces dates sont approximatives.
 // =====================================================================
 import { analyser, eur, profilRisque } from "./moteur.js";
+import { dernierJourCession } from "./alertes.js";
+import { MARCHE } from "./fiscal.js";
 
 const debutMois = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
 const plusMois = (d, n) => new Date(d.getFullYear(), d.getMonth() + n, 1);
 const depuisAAAAMM = (s) => { const [a, m] = s.split("-").map(Number); return new Date(a, (m || 1) - 1, 1); };
 
-export function echeancesProfil(plan, profil, { releves = null } = {}) {
+export function echeancesProfil(plan, profil, { releves = null, aujourdhui = new Date() } = {}) {
   const C = plan.calendrier ?? {};
-  const maintenant = debutMois(new Date());
+  const maintenant = debutMois(aujourdhui);
   const fin = plusMois(maintenant, 12 * (C.horizonAnnees ?? 15));
   const res = analyser(plan, profil);
   const ev = [];
@@ -47,6 +49,16 @@ export function echeancesProfil(plan, profil, { releves = null } = {}) {
   // Livret Jeune : fermé au plus tard à la fin de l'année des 25 ans
   if ((profil.placements?.livretJeune ?? 0) > 0 && age <= 25) {
     ajouter(new Date(maintenant.getFullYear() + (25 - age), 11, 1), "Fin du Livret Jeune (25 ans)", "Le Livret Jeune est fermé au plus tard à la fin de l'année des 25 ans : placer l'argent sur le Livret A ou le LDDS.", "action", "livret-jeune", true);
+  }
+
+  // Compte-titres : dernier jour pour vendre et matérialiser une moins-value sur l'année (délai de règlement : MARCHE)
+  if ((profil.placements?.cto ?? 0) > 0) {
+    const jourDe = (an) => { const [a, m, j] = dernierJourCession(an).split("-").map(Number); return new Date(a, m - 1, j); };
+    const aujourd = new Date(aujourdhui.getFullYear(), aujourdhui.getMonth(), aujourdhui.getDate());
+    let limite = jourDe(aujourd.getFullYear());
+    if (limite < aujourd) limite = jourDe(aujourd.getFullYear() + 1);
+    // `ajouter` ne garde que les dates du mois courant ou après : on pousse directement (la date est toujours à venir)
+    ev.push({ date: limite, titre: "Dernier jour de cession sur le CTO pour l'année", detail: `Pour qu'une moins-value latente compte sur l'année, l'ordre de vente doit être exécuté ce jour au plus tard (règlement à J+${MARCHE.reglementJoursOuvres} ouvrés). Utile seulement si des plus-values ont été ou seront réalisées ; le PEA n'est pas concerné.`, type: "fiscal", fiche: "cto", approx: false, jourPrecis: true });
   }
 
   // Assurance-vie
@@ -107,11 +119,11 @@ export function echeancesGenerales(plan) {
 // Export CSV au format accepté par Google Agenda et Outlook
 export function versCSV(evenements) {
   const champ = (s) => `"${String(s).replace(/"/g, '""')}"`;
-  const date = (d) => `${String(d.getMonth() + 1).padStart(2, "0")}/01/${d.getFullYear()}`;
+  const date = (d, jourPrecis) => `${String(d.getMonth() + 1).padStart(2, "0")}/${jourPrecis ? String(d.getDate()).padStart(2, "0") : "01"}/${d.getFullYear()}`; // jour exact seulement pour les échéances datées au jour près
   const lignes = [["Subject", "Start Date", "All Day Event", "Description"].join(",")];
   for (const e of evenements) {
     const titre = e.qui ? `${e.titre} · ${e.qui}` : e.titre;
-    lignes.push([champ(titre), date(e.date), "True", champ(e.detail + (e.approx ? " (date approximative)" : ""))].join(","));
+    lignes.push([champ(titre), date(e.date, e.jourPrecis), "True", champ(e.detail + (e.approx ? " (date approximative)" : ""))].join(","));
   }
   return lignes.join("\r\n");
 }

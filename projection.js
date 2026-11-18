@@ -924,6 +924,18 @@ export function referenceSuivi(plan, profilSaisi, annees = 20) {
 }
 
 
+// ------------------------------------------------------------- suivi : prévision de référence
+// Pures, partagées par l'onglet Suivi (app.js) et le centre d'alertes (alertes.js).
+export const moisEntre = (a, b) => { const [y1, m1] = a.split("-").map(Number), [y2, m2] = b.split("-").map(Number); return (y2 - y1) * 12 + (m2 - m1); };
+export function prevuA(ref, mois) {
+  if (!ref || mois < 0) return null;
+  const t = mois / 12, i = Math.floor(t), f = t - i, n = ref.points.length - 1;
+  if (i > n) return null;
+  const a = ref.points[Math.min(i, n)], b = ref.points[Math.min(i + 1, n)];
+  const k = (x) => a[x] + (b[x] - a[x]) * f;
+  return { c: k("c"), p10: k("p10"), p50: k("p50"), p90: k("p90") };
+}
+
 // ------------------------------------------------------------- âge de départ possible
 // Contexte préparé une fois, puis évaluations rapides pour un âge de départ
 // et un revenu donnés : scénario central, ou N scénarios tirés au hasard
