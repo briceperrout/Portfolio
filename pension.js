@@ -113,6 +113,9 @@ export function estimerPension(plan, profilSaisi, { ageDebut, trimestresDeja = n
     const net = ((baseBrute + complBrute) * (R.netSurBrutPension ?? 90)) / 100 / 12;
     return { age: a, taux, decote, prorata, base: (baseBrute * (R.netSurBrutPension ?? 90)) / 100 / 12, complementaire: (complBrute * (R.netSurBrutPension ?? 90)) / 100 / 12, net, apres: apresImpot(net), tauxPlein: decote === 0, surcote, trimSurcote, majEnfants };
   };
+  // Âge de liquidation par défaut : on ne liquide pas en continuant de travailler (cumul emploi-retraite non modélisé),
+  // donc le plus tardif de l'âge d'arrêt et de l'âge légal ; un âge de demande saisi prévaut.
+  const ageDemandeEffectif = Number(ageDemande) > 0 ? Number(ageDemande) : Math.max(regles.ageLegal, Number(ageArret) || 0);
   // Année courante (indépendant) : trimestres validés et points de complémentaire
   const net0 = ind ? (ssi ? ind.assietteRetraite : ind.remunerationNette) / 12 : 0;
   const trimestresParAn = ind ? trimAnnee(net0) : 4;
@@ -129,7 +132,7 @@ export function estimerPension(plan, profilSaisi, { ageDebut, trimestresDeja = n
     pointsParAn: ind ? pointsAnnee(net0) : null, alertes,
     naissance, regles, debut, trimestres, passes, futurs, trimEnfants, enfants, sam, points: Math.round(points),
     annees: annees.length, auLegal: calcul(regles.ageLegal), aTauxPlein: calcul(R.ageTauxPlein ?? 67),
-    demande: calcul(Number(ageDemande) || regles.ageLegal),
+    demande: calcul(ageDemandeEffectif),
   };
 }
 

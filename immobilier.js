@@ -3,7 +3,10 @@
 //  arrondissement) et surface, à partir des ventes réellement
 //  enregistrées (DVF, DGFiP) de juillet 2024 à juin 2026 : moyenne des
 //  prix médians au m² de chaque mois, pondérée par le nombre de ventes.
-//  Le fichier prix-m2.json n'est chargé qu'à la première estimation.
+//  Chargement à la demande (dossier dvf/, généré par outils/decouper-dvf.py
+//  à partir de prix-m2.json) : meta.json (départements, périodes) et
+//  index.json (nom, code postal, département de chaque commune) au premier
+//  usage, puis un seul fichier <département>.json par département estimé.
 //  Alsace-Moselle (57, 67, 68) et Mayotte ne sont pas couverts par DVF.
 //  Codes postaux : API Découpage administratif (geo.api.gouv.fr).
 //  Loyers : « Carte des loyers » 2025 du ministère du Logement (loyers
@@ -30,27 +33,55 @@ export const DEPARTEMENTS = [
 ];
 
 let donnees = null, promesse = null;
+let repertoire = {};                 // code INSEE → { nom, dep, cp } (issu de l'index, sans fichier de département)
+const parDepartement = new Map();    // dep → promesse mémorisée de chargerDepartement
+const lireFetch = (chemin) => fetch(chemin).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
+let lecteur = lireFetch;
+
+/** Injection d'un lecteur JSON `fn(chemin) → Promise<objet>` (tests uniquement : lecture sur disque sans réseau). */
+export function definirLecteur(fn) { lecteur = fn ?? lireFetch; }
+/** Vide les caches et promesses (tests uniquement). */
+export function reinitialiser() { donnees = null; promesse = null; repertoire = {}; parDepartement.clear(); chargesTerminees.clear(); lecteur = lireFetch; }
+
 export function chargerPrix() {
   if (donnees) return Promise.resolve(donnees);
-  promesse ??= fetch("prix-m2.json").then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-    .then((d) => {
-      // Index de recherche : [nom normalisé, code INSEE], trié par nom
-      d.index = Object.entries(d.communes).map(([code, c]) => [normaliser(c[0]), code]).sort((a, b) => a[0].localeCompare(b[0], "fr"));
-      donnees = d; return d;
+  promesse ??= Promise.all([lecteur("dvf/meta.json"), lecteur("dvf/index.json")])
+    .then(([meta, lignes]) => {
+      // Index de recherche : [nom normalisé, code INSEE], déjà trié par nom par l'outil de découpage
+      repertoire = {};
+      const index = lignes.map(([nom, code, dep, cp]) => { repertoire[code] = { nom, dep, cp }; return [normaliser(nom), code]; });
+      donnees = { ...meta, communes: {}, index };
+      return donnees;
     })
     .catch((e) => { promesse = null; throw e; });
   return promesse;
 }
 export const prixCharges = () => donnees;
+const chargesTerminees = new Set();   // départements dont le fichier est fusionné (ou sans fichier : département inconnu)
+/** Vrai quand le fichier du département est fusionné (estimer() répond sans attendre pour un département hors DVF, mais ses loyers ont besoin du fichier). */
+export const departementCharge = (dep) => chargesTerminees.has(dep);
+
+/** Charge dvf/<dep>.json et le fusionne dans les communes (aussi pour un département hors DVF : ses loyers restent utilisables).
+ *  Sans erreur pour un département inconnu ; en cas d'échec réseau, un nouvel appel retente. */
+export function chargerDepartement(dep) {
+  if (!dep) return Promise.resolve();
+  if (parDepartement.has(dep)) return parDepartement.get(dep);
+  const p = chargerPrix().then((d) => {
+    if (!Object.values(repertoire).some((c) => c.dep === dep)) { chargesTerminees.add(dep); return; }
+    return lecteur(`dvf/${dep}.json`).then((lignes) => { Object.assign(d.communes, lignes); chargesTerminees.add(dep); });
+  }).catch((e) => { parDepartement.delete(dep); throw e; });
+  parDepartement.set(dep, p);
+  return p;
+}
 
 // Recherche sans accents ni tirets : « st etienne » trouve « Saint-Étienne »
 export const normaliser = (t) => String(t ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-'’]/g, " ").replace(/\bst\b/g, "saint").replace(/\bste\b/g, "sainte").replace(/\s+/g, " ").trim();
-const codesPostaux = (c) => (c?.[4] ? c[4].split(" ") : []);
+const codesPostaux = (c) => (c?.cp ? c.cp.split(" ") : []);
 // Libellé affiché : nom et code postal (le ou les premiers s'il y en a plusieurs)
 export function libelleCommune(code) {
-  const c = donnees?.communes?.[code]; if (!c) return "";
+  const c = repertoire[code]; if (!c) return "";
   const cp = codesPostaux(c);
-  return cp.length ? `${c[0]} (${cp.slice(0, 2).join(", ")}${cp.length > 2 ? "…" : ""})` : c[0];
+  return cp.length ? `${c.nom} (${cp.slice(0, 2).join(", ")}${cp.length > 2 ? "…" : ""})` : c.nom;
 }
 // Communes qui commencent par le texte tapé (nom, un mot du nom, ou code postal), dans le département choisi s'il y en a un
 export function chercherCommunes(texte, departement = null, max = 40) {
@@ -60,8 +91,8 @@ export function chercherCommunes(texte, departement = null, max = 40) {
   const chiffres = /^\d{2,5}$/.test(q);
   const res = [];
   for (const [nom, code] of donnees.index) {
-    const c = donnees.communes[code];
-    if (departement && c[1] !== departement) continue;
+    const c = repertoire[code];
+    if (departement && c.dep !== departement) continue;
     let score = -1;
     if (chiffres) { if (codesPostaux(c).some((cp) => cp.startsWith(q))) score = 0; }
     else if (nom.startsWith(q)) score = 0;
@@ -69,19 +100,30 @@ export function chercherCommunes(texte, departement = null, max = 40) {
     if (score >= 0) res.push([score, code]);
     if (res.length > 400) break;
   }
-  return res.sort((a, b) => a[0] - b[0]).slice(0, max).map(([, code]) => ({ code, libelle: libelleCommune(code), dep: donnees.communes[code][1] }));
+  return res.sort((a, b) => a[0] - b[0]).slice(0, max).map(([, code]) => ({ code, libelle: libelleCommune(code), dep: repertoire[code].dep }));
 }
 // Code INSEE de la commune choisie (anciens profils : « Nantes (44109) »)
 export function codeCommune(lieu) {
-  if (lieu?.codeInsee && donnees?.communes?.[lieu.codeInsee]) return lieu.codeInsee;
+  if (lieu?.codeInsee && repertoire[lieu.codeInsee]) return lieu.codeInsee;
   const m = String(lieu?.commune ?? "").match(/^(.*)\((\d[\dAB]\d{3})\)\s*$/);
-  if (m && donnees?.communes?.[m[2]] && normaliser(donnees.communes[m[2]][0]) === normaliser(m[1])) return m[2];
+  if (m && repertoire[m[2]] && normaliser(repertoire[m[2]].nom) === normaliser(m[1])) return m[2];
   return null;
 }
+// Département du lieu : celui saisi, sinon celui de la commune (index chargé)
+export function departementDe(lieu) {
+  if (lieu?.departement) return lieu.departement;
+  const code = codeCommune(lieu);
+  return code ? repertoire[code].dep : null;
+}
 
-// Estimation : prix au m² de la commune si connu, sinon celui du département
+// Estimation : prix au m² de la commune si connu, sinon celui du département.
+// Synchrone : renvoie null tant que chargerPrix() et chargerDepartement() n'ont pas abouti ;
+// { introuvable, horsDvf } pour l'Alsace-Moselle, Mayotte et l'outre-mer hors DVF.
 export function estimer(lieu) {
   if (!donnees || !lieu?.departement) return null;
+  const type0 = lieu.typeLogement === "maison" ? "maison" : "appartement";
+  if (donnees.horsDvf.includes(lieu.departement)) return { introuvable: true, horsDvf: true, type: type0 };
+  if (!departementCharge(lieu.departement)) return null;
   const type = lieu.typeLogement === "maison" ? "maison" : "appartement";
   const i = type === "maison" ? 3 : 2;
   const code = codeCommune(lieu);
@@ -98,6 +140,8 @@ export function estimer(lieu) {
 // Appartement : 1-2 pièces sous 45 m², 3 pièces et plus au-delà.
 export function estimerLoyer(lieu, surfaceParDefaut = null) {
   if (!donnees || !lieu?.departement) return null;
+  // Hors DVF (57, 67, 68…) : on n'attend pas le fichier, les loyers de la commune servent s'il est déjà chargé
+  if (!departementCharge(lieu.departement) && !donnees.horsDvf.includes(lieu.departement)) return null;
   const maison = lieu.typeLogement === "maison";
   const code = codeCommune(lieu);
   const c = code ? donnees.communes[code] : null;

@@ -5,7 +5,7 @@
 #  - script-src 'self'            : modules locaux uniquement (index.html n'a aucun <script> inline)
 #  - style-src 'unsafe-inline'    : le CSS est inline dans index.html (CLAUDE.md) et le code pose des style="" ; aucun hôte tiers
 #  - font-src 'self'              : polices Inter / Manrope hébergées dans vendor/fonts/ (aucun Google Fonts, aucun CDN)
-#  - connect-src 'self'           : /api/chat, /api/statut, /api/sync et prix-m2.json seulement
+#  - connect-src 'self'           : /api/chat, /api/statut, /api/sync et dvf/*.json (même origine) seulement
 /*
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
@@ -22,5 +22,5 @@
   Cache-Control: no-cache
 
 # Données DVF volumineuses : le service worker les met en cache à la demande, le navigateur les revalide.
-/prix-m2.json
+/dvf/*
   Cache-Control: public, max-age=0, must-revalidate

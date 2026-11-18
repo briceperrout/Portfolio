@@ -10,6 +10,7 @@ quota utilisent un fichier temporaire (jamais `.quota-tokens.json`).
 import io
 import json
 import os
+import re
 import tempfile
 import threading
 import unittest
@@ -57,8 +58,9 @@ class RoutageUnitaire(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def test_constantes_par_defaut(self):
-        self.assertEqual((serveur.MODEL_FAST, serveur.MODEL_REASONING), ("gpt-5.4-mini", "o3"))
-        self.assertEqual((serveur.PLAFOND_RAPIDE, serveur.PLAFOND_RAISONNEMENT), (2_350_000, 225_000))
+        cfg = json.loads((Path(serveur.__file__).parent / "config-ia.json").read_text(encoding="utf-8"))
+        self.assertEqual((serveur.MODEL_FAST, serveur.MODEL_REASONING), (cfg["modeles"]["rapide"], cfg["modeles"]["raisonnement"]))
+        self.assertEqual((serveur.PLAFOND_RAPIDE, serveur.PLAFOND_RAISONNEMENT), (cfg["plafonds"]["rapide"], cfg["plafonds"]["raisonnement"]))
 
     def test_question_simple_reste_sur_le_modele_rapide(self):
         choix = serveur.choisir_modele(requete())
@@ -175,6 +177,41 @@ class RoutageUnitaire(unittest.TestCase):
         self.assertEqual(corps["messages"][0]["role"], "system")
         self.assertEqual((corps["temperature"], corps["max_tokens"]), (0.2, 800))
         self.assertNotIn("reasoning_effort", corps)
+
+
+class ConcordanceConfig(unittest.TestCase):
+    """config-ia.json est la source unique du routage : serveur.py et worker.js doivent en dériver."""
+
+    RACINE = Path(serveur.__file__).resolve().parent
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cfg = json.loads((cls.RACINE / "config-ia.json").read_text(encoding="utf-8"))
+        cls.worker = (cls.RACINE / "worker.js").read_text(encoding="utf-8")
+
+    def test_serveur_egal_au_json(self):
+        c = self.cfg
+        self.assertEqual((serveur.MODEL_FAST, serveur.MODEL_REASONING), (c["modeles"]["rapide"], c["modeles"]["raisonnement"]))
+        self.assertEqual((serveur.PLAFOND_RAPIDE, serveur.PLAFOND_RAISONNEMENT), (c["plafonds"]["rapide"], c["plafonds"]["raisonnement"]))
+        self.assertEqual((serveur.ALERTE_RAPIDE, serveur.ALERTE_RAISONNEMENT), (c["alertes"]["rapide"], c["alertes"]["raisonnement"]))
+        self.assertEqual((serveur.MAX_COMPLETION_RAPIDE, serveur.MAX_COMPLETION_RAISONNEMENT), (c["maxCompletion"]["rapide"], c["maxCompletion"]["raisonnement"]))
+        self.assertEqual(list(serveur.STATUTS_REPLI), c["statutsRepli"])
+        self.assertEqual(list(serveur.MOTS_COMPLEXES), c["motsComplexes"])
+        self.assertEqual((serveur.EFFORT_RAPIDE, serveur.EFFORT_RAISONNEMENT, serveur.EFFORT_REPLI), (c["efforts"]["rapide"], c["efforts"]["raisonnement"], c["efforts"]["repli"]))
+
+    def test_seuil_alerte_par_defaut(self):
+        with mock.patch.dict(os.environ, ENV_NEUTRE):
+            self.assertEqual(serveur.seuil_alerte(), self.cfg["alertes"]["rapide"])
+
+    def test_worker_importe_le_json(self):
+        self.assertIn('"./config-ia.json"', self.worker)
+
+    def test_worker_sans_litteral_duplique(self):
+        code = re.sub(r"/\*.*?\*/", "", self.worker, flags=re.S)
+        code = re.sub(r"(^|\s)//.*$", "", code, flags=re.M)
+        for litteral in ('"gpt-5.4-mini"', '"o3"', "2350000", "225000", "2200000", "200000"):
+            with self.subTest(litteral=litteral):
+                self.assertNotIn(litteral, code)
 
 
 class CompteursDeQuota(unittest.TestCase):

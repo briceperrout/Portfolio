@@ -116,6 +116,14 @@ export const FISCALITE_2026 = deepFreeze({
     VERIFIE_LE: "2026-11-17",
   },
 
+  // Remboursement anticipé de crédit : indemnités maximales (credits.js)
+  credit: {
+    // art. L313-47 C. conso : 6 mois d'intérêts au taux moyen du prêt sur le capital remboursé, plafonné à 3 % du capital restant dû avant remboursement
+    immobilier: { moisInterets: 6, plafondPctCRD: 3 },
+    // art. L312-34 C. conso : aucune indemnité si ≤ 10 000 € remboursés sur 12 mois ou si le taux n'est pas fixe ; sinon 1 % (> 12 mois restants) ou 0,5 % (≤ 12 mois), jamais plus que les intérêts restants
+    consommation: { seuilSansIndemnite: 10000, pctPlusUnAn: 1, pctMoinsUnAn: 0.5, seuilMois: 12 },
+  },
+
   // Plafonds réglementaires en €
   plafonds: {
     livretA: 22950,  // Livret A, par personne — art. L221-1 Code monétaire et financier

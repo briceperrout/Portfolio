@@ -58,28 +58,34 @@ RACINE = Path(__file__).resolve().parent
 HOTE = "127.0.0.1"
 URL_OPENAI = "https://api.openai.com/v1/chat/completions"
 
-# Routage multi-modèles (miroir exact de worker.js).
-MODEL_FAST = "gpt-5.4-mini"      # chat général, synthèse, RAG
-MODEL_REASONING = "o3"           # arbitrages patrimoniaux complexes (modèle phare : pool gratuit de 250 k tokens/jour)
+# Routage multi-modèles : valeurs par défaut lues dans config-ia.json, source unique partagée avec worker.js.
+CHEMIN_CONFIG_IA = RACINE / "config-ia.json"
+try:
+    CONFIG_IA = json.loads(CHEMIN_CONFIG_IA.read_text(encoding="utf-8"))
+except (OSError, ValueError) as erreur:
+    raise SystemExit(f"[plan-patrimoine] config-ia.json introuvable ou invalide ({CHEMIN_CONFIG_IA}) : {erreur}")
+MODEL_FAST = CONFIG_IA["modeles"]["rapide"]      # chat général, synthèse, RAG
+MODEL_REASONING = CONFIG_IA["modeles"]["raisonnement"]           # arbitrages patrimoniaux complexes (modèle phare : pool gratuit de 250 k tokens/jour)
 # Mots-clés (normalisés : minuscules, sans accents ni tirets) qui déclenchent MODEL_REASONING.
-MOTS_COMPLEXES = (
-    "sasu", "eurl", "holding", "demembrement", "usufruit", "nue-propriete",
-    "succession", "donation", "ifi", "decumulation", "audit complet",
-)
+MOTS_COMPLEXES = tuple(CONFIG_IA["motsComplexes"])
 # Deux pools gratuits Data Sharing, comptés séparément (prompt + completion, raisonnement inclus) :
 #   « rapide »      : modèles mini, 2,5 M tokens/jour → plafond de sécurité 2 350 000 (au-delà : refus 429, repli local côté client)
 #   « raisonnement » : modèles phares (o3), 250 k tokens/jour → plafond 225 000 (au-delà : repli sur MODEL_FAST en effort « high »)
-PLAFOND_RAPIDE = 2_350_000
-PLAFOND_RAISONNEMENT = 225_000
-ALERTE_RAISONNEMENT = 200_000        # alerte de log du pool raisonnement (l'alerte du pool rapide : OPENAI_DAILY_TOKEN_ALERT, 2,2 M)
-MAX_COMPLETION_RAISONNEMENT = 2500   # o3 (et repli « high ») : reasoning_tokens + réponse + balises [[ACTION]] / [[SUGGESTION]]
-MAX_COMPLETION_RAPIDE = 1500         # famille gpt-5 rapide (effort « low ») : même contrainte, plafond plus bas
+PLAFOND_RAPIDE = CONFIG_IA["plafonds"]["rapide"]
+PLAFOND_RAISONNEMENT = CONFIG_IA["plafonds"]["raisonnement"]
+ALERTE_RAPIDE = CONFIG_IA["alertes"]["rapide"]               # alerte de log du pool rapide (surcharge : OPENAI_DAILY_TOKEN_ALERT)
+ALERTE_RAISONNEMENT = CONFIG_IA["alertes"]["raisonnement"]   # alerte de log du pool raisonnement
+MAX_COMPLETION_RAISONNEMENT = CONFIG_IA["maxCompletion"]["raisonnement"]   # o3 (et repli « high ») : reasoning_tokens + réponse + balises [[ACTION]] / [[SUGGESTION]]
+MAX_COMPLETION_RAPIDE = CONFIG_IA["maxCompletion"]["rapide"]         # famille gpt-5 rapide (effort « low ») : même contrainte, plafond plus bas
 LIBELLE_REPLI_ELEVE = "{} (raisonnement élevé · quota {} préservé)"
 LIBELLE_REPLI_INDISPONIBLE = "{} (raisonnement élevé · {} indisponible)"
 # Codes HTTP d'OpenAI pour lesquels un modèle de raisonnement refusé est remplacé par MODEL_FAST en effort « high » :
 # 400 (paramètre ou streaming refusé), 403 (organisation non vérifiée), 404 (model_not_found, déprécié), 429 (limite du modèle).
 # Pas 401 (clé invalide : MODEL_FAST échouerait aussi).
-STATUTS_REPLI = (400, 403, 404, 429)
+STATUTS_REPLI = tuple(CONFIG_IA["statutsRepli"])
+EFFORT_RAPIDE = CONFIG_IA["efforts"]["rapide"]
+EFFORT_RAISONNEMENT = CONFIG_IA["efforts"]["raisonnement"]
+EFFORT_REPLI = CONFIG_IA["efforts"]["repli"]
 
 
 # ---------------------------------------------------------------- configuration
@@ -137,7 +143,7 @@ def _entier_env(nom: str, defaut: int) -> int:
 
 
 def seuil_alerte() -> int:
-    return _entier_env("OPENAI_DAILY_TOKEN_ALERT", 2_200_000)
+    return _entier_env("OPENAI_DAILY_TOKEN_ALERT", ALERTE_RAPIDE)
 
 
 def plafond_quota(pool: str) -> int:
@@ -182,14 +188,14 @@ def choisir_modele(d: dict, tokens: dict | None = None) -> dict:
     demande = d.get("approfondi") is True or question_complexe(d.get("question", ""))
     lourd = modele_raisonnement()
     if demande and lourd and tokens.get("raisonnement", 0) < plafond_quota("raisonnement"):
-        return {"modele": lourd, "libelle": lourd, "pool": "raisonnement", "effort": "medium",
+        return {"modele": lourd, "libelle": lourd, "pool": "raisonnement", "effort": EFFORT_RAISONNEMENT,
                 "max_completion": _entier_env("OPENAI_MAX_COMPLETION_TOKENS", MAX_COMPLETION_RAISONNEMENT)}
     if tokens.get("rapide", 0) >= plafond_quota("rapide"):
         raise ErreurAPI(429, "quota_journalier")
     if demande and lourd:  # quota du modèle phare épuisé : le modèle rapide prend le relais en effort élevé
-        return {"modele": rapide, "libelle": LIBELLE_REPLI_ELEVE.format(rapide, lourd), "pool": "rapide", "effort": "high",
+        return {"modele": rapide, "libelle": LIBELLE_REPLI_ELEVE.format(rapide, lourd), "pool": "rapide", "effort": EFFORT_REPLI,
                 "max_completion": _entier_env("OPENAI_MAX_COMPLETION_TOKENS", MAX_COMPLETION_RAISONNEMENT)}
-    return {"modele": rapide, "libelle": rapide, "pool": "rapide", "effort": "low",
+    return {"modele": rapide, "libelle": rapide, "pool": "rapide", "effort": EFFORT_RAPIDE,
             "max_completion": _entier_env("OPENAI_MAX_COMPLETION_TOKENS_FAST", MAX_COMPLETION_RAPIDE)}
 
 
@@ -202,7 +208,7 @@ def choix_repli(choix: dict, statut: int, tokens: dict | None = None) -> dict | 
     if (tokens or {}).get("rapide", 0) >= plafond_quota("rapide"):
         return None
     rapide = modele_chat()
-    return {"modele": rapide, "libelle": LIBELLE_REPLI_INDISPONIBLE.format(rapide, choix["modele"]), "pool": "rapide", "effort": "high",
+    return {"modele": rapide, "libelle": LIBELLE_REPLI_INDISPONIBLE.format(rapide, choix["modele"]), "pool": "rapide", "effort": EFFORT_REPLI,
             "max_completion": _entier_env("OPENAI_MAX_COMPLETION_TOKENS", MAX_COMPLETION_RAISONNEMENT)}
 
 

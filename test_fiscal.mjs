@@ -1,8 +1,10 @@
 // Tests de la fiscalité des indépendants et de la centralisation des taux — node test_fiscal.mjs
 import { alerteMillesime, FISCALITE, MILLESIME, PLAFONDS, BAREME, PFU, PRELEVEMENTS, DECOTE, PLAFOND_DEMI_PART, partsEnfants, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes, exitTax, economieDeduction, tauxMarginalEffectif, impotSelonStatut, revenusImposablesConjoints } from "./fiscal.js";
-import { conseilPER, revenuImposableDe, normaliserFoyer } from "./moteur.js";
+import { conseilPER, tauxGains, revenuImposableDe, normaliserFoyer } from "./moteur.js";
 import { PLAN } from "./plan.js";
 import { estimerPension } from "./pension.js";
+import { comparerMillesimes } from "./outils/comparer-millesimes.mjs";
+import { readFileSync } from "node:fs";
 
 let ok = 0, ko = 0;
 const verifier = (nom, obtenu, attendu, tol = 2) => {
@@ -69,7 +71,7 @@ verifier("PRELEVEMENTS gelé", Object.isFrozen(PRELEVEMENTS), true);
 verifier("plan cto", PLAN.fiscalite.gains.cto, 31.4, 0);
 verifier("plan pea", PLAN.fiscalite.gains.pea, 18.6, 0);
 verifier("plan assurance-vie", PLAN.fiscalite.gains.assuranceVie, 24.7, 0);
-verifier("plan scpi", PLAN.fiscalite.gains.scpi, 47.2, 0);
+verifier("plan scpi : suit la tranche du foyer (null), TMI 30 % → 47,2 %", tauxGains(PLAN, { tmi: "30" }, "scpi"), 47.2, 0.01);
 verifier("plan abondement", PLAN.abondement.prelevements, 9.7, 0);
 
 // Optimisation de la rémunération (SASU)
@@ -101,6 +103,27 @@ verifier("sasu pension > 0", pe.demande.net > 0, true);
 pe = estimerPension(PLAN, { age: 32, salaireNetMensuel: 3200, statutPro: "stable", foyer: { actif: false } }, { ageDebut: 22, ageArret: 64 });
 verifier("salarié régime général", pe.regime, "general");
 verifier("salarié champs historiques", ["trimestres", "sam", "points", "auLegal", "aTauxPlein", "demande"].every((k) => k in pe), true);
+
+// Âge de liquidation par défaut : le plus tardif de l'arrêt d'activité et de l'âge légal
+{
+  const an = new Date().getFullYear();
+  const sal = (naiss) => ({ age: an - naiss, salaireNetMensuel: 3200, statutPro: "stable", foyer: { actif: false } });
+  const pen = (naiss, opts) => estimerPension(PLAN, sal(naiss), { ageDebut: 22, ...opts });
+  let q = pen(1964, { ageArret: 64 });
+  verifier("liquidation 1964, arrêt 64 : âge de demande", q.demande.age, 64, 0);
+  verifier("liquidation 1964, arrêt 64 : affichage arrondi", Math.ceil(q.demande.age), 64, 0);
+  verifier("liquidation 1964 : âge légal inchangé", q.auLegal.age, 62.75, 0);
+  q = pen(1964, { ageArret: 60 });
+  verifier("liquidation 1964, arrêt 60 : âge légal", q.demande.age, 62.75, 0);
+  q = pen(1964, { ageArret: 64, ageDemande: 66 });
+  verifier("liquidation 1964, demande 66 saisie", q.demande.age, 66, 0);
+  q = pen(1964, { ageArret: 64, trimestresDeja: 100 });
+  verifier("liquidation 1964, carrière courte : trimestres insuffisants", q.trimestres < q.regles.trimestres, true);
+  verifier("liquidation 1964, carrière courte : décote non aggravée", q.demande.decote <= q.auLegal.decote, true);
+  verifier("liquidation 1964, carrière courte : pension non réduite", q.demande.net >= q.auLegal.net, true);
+  q = pen(1970, { ageArret: 64 });
+  verifier("liquidation 1970, arrêt 64 : inchangé", q.demande.age, 64, 0);
+}
 
 // Décumulation : primitives fiscales
 let av = impotRachatAV({ montant: 10000, valeur: 100000, primes: 60000, ancien8: true, abattementRestant: 4600 });
@@ -321,6 +344,27 @@ verifier("barème indexé 1,1", impotBaremeIndexe(33000, 2, 2, 1.1).impot, impot
     const moi = { ...marie, foyer: { actif: true, statut: "concubin", vue: "moi" } }, v = revenusImposablesConjoints(moi), w = revenusImposablesConjoints(normaliserFoyer(PLAN, JSON.parse(JSON.stringify(moi))));
     verifier("revenus conjoints concubin « vue moi » : profil normalisé = brut", Math.abs(w.a - v.a) < 0.01 && Math.abs(w.b - v.b) < 0.01, true);
   }
+}
+
+// Outillage du millésime : cohérence des métadonnées, import unique, comparateur
+{
+  verifier("millésime : FISCALITE.millesime = MILLESIME", FISCALITE.millesime, MILLESIME);
+  verifier("millésime : revenus = millésime - 1", FISCALITE.revenus, FISCALITE.millesime - 1);
+  verifier("millésime : loiDeFinances mentionne l'année", String(FISCALITE.loiDeFinances).includes(String(FISCALITE.millesime)), true);
+  const imports = [...readFileSync(new URL("./fiscal.js", import.meta.url), "utf8").matchAll(/from\s+"\.\/fiscalite\/(\d{4})\.js"/g)].map((r) => r[1]);
+  verifier("millésime : fiscal.js importe un seul fichier fiscalite/<année>.js", imports.length, 1, 0);
+  verifier("millésime : le fichier importé est celui du millésime", imports[0], String(MILLESIME));
+  verifier("comparerMillesimes : identique -> aucun écart", comparerMillesimes(FISCALITE, FISCALITE).length, 0, 0);
+  const clone = structuredClone(FISCALITE);
+  clone.ir.bareme[2][1] += 1;
+  clone.nouvelleCle = 42;
+  delete clone.marche;
+  const ec = comparerMillesimes(FISCALITE, clone);
+  verifier("comparerMillesimes : 3 écarts", ec.length, 3, 0);
+  const par = (c) => ec.find((e) => e.chemin === c);
+  verifier("comparerMillesimes : taux modifié", par("ir.bareme[2][1]")?.type, "modifie");
+  verifier("comparerMillesimes : clé ajoutée", par("nouvelleCle")?.type, "ajoute");
+  verifier("comparerMillesimes : clé supprimée", par("marche")?.type, "supprime");
 }
 
 console.log(`${ok} vérifications réussies, ${ko} échec(s)`);

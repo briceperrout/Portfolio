@@ -1,5 +1,7 @@
 import { PLAFONDS, decomposerSalaire, foyerFiscal, revenuImposableSalaires, impotBareme, economieDeduction, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant } from "./fiscal.js";
+import { echapperRegex as echapperRegexp } from "./utilitaires.js";
 import { projetLocatifDe } from "./locatif.js";
+import { tauxFiscalScpi } from "./alternatifs.js";
 // =====================================================================
 //  MOTEUR — applique PLAN à un profil. Aucune valeur financière ici.
 //  Allocation : 1 sécurité → 2 paliers → 3 âge → 4 apport → 5 comptes
@@ -1021,6 +1023,21 @@ export function revenuImposableDe(profil) {
   if (saisi != null && !profil.tmiEstimee && saisi !== impotBareme(revenu, ff.parts, ff.partsBase).tmi) return null;
   return { revenu, parts: ff.parts, partsBase: ff.partsBase };
 }
+// Foyer fiscal tel que l'attend alternatifs.js : revenu imposable et parts quand ils se déduisent des salaires, tranche marginale sinon (null si inconnue)
+export function foyerScpiDe(profil) {
+  const F = revenuImposableDe(profil), tmi = tmiDe(profil ?? {});
+  return { revenuImposable: F ? F.revenu : null, parts: F ? F.parts : null, partsBase: F ? F.partsBase : null, tmi: tmi ?? (F ? impotBareme(F.revenu, F.parts, F.partsBase).tmi : null) };
+}
+// Taux d'impôt (%) sur les gains d'une enveloppe : lecture unique de plan.fiscalite.gains. Pour les SCPI, tant que le plan ne fixe pas de taux (null),
+// il suit la fiscalité réelle du foyer (tranche, part européenne et impôt étranger du profil) ; une réforme des prélèvements sociaux s'y ajoute.
+export function tauxGains(plan, profil, enveloppe) {
+  const G = plan?.fiscalite?.gains ?? {};
+  if (enveloppe === "scpi" && G.scpi == null) {
+    const d = profil?.scpiDetail ?? {};
+    return tauxFiscalScpi(foyerScpiDe(profil), { partEtrangere: d.partEtrangere, impotEtranger: d.impotEtranger }) + (Number(plan?.fiscalite?.ajustementScpi) || 0);
+  }
+  return Number(G[enveloppe]) || 0;
+}
 // Impôt évité en déduisant (ou plaçant) un montant : exact si le revenu est connu, sinon montant × tranche
 // supplement : revenu qui s'ajoute au revenu des salaires (intéressement perçu au lieu d'être placé)
 export function economieImpot(profil, montant, supplement = 0) {
@@ -1405,7 +1422,6 @@ export const MOTS_COMPTES = [
 ];
 
 const normaliserTexte = (t) => " " + String(t ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[’‘]/g, "'") + " ";
-const echapperRegexp = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Identifiant du compte (clé de MOTS_COMPTES) d'après un libellé libre, ou null
 export function idCompteDepuisLibelle(libelle) {

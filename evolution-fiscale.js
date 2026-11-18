@@ -68,10 +68,11 @@ export function planFiscal(plan, hSaisi) {
     else if (LIVRETS.includes(e)) gains[e] = h.livrets ? pfu : G[e];
     else if (G[e] > 0) gains[e] = G[e] + h.dPS;   // SCPI, autres
   }
+  const ajustementScpi = G.scpi == null ? h.dPS : undefined; // SCPI suivant la tranche du foyer : seule la variation des prélèvements sociaux s'ajoute (moteur.js, tauxGains)
   const or = F.or ? { ...F.or, plusValue: F.or.plusValue + h.dPS } : F.or;
   const locatif = { ps: (F.locatif?.ps ?? PRELEVEMENTS.PS_PATRIMOINE) + h.dPS, amortissementLMNP: h.lmnp };
   const per = { ...(plan.per ?? {}), ...(h.perSortie != null ? { tmiRetraite: h.perSortie } : {}) };
-  return { ...plan, fiscalite: { ...F, gains, or, locatif }, per };
+  return { ...plan, fiscalite: { ...F, gains, or, locatif, ...(ajustementScpi !== undefined ? { ajustementScpi } : {}) }, per };
 }
 
 // Option à passer à la projection : nouvelles règles à partir de l'année « annee » (0 = cette année)
@@ -82,13 +83,14 @@ export function optionFiscale(plan, hSaisi, annee) {
 }
 
 // Taux sur les gains, produit par produit : aujourd'hui et dans le scénario
-export function comparerTaux(plan, hSaisi) {
+// tauxScpi : taux actuel des SCPI du foyer (moteur.js, tauxGains), utilisé quand le plan ne fixe pas de taux (gains.scpi null)
+export function comparerTaux(plan, hSaisi, tauxScpi = 0) {
   const h = { ...NEUTRE, ...hSaisi };
   const a = plan.fiscalite?.gains ?? {}, b = planFiscal(plan, h).fiscalite.gains;
   const lignes = [
     ["Livret A, LDDS, LEP", "livretA"], ["Livret bancaire, PEL", "livretBancaire"], ["PEA (après 5 ans)", "pea"],
     ["Assurance-vie (après 8 ans)", "assuranceVie"], ["Compte-titres, bitcoin", "cto"], ["PER (gains à la sortie)", "per"], ["SCPI (loyers et gains)", "scpi"],
-  ].map(([nom, e]) => ({ nom, e, avant: a[e] ?? 0, apres: b[e] ?? 0 }));
+  ].map(([nom, e]) => e === "scpi" && a.scpi == null ? { nom, e, avant: tauxScpi, apres: tauxScpi + h.dPS } : { nom, e, avant: a[e] ?? 0, apres: b[e] ?? 0 });
   lignes.push({ nom: "Loyers (prélèvements sociaux)", e: "locatif", avant: plan.fiscalite?.locatif?.ps ?? PRELEVEMENTS.PS_PATRIMOINE, apres: (plan.fiscalite?.locatif?.ps ?? PRELEVEMENTS.PS_PATRIMOINE) + h.dPS });
   return lignes;
 }

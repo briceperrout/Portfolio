@@ -13,6 +13,7 @@ import { FISCALITE_2026 } from "./fiscalite/2026.js";
 export const FISCALITE = FISCALITE_2026;
 export const MILLESIME = FISCALITE.millesime;
 export const PLAFONDS = FISCALITE.plafonds;
+export const CREDIT = FISCALITE.credit; // indemnités de remboursement anticipé (immobilier, consommation)
 
 export const BAREME = FISCALITE.ir.bareme;
 // Taux de prélèvement : source unique pour plan.js, evolution-fiscale.js et locatif.js

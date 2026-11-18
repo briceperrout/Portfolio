@@ -887,6 +887,43 @@ export const FICHES = [
   },
 
   {
+    id: "remboursement-anticipe",
+    titre: "Rembourser un crédit par anticipation",
+    accroche: "Rembourser un crédit coûteux rapporte un rendement certain : le taux du crédit, moins l'éventuelle indemnité. Encore faut-il garder une réserve et comparer avec ce que rapporterait l'argent placé.",
+    role: "Bloc « Rembourser ou placer ? » de « Mon profil » et alerte « crédit coûteux » : ils comparent l'économie d'intérêts d'un remboursement anticipé à un placement.",
+    essentiel: [
+      ["Le principe", "Chaque euro remboursé économise les intérêts qu'il aurait coûtés jusqu'à la fin du crédit. Ce gain est certain, contrairement au rendement d'un placement."],
+      ["Indemnité, crédit immobilier", "Au plus 6 mois d'intérêts sur le capital remboursé, plafonnés à 3 % du capital restant dû (art. L313-47 du Code de la consommation)."],
+      ["Indemnité, crédit à la consommation", "Aucune jusqu'à 10 000 € remboursés sur 12 mois, ni si le taux n'est pas fixe (crédit renouvelable compris) ; au-delà, 1 % du capital remboursé (0,5 % s'il reste 12 mois ou moins), sans dépasser les intérêts restants (art. L312-34)."],
+      ["Deux façons de rembourser", "Garder la mensualité et raccourcir la durée (économie maximale), ou garder la durée et baisser la mensualité (budget allégé)."],
+    ],
+    sections: [
+      { titre: "Quand rembourser", points: [
+        "Un crédit dont le taux dépasse nettement celui du Livret A : le rembourser rapporte plus que l'épargne sans risque.",
+        "Un crédit renouvelable ou à la consommation à taux élevé, sans indemnité : c'est souvent le meilleur « placement » disponible.",
+        "Pour un crédit immobilier, comparer l'économie d'intérêts à l'indemnité : elle pèse plus quand il reste peu d'années.",
+      ] },
+      { titre: "Quand garder un crédit bon marché", points: [
+        "Un crédit à 1 ou 2 % coûte moins que ce que peut rapporter un placement sur la durée, mais ce rendement n'est pas garanti.",
+        "Un bien locatif au régime réel : les intérêts sont déductibles, le coût net du crédit est plus bas que son taux.",
+        "Le prêt à taux zéro ne coûte aucun intérêt : il n'y a rien à gagner à le rembourser.",
+      ] },
+      { titre: "L'épargne de précaution d'abord", points: [
+        "Ne vide pas tes livrets pour rembourser : la réserve du plan protège des imprévus.",
+        "Un remboursement est irréversible ; si un imprévu survient, emprunter à nouveau coûterait plus cher.",
+        "Le simulateur prévient quand le décaissement fait passer tes livrets sous la cible du plan.",
+      ] },
+    ],
+    etapes: [
+      "Saisir tes crédits (capital restant dû, taux, fin, mensualité) dans « Mon profil ».",
+      "Lire la liste classée du plus coûteux au moins coûteux, puis simuler un remboursement.",
+      "Vérifier l'indemnité et les conditions dans ton contrat, ou en demandant le décompte à ta banque.",
+    ],
+    attention: ["Simulation indicative : le décompte exact (indemnité, calendrier, frais de dossier) vient de ta banque."],
+    sources: [["Code de la consommation (Légifrance)", "https://www.legifrance.gouv.fr/codes/texte_lc/LEGITEXT000006069565"]],
+  },
+
+  {
     id: "assurance-vie",
     titre: "Assurance-vie",
     accroche: "Un contrat qui contient un fonds en euros sans risque et des supports en bourse, avec une fiscalité qui s'adoucit après 8 ans. Les frais changent tout d'un contrat à l'autre.",
@@ -1529,6 +1566,11 @@ export const FICHES = [
         "Mais il faut regarder la performance globale (loyers + évolution du prix de la part) : +1,46 % en 2025 en moyenne, car beaucoup de prix ont baissé. Sur longue période, on peut viser environ 3 à 5 % par an, sans garantie.",
         "Le plan retient une hypothèse de 4 % par an pour l'immobilier en SCPI (onglet « Mon plan »).",
         "Les SCPI européennes : les loyers de source étrangère ne supportent en général pas les 17,2 % de prélèvements sociaux et sont moins imposés en France, selon les conventions fiscales. C'est souvent le meilleur choix en direct.",
+      ] },
+      { titre: "Délai de jouissance, SCPI européennes et nue-propriété", points: [
+        "Délai de jouissance : après la souscription, les parts ne rapportent rien pendant quelques mois (3 à 6 en général). Ce délai est un coût caché : sur un an, il fait perdre une part du rendement égale au rendement multiplié par le nombre de mois et divisé par 12. L'application l'ajoute aux frais d'entrée dans ses comparaisons (réglable dans « SCPI : fiscalité et délai de jouissance »).",
+        "SCPI européennes : les loyers d'immeubles situés à l'étranger sont taxés sur place, puis, en France, exonérés mais pris en compte pour fixer ton taux (le « taux effectif ») : pas de prélèvements sociaux pour un affilié à la sécurité sociale d'un pays de l'Union européenne, mais ton taux d'impôt sur le reste de tes revenus monte un peu. L'application calcule ce surcoût à partir de ton revenu imposable.",
+        "Nue-propriété temporaire : tu achètes les parts avec une décote, sans toucher de loyers pendant la durée du démembrement, puis tu retrouves la pleine propriété sans rien payer. Pendant ce temps, pas de revenu imposable et pas d'IFI sur ces parts (c'est l'usufruitier qui les supporte). Attention à la revente : le prix d'achat retenu est celui de la nue-propriété, donc la décote entre dans la plus-value imposable.",
       ] },
       { titre: "Bien choisir", points: [
         "Regarder la performance globale sur 5 ans, pas seulement le taux de distribution affiché.",

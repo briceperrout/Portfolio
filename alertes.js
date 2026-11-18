@@ -10,12 +10,16 @@
 import { PLAFONDS, AV_DECES, MARCHE, PLUS_VALUES } from "./fiscal.js";
 import { analyser, reequilibrage, eur, pct, equilibreContributions } from "./moteur.js";
 import { prevuA, moisEntre } from "./projection.js";
+import { prioriserCredits, arbitrerRemboursement, epargnePrecaution, TYPES_CREDIT } from "./credits.js";
 
 // Réglage d'interface (pas une règle fiscale) : écart maximal toléré entre l'allocation actuelle et la cible, en part du patrimoine
 export const SEUIL_DERIVE = 0.05;
 
 // Seuil applicatif (non réglementaire) : écart mensuel entre ce que paie un conjoint et sa part proportionnelle aux revenus
 export const SEUIL_DESEQUILIBRE = { euros: 150, part: 0.10 };
+
+// Seuil applicatif (non réglementaire) : écart, en points de %, entre le coût net d'un crédit et le rendement net d'une épargne sans risque au-delà duquel l'alerte « crédit coûteux » se déclenche
+export const SEUIL_ECART_CREDIT = 1;
 
 const RANG_NIVEAU = { alerte: 0, action: 1, info: 2 };
 const LIVRETS = ["livretA", "ldds", "lep"];
@@ -199,6 +203,35 @@ export function desequilibre(profil, plan) {
   }];
 }
 
+// ------------------------------------------------------------- crédit plus coûteux que l'épargne sans risque
+const TYPES_CONSO_ALERTE = ["conso", "auto", "etudiant", "revolving", "autre"];
+/** Un crédit de consommation (hors immobilier et PTZ) coûte nettement plus que l'épargne sans risque alors que les livrets dépassent la précaution : rembourser une partie par anticipation. Une seule alerte (le plus coûteux). */
+export function creditCouteux(plan, profil, aujourdhui = new Date()) {
+  const { excedent } = epargnePrecaution(plan, profil);
+  if (!(excedent > 0)) return [];
+  const { credits, rendementNetPrudent } = prioriserCredits(plan, profil, aujourdhui);
+  const c = credits.find((x) => x.prioritaire && TYPES_CONSO_ALERTE.includes(x.type) && x.coutNet >= rendementNetPrudent + SEUIL_ECART_CREDIT);
+  if (!c) return [];
+  const brut = Math.min(c.capitalRestant, excedent);
+  const montant = brut >= 100 ? Math.floor(brut / 100) * 100 : Math.floor(brut);
+  if (!(montant > 0)) return [];
+  const brutCredit = (profil.credits ?? []).find((x) => x?.id === c.id);
+  const a = arbitrerRemboursement(plan, profil, brutCredit ?? c, montant, { mode: "duree", enveloppe: "livretA", aujourdhui });
+  if (!(a.gainCertain > 0)) return [];
+  const nom = c.libelle || TYPES_CREDIT[c.type];
+  const taux = String(Math.round(c.taux * 100) / 100).replace(".", ",");
+  return [{
+    id: `credit-${c.id}`,
+    cle: `credit:${c.id}`,
+    niveau: "action",
+    min: "intermediaire",
+    titre: "Un crédit coûte plus que votre épargne",
+    texte: `Votre crédit ${nom} à ${taux} % coûte plus que votre épargne sans risque : rembourser ${eur(montant)} par anticipation économiserait environ ${eur(a.gainCertain)} d'intérêts, indemnité comprise. Vos livrets dépassent la réserve de précaution du plan. Simulation indicative.`,
+    vue: "mon-profil",
+    fiche: "remboursement-anticipe",
+  }];
+}
+
 /**
  * Toutes les alertes, de la plus grave à la moins grave (alerte > action > info), puis dans l'ordre des détecteurs.
  * Un détecteur qui échoue est ignoré. `analyse` (facultatif) : résultat d'analyser() déjà calculé (sinon calculé ici) ; `releves` et `reference` : le Suivi du profil.
@@ -213,6 +246,7 @@ export function detecterAlertes(plan, profil, { aujourdhui = new Date(), analyse
     () => fenetreCTO(profil, aujourdhui),
     () => bilanMensuel(releves, reference, aujourdhui),
     () => desequilibre(profil, plan),
+    () => creditCouteux(plan, profil, aujourdhui),
   ];
   const toutes = [];
   for (const d of detecteurs) {

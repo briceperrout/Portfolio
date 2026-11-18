@@ -6,6 +6,8 @@ import { acheterOuLouer, comparaisonAchatLocation } from "./projection.js";
 import { mensualitePret } from "./locatif.js";
 import { FICHES } from "./fiches.js";
 import { LEXIQUE } from "./lexique.js";
+import { readFileSync, readdirSync } from "node:fs";
+import { chargerPrix, chargerDepartement, departementCharge, departementDe, definirLecteur, reinitialiser, chercherCommunes, libelleCommune, estimer, estimerLoyer } from "./immobilier.js";
 
 let ok = 0, ko = 0;
 const verifier = (nom, obtenu, attendu, tol = 1) => {
@@ -176,6 +178,68 @@ verifier("ids de fiches uniques", ids.size, FICHES.length, 0);
 for (const f of FICHES.filter((x) => ["ptz", "acheter-louer", "independants"].includes(x.id))) verifier(`fiche ${f.id} complète`, !!(f.titre && f.accroche && f.role && f.essentiel?.length && f.sections?.length && f.sources?.length), true);
 for (const e of LEXIQUE.filter((x) => x.fiche)) verifier(`lexique « ${e.mot} » → fiche ${e.fiche}`, ids.has(e.fiche), true);
 for (const mot of ["PTZ", "Point mort", "TNS", "Madelin", "Micro-entreprise"]) verifier(`lexique « ${mot} » lié à une fiche`, !!LEXIQUE.find((e) => e.mot === mot)?.fiche, true);
+
+// Données DVF découpées (dvf/ généré par outils/decouper-dvf.py), chargées à la demande
+const lireDisque = (chemin) => Promise.resolve(JSON.parse(readFileSync(new URL(`./${chemin}`, import.meta.url), "utf-8")));
+const source = JSON.parse(readFileSync(new URL("./prix-m2.json", import.meta.url), "utf-8"));
+const relance = "relance python3 outils/decouper-dvf.py";
+{
+  const meta = await lireDisque("dvf/meta.json"), index = await lireDisque("dvf/index.json");
+  const vues = new Map(); let identiques = true;
+  for (const f of readdirSync(new URL("./dvf/", import.meta.url)).filter((n) => n.endsWith(".json") && !["meta.json", "index.json"].includes(n))) {
+    const lignes = await lireDisque(`dvf/${f}`);
+    for (const [code, l] of Object.entries(lignes)) {
+      vues.set(code, (vues.get(code) ?? 0) + 1);
+      if (JSON.stringify(l) !== JSON.stringify(source.communes[code]) || l[1] !== f.replace(".json", "")) identiques = false;
+    }
+  }
+  const codes = Object.keys(source.communes);
+  verifier(`dvf : chaque commune dans exactement un département (${relance})`, vues.size === codes.length && codes.every((k) => vues.get(k) === 1), true);
+  verifier(`dvf : lignes identiques à la source (${relance})`, identiques, true);
+  verifier(`dvf : index de même cardinalité (${relance})`, index.length, codes.length, 0);
+  verifier(`dvf : index sans doublon (${relance})`, new Set(index.map((e) => e[1])).size, codes.length, 0);
+  verifier(`dvf : départements identiques (${relance})`, JSON.stringify(meta.departements) === JSON.stringify(source.departements), true);
+  verifier(`dvf : période et source (${relance})`, meta.periode === source.periode && meta.source === source.source, true);
+  for (const d of ["57", "67", "68"]) verifier(`dvf : ${d} hors DVF`, meta.horsDvf.includes(d), true);
+
+  reinitialiser(); definirLecteur(lireDisque);
+  verifier("recherche avant chargement", chercherCommunes("paris").length, 0, 0);
+  await chargerPrix();
+  const paris = chercherCommunes("paris");
+  verifier("chercherCommunes « paris » sans département chargé", paris.length > 0 && paris.some((r) => r.dep === "75"), true);
+  const arr = paris.find((r) => r.dep === "75");
+  verifier("libelleCommune sans département chargé", libelleCommune(arr.code).startsWith("Paris"), true);
+  verifier("recherche par code postal sans département chargé", chercherCommunes("75008").some((r) => r.dep === "75"), true);
+  verifier("departementDe via le code commune", departementDe({ codeInsee: arr.code }), "75");
+  verifier("departementDe du département saisi", departementDe({ departement: "33" }), "33");
+
+  const lieu75 = { departement: "75", codeInsee: arr.code, typeLogement: "appartement", surface: 50 };
+  verifier("estimer null avant chargerDepartement", estimer(lieu75), null);
+  verifier("departementCharge avant", departementCharge("75"), false);
+  await chargerDepartement("75");
+  verifier("departementCharge après", departementCharge("75"), true);
+  const e75 = estimer(lieu75);
+  verifier("estimer 75 après chargement", e75 && e75.m2 > 3000 && e75.prix > 0, true);
+  verifier("chargerDepartement mémorisé", chargerDepartement("75") === chargerDepartement("75"), true);
+
+  const c67 = Object.entries(source.communes).find(([, l]) => l[1] === "67" && l[5]);
+  const lieu67 = { departement: "67", codeInsee: c67[0], typeLogement: "appartement", surface: 60 };
+  verifier("estimer 67 : horsDvf", estimer(lieu67)?.horsDvf === true && estimer(lieu67).introuvable === true, true);
+  await chargerDepartement("67");
+  verifier("estimer 67 après chargement : horsDvf", estimer(lieu67)?.horsDvf, true);
+  const l67 = estimerLoyer(lieu67);
+  verifier("estimerLoyer 67 : loyer de la commune", l67 && l67.m2 > 0 && l67.echelle !== "departement", true);
+
+  // Échec réseau : nouvel essai possible
+  reinitialiser(); let pannes = 0;
+  definirLecteur((c) => (c === "dvf/33.json" && pannes++ === 0 ? Promise.reject(new Error("HTTP 500")) : lireDisque(c)));
+  await chargerPrix();
+  let echec = false; await chargerDepartement("33").catch(() => { echec = true; });
+  verifier("échec de chargement signalé", echec, true);
+  await chargerDepartement("33");
+  verifier("nouvel essai après échec", departementCharge("33"), true);
+  reinitialiser();
+}
 
 console.log(`${ok} tests réussis, ${ko} échecs`);
 process.exit(ko ? 1 : 0);

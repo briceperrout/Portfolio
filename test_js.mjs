@@ -2,7 +2,8 @@
 // Sans dépendance : `node test_js.mjs` (Node ≥ 18), ou import dynamique depuis un navigateur (retourne `resultats`).
 // Aucun appel réseau : le `fetch` vers OpenAI est remplacé par un faux amont.
 
-import worker, { MODEL_FAST, MODEL_REASONING, choisirModele, choixRepli, corpsOpenAI, questionComplexe, tokensDuJour } from "./worker.js";
+import { readFileSync } from "node:fs";
+import worker, { QuotaIA, MODEL_FAST, MODEL_REASONING, choisirModele, choixRepli, corpsOpenAI, questionComplexe, tokensDuJour } from "./worker.js";
 import { CONSIGNE_VOCALE, CONSIGNES_NIVEAU, DELAI_SILENCE_MS, choisirVoixFr, decouperPhrases, extraireBalises, libelleModele, preparerRequeteCloud, texteParle, resumerProfilPourLLM } from "./assistant.js";
 
 import { PLAN } from "./plan.js";
@@ -11,9 +12,11 @@ import { impotBaremeIndexe, margeTranche } from "./fiscal.js";
 import { FICHES, PARCOURS_DEBUTANT } from "./fiches.js";
 import { FAMILLES_ALLOCATION, grouperAllocation, GROUPES_PLACEMENTS, totalGroupe, groupePersonnalise, repartirGroupe, contratsApresRepartition, repartirCapitalPrudent } from "./moteur.js";
 import { HISTORIQUE } from "./historique.js";
+import { echapper, arrondiLisible, eurArrondi, eurEnviron } from "./utilitaires.js";
+import { lierTermes } from "./lexique.js";
 import { RE_MONTANT, contientMontant, masquerTexte } from "./discretion.js";
 import { DEVISES, DEVISES_COMPTES, TAUX_REFERENCE, TYPES_COMPTES_ETRANGERS, analyserTaux, tauxEffectifs, convertir, consoliderEtrangers, avecComptesEtrangers, expositionChange } from "./devises.js";
-import { capitalDe, repartirEnEnveloppes, accepteArgentNeuf, consequencesDepart } from "./moteur.js";
+import { eur, capitalDe, repartirEnEnveloppes, accepteArgentNeuf, consequencesDepart } from "./moteur.js";
 import { encoderProfilPartage, decoderProfilPartage } from "./recap.js";
 import { BITCOIN_DEBUT, comparerFrais, FRAIS_CHARGE, FRAIS_OPTIMISE, RENDEMENT_BRUT_FRAIS, projeter, projeterCentral, libertePatrimoine, moisPrecaution, capitalNecessaire, generateur, fenetresHistoriques, backtesterHistorique, MATRICES_CORRELATION, REGIMES, cholesky, etalonnerRegimes, preparerCorrelations, rendementsCorreles, SCENARIO_INFLATION, scenarioInflation } from "./projection.js";
 
@@ -28,6 +31,7 @@ const ENV = { OPENAI_API_KEY: "sk-" + "a".repeat(32) };
 const demande = (question, extra = {}) => ({
   systeme: "Consigne.", profil: "", messages: [{ role: "user", content: question }], stream: true, ...extra,
 });
+const ENTETES_CHAT = { "Content-Type": "application/json", Origin: "https://exemple.test" }; // /api/chat exige l'en-tête Origin
 const valider = (question, extra = {}) => ({ ...demande(question, extra), approfondi: extra.modeApprofondi === true, question });
 
 // ---------------------------------------------------------------- worker.js : routage et payload
@@ -41,6 +45,26 @@ egal(choisirModele(valider("Bonjour", { modeApprofondi: true }), ENV).modele, "o
 egal(choisirModele(valider("Bonjour", { modeApprofondi: true }), { ...ENV, OPENAI_ENABLE_REASONING: "0" }).modele, "gpt-5.4-mini", "coupe-circuit");
 egal([MODEL_FAST, MODEL_REASONING], ["gpt-5.4-mini", "o3"], "constantes");
 egal(choisirModele(valider("Bonjour"), ENV).effort, "low", "modèle rapide : effort low");
+{
+  // Concordance avec config-ia.json (source unique partagée avec serveur.py).
+  const CFG = JSON.parse(readFileSync(new URL("./config-ia.json", import.meta.url), "utf-8"));
+  egal([MODEL_FAST, MODEL_REASONING], [CFG.modeles.rapide, CFG.modeles.raisonnement], "worker.js : modèles = config-ia.json");
+  const rapide = choisirModele(valider("Bonjour"), ENV);
+  egal([rapide.modele, rapide.effort, rapide.maxCompletion], [CFG.modeles.rapide, CFG.efforts.rapide, CFG.maxCompletion.rapide], "worker.js : choix rapide = config-ia.json");
+  const lourd = choisirModele(valider("IFI"), ENV, { raisonnement: CFG.plafonds.raisonnement - 1 });
+  egal([lourd.modele, lourd.effort, lourd.maxCompletion], [CFG.modeles.raisonnement, CFG.efforts.raisonnement, CFG.maxCompletion.raisonnement], "worker.js : choix raisonnement = config-ia.json");
+  const repliPlafond = choisirModele(valider("IFI"), ENV, { raisonnement: CFG.plafonds.raisonnement });
+  egal([repliPlafond.modele, repliPlafond.effort], [CFG.modeles.rapide, CFG.efforts.repli], "worker.js : plafond raisonnement = config-ia.json");
+  let refus = null;
+  try { choisirModele(valider("Bonjour"), ENV, { rapide: CFG.plafonds.rapide }); } catch (e) { refus = e; }
+  egal(refus?.statut, 429, "worker.js : plafond rapide = config-ia.json");
+  for (const statut of [400, 401, 403, 404, 429, 500]) {
+    egal(choixRepli(lourd, statut, ENV) !== null, CFG.statutsRepli.includes(statut), `worker.js : statut de repli ${statut} = config-ia.json`);
+  }
+  for (const mot of CFG.motsComplexes) verifier(questionComplexe(mot), `worker.js : mot-clé de config-ia.json non détecté : ${mot}`);
+  const source = readFileSync(new URL("./worker.js", import.meta.url), "utf-8");
+  verifier(source.includes('"./config-ia.json"'), "worker.js doit importer config-ia.json");
+}
 egal(choisirModele(valider("IFI"), { ...ENV, OPENAI_MODEL_REASONING: "o3-pro" }).modele, "o3-pro", "modèle de raisonnement configurable");
 egal(choisirModele(valider("IFI"), ENV, { raisonnement: 224999 }).modele, "o3", "pool o3 juste sous le plafond");
 {
@@ -106,7 +130,7 @@ function fauxAmont(usage, refus = {}) { // refus : { modèle: statut HTTP } renv
   };
 }
 async function appeler(charge) {
-  const rep = await worker.fetch(new Request("https://exemple.test/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(demande("Bonjour", charge)) }), ENV);
+  const rep = await worker.fetch(new Request("https://exemple.test/api/chat", { method: "POST", headers: ENTETES_CHAT, body: JSON.stringify(demande("Bonjour", charge)) }), ENV);
   const texte = await rep.text();
   return { rep, evenements: texte.split("\n\n").filter((b) => b.startsWith("data:")).map((b) => JSON.parse(b.slice(5))) };
 }
@@ -149,7 +173,7 @@ try {
     [{ "gpt-5.4-mini": 404 }, "openai_404", ["gpt-5.4-mini"], "modèle rapide refusé : aucune relance"],
   ]) {
     fauxAmont({ prompt_tokens: 1, completion_tokens: 1 }, refus);
-    const r = await worker.fetch(new Request("https://exemple.test/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(demande("Bonjour", appelsAttendus[0] === "o3" ? { modeApprofondi: true } : {})) }), ENV);
+    const r = await worker.fetch(new Request("https://exemple.test/api/chat", { method: "POST", headers: ENTETES_CHAT, body: JSON.stringify(demande("Bonjour", appelsAttendus[0] === "o3" ? { modeApprofondi: true } : {})) }), ENV);
     egal([r.status, (await r.json()).erreur, appels], [502, attendu, appelsAttendus], `e2e : ${nom}`);
   }
 
@@ -166,8 +190,78 @@ try {
   fauxAmont({ prompt_tokens: 2_000_000, completion_tokens: 400_000 });
   await appeler({});
   recu = null;
-  const refus = await worker.fetch(new Request("https://exemple.test/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(demande("Bonjour")) }), ENV);
+  const refus = await worker.fetch(new Request("https://exemple.test/api/chat", { method: "POST", headers: ENTETES_CHAT, body: JSON.stringify(demande("Bonjour")) }), ENV);
   egal([refus.status, await refus.json(), recu], [429, { erreur: "quota_journalier" }, null], "e2e : plafond du pool rapide");
+  // Origine obligatoire, limite de débit par IP et quota partagé (Durable Object) : voir worker.js.
+  const requeteChat = (entetes = ENTETES_CHAT, extra = {}) => new Request("https://exemple.test/api/chat", { method: "POST", headers: entetes, body: JSON.stringify(demande("Bonjour", extra)) });
+  const faussePile = () => { const m = new Map(); return { get: async (k) => m.get(k), put: async (k, v) => { m.set(k, JSON.parse(JSON.stringify(v))); } }; };
+  const post = (inst, chemin, corps) => inst.fetch(new Request("https://quota" + chemin, { method: "POST", body: corps === undefined ? undefined : JSON.stringify(corps) }));
+  const espaceDO = (inst) => ({ idFromName: () => "id", get: () => ({ fetch: (url, init) => inst.fetch(new Request(url, init)) }) });
+
+  fauxAmont({ prompt_tokens: 10, completion_tokens: 5 });
+  recu = null;
+  let r = await worker.fetch(requeteChat({ "Content-Type": "application/json" }), ENV);
+  egal([r.status, (await r.json()).erreur, recu], [403, "origine_refusee", null], "origine : POST /api/chat sans Origin refusé");
+  r = await worker.fetch(requeteChat({ "Content-Type": "application/json", Origin: "https://pirate.test" }), ENV);
+  egal([r.status, (await r.json()).erreur], [403, "origine_refusee"], "origine : Origin étranger refusé");
+
+  const instNeuve = () => new QuotaIA({ storage: faussePile() }, {});
+  recu = null;
+  r = await worker.fetch(requeteChat(), { ...ENV, QUOTA_IA: espaceDO(instNeuve()), LIMITE_CHAT: { limit: async () => ({ success: false }) } });
+  egal([r.status, (await r.json()).erreur, recu], [429, "trop_de_requetes", null], "débit : liaison LIMITE_CHAT refuse → 429, OpenAI non appelé");
+  let cleLimite = null;
+  r = await worker.fetch(requeteChat({ ...ENTETES_CHAT, "CF-Connecting-IP": "203.0.113.7" }), { ...ENV, QUOTA_IA: espaceDO(instNeuve()), LIMITE_CHAT: { limit: async (o) => { cleLimite = o.key; return { success: true }; } } });
+  await r.text();
+  egal([r.status, cleLimite], [200, "203.0.113.7"], "débit : liaison LIMITE_CHAT acceptée, clé = IP");
+  r = await worker.fetch(requeteChat(), { ...ENV, QUOTA_IA: espaceDO(instNeuve()), LIMITE_CHAT: { limit: async () => { throw new Error("panne"); } } });
+  await r.text();
+  egal(r.status, 200, "débit : liaison défaillante → repli mémoire");
+
+  // Durable Object QuotaIA, stockage factice.
+  {
+    const inst = instNeuve();
+    let t = Date.UTC(2026, 5, 1, 12);
+    inst.maintenant = () => t;
+    egal(await (await post(inst, "/lire")).json(), { jour: "2026-06-01", tokens: { rapide: 0, raisonnement: 0 } }, "QuotaIA : lecture initiale");
+    let b = await (await post(inst, "/ajouter", { pool: "rapide", tokens: 1000 })).json();
+    egal([b.tokens, b.alerte], [{ rapide: 1000, raisonnement: 0 }, null], "QuotaIA : ajout cumulé");
+    b = await (await post(inst, "/ajouter", { pool: "rapide", tokens: 2_199_000 })).json();
+    egal(b.alerte, "rapide", "QuotaIA : alerte au franchissement du seuil");
+    b = await (await post(inst, "/ajouter", { pool: "rapide", tokens: 10 })).json();
+    egal([b.tokens.rapide, b.alerte], [2_200_010, null], "QuotaIA : alerte une seule fois par jour");
+    b = await (await post(inst, "/ajouter", { pool: "raisonnement", tokens: 200_000 })).json();
+    egal(b.alerte, "raisonnement", "QuotaIA : alerte indépendante par pool");
+    egal((await post(inst, "/ajouter", { pool: "autre", tokens: 1 })).status, 400, "QuotaIA : pool invalide → 400");
+    egal((await post(inst, "/ajouter", { pool: "rapide", tokens: -1 })).status, 400, "QuotaIA : tokens négatifs → 400");
+    t = Date.UTC(2026, 5, 2, 0, 0, 1);
+    egal(await (await post(inst, "/lire")).json(), { jour: "2026-06-02", tokens: { rapide: 0, raisonnement: 0 } }, "QuotaIA : remise à zéro à minuit UTC");
+    b = await (await post(inst, "/ajouter", { pool: "rapide", tokens: 2_300_000 })).json();
+    egal(b.alerte, "rapide", "QuotaIA : alerte à nouveau après la remise à zéro");
+  }
+
+  // Worker + faux espace de noms : le Durable Object cumule l'usage et pilote le routage.
+  {
+    const inst = instNeuve();
+    const envDO = { ...ENV, QUOTA_IA: espaceDO(inst) };
+    fauxAmont({ prompt_tokens: 1000, completion_tokens: 700 });
+    r = await worker.fetch(requeteChat(ENTETES_CHAT, { messages: [{ role: "user", content: "La succession" }] }), envDO);
+    await r.text();
+    egal(await (await post(inst, "/lire")).json().then((x) => x.tokens), { rapide: 0, raisonnement: 1700 }, "DO : usage SSE cumulé dans le pool raisonnement");
+    await post(inst, "/ajouter", { pool: "raisonnement", tokens: 225_000 });
+    r = await worker.fetch(requeteChat(ENTETES_CHAT, { messages: [{ role: "user", content: "La succession" }] }), envDO);
+    const ev = (await r.text()).split("\n\n").filter((x) => x.startsWith("data:")).map((x) => JSON.parse(x.slice(5)));
+    egal([recu.model, recu.reasoning_effort, ev[0].modele], ["gpt-5.4-mini", "high", "gpt-5.4-mini (raisonnement élevé · quota o3 préservé)"], "DO : pool raisonnement plein → modèle rapide");
+    await post(inst, "/ajouter", { pool: "rapide", tokens: 2_350_000 });
+    recu = null;
+    r = await worker.fetch(requeteChat(), envDO);
+    egal([r.status, (await r.json()).erreur, recu], [429, "quota_journalier", null], "DO : pool rapide plein → 429");
+    // waitUntil : le comptage n'allonge pas la réponse JSON/SSE et est bien lancé.
+    const instB = instNeuve(); const attentes = [];
+    fauxAmont({ prompt_tokens: 3, completion_tokens: 4 });
+    r = await worker.fetch(requeteChat(), { ...ENV, QUOTA_IA: espaceDO(instB) }, { waitUntil: (p) => attentes.push(p) });
+    await r.text(); await Promise.all(attentes);
+    egal([attentes.length, (await (await post(instB, "/lire")).json()).tokens.rapide], [1, 7], "DO : écriture via ctx.waitUntil");
+  }
 } finally {
   globalThis.fetch = fetchReel;
 }
@@ -807,6 +901,13 @@ egal(libelleModele(undefined), "", "libellé absent");
   const intl = [];
   for (const dev of ["EUR", "USD", "CAD", "CHF", "GBP"]) for (const n of [1234, -1234567.5, 0.5]) intl.push(fr(dev, n));
   for (const s of intl) verifier(masquerTexte(s) !== s && !/\d/.test(masquerTexte(s)), `discrétion : sortie Intl fr-FR masquée « ${s} »`);
+  for (const [v, att] of [[114574, 115000], [32557, 32600], [147130, 147000], [847, 850], [2345678, 2350000], [-32557, -32600]]) verifier(arrondiLisible(v) === att, `arrondiLisible(${v}) = ${att} (obtenu ${arrondiLisible(v)})`);
+  verifier(Number.isNaN(arrondiLisible(NaN)), "arrondiLisible(NaN) = NaN");
+  verifier(eurArrondi(114574) === eur(115000), "eurArrondi(114574) = eur(115000)");
+  verifier(eurEnviron(0) === eur(0), "eurEnviron(0) sans « ≈ »");
+  verifier(eurEnviron(114574) === "≈ " + eur(115000), "eurEnviron(114574) = « ≈ » + eur(115000)");
+  verifier(eurEnviron(4) === eur(0), "eurEnviron(4) arrondi à 0, sans « ≈ »");
+  verifier(contientMontant(`≈ ${eurArrondi(114574)}`) && contientMontant("≈ 115 000 €"), "discrétion : « ≈ 115 000 € » détecté");
   const neutres = ["TMI 30 %", "en 2026", "à 64 ans", "4 600", "12,5 %", "tranche 2", "Étape 3 sur 5"];
   for (const s of neutres) verifier(masquerTexte(s) === s && !contientMontant(s), `discrétion : « ${s} » inchangé`);
   for (const s of [...cas.map((c) => c[0]), ...intl, ...neutres]) {
@@ -819,6 +920,12 @@ egal(libelleModele(undefined), "", "libellé absent");
   const t0 = performance.now(); masquerTexte("1".repeat(200000) + "!"); masquerTexte("1 ".repeat(100000) + "%");
   const duree = performance.now() - t0;
   verifier(duree < 500, `discrétion : 200 000 chiffres traités en ${Math.round(duree)} ms (< 500 ms)`);
+}
+
+// ---------------------------------------------------------------- utilitaires.js : échappement HTML et liens du lexique
+egal(echapper("<a href='x'>&\\\""), "&lt;a href=&#39;x&#39;&gt;&amp;\\&quot;", "echapper : & < > \" et apostrophe");
+for (const [libelle, texte] of [["forme brute", "Les frais d'entrée sont variables."], ["forme échappée", echapper("Les frais d'entrée sont variables.")]]) {
+  verifier(/<a class="terme"[^>]*>frais d(?:'|&#39;)entrée<\/a>/.test(lierTermes(texte)), `lierTermes lie « frais d'entrée » (${libelle})`);
 }
 
 if (typeof process !== "undefined" && process.argv?.[1]?.endsWith("test_js.mjs")) {

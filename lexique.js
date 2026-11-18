@@ -7,6 +7,8 @@
 //  une forme en minuscule est aussi cherchée avec une majuscule initiale.
 // =====================================================================
 
+import { echapper, echapperRegex } from "./utilitaires.js";
+
 export const LEXIQUE = [
   // Comptes et placements (lien vers leur fiche)
   { mot: "Livret A", motifs: ["Livret A", "livret A"], fiche: "livret-a", def: "Livret d'épargne sans risque ni impôt, disponible à tout moment. 1,7 % par an, plafond 22 950 €." },
@@ -76,15 +78,16 @@ export const LEXIQUE = [
   { mot: "Relevé", motifs: ["relevé"], def: "Dans l'onglet Suivi : le montant de chaque compte à une date donnée, recopié depuis ta banque, pour comparer au plan." },
 ];
 
-const echapper = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const echapperRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Toutes les formes cherchées, des plus longues aux plus courtes
 const FORMES = new Map();
 for (const e of LEXIQUE) for (const m of e.motifs) {
   const variantes = [m];
   if (/^[a-zà-ÿ]/.test(m)) variantes.push(m[0].toUpperCase() + m.slice(1));
-  for (const v of variantes) FORMES.set(echapper(v), e);
+  for (const v of variantes) {
+    // Le texte reçu est tantôt échappé (' → &#39;), tantôt un gabarit HTML littéral (apostrophe brute ; aucune apostrophe typographique dans les textes)
+    for (const f of new Set([echapper(v), v])) FORMES.set(f, e);
+  }
 }
 const MOTIF = new RegExp(`(?<![\\p{L}\\p{N}-])(${[...FORMES.keys()].sort((a, b) => b.length - a.length).map(echapperRegex).join("|")})(?![\\p{L}\\p{N}-])`, "gu");
 

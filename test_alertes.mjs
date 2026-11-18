@@ -12,9 +12,9 @@ let ok = 0, ko = 0;
 const verifier = (condition, nom) => { if (condition) ok++; else { ko++; console.log(`ÉCHEC ${nom}`); } };
 
 // Profil de départ : PROFIL_EXEMPLE lu dans app.js (non importable en Node : il touche au DOM), comme test_niveaux.mjs
-const appSrc = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+const appSrc = ["./app.js", "./ui/commun.js"].map((f) => readFileSync(new URL(f, import.meta.url), "utf8")).join("\n"); // les profils par défaut vivent dans ui/commun.js
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const ligne = (nom) => appSrc.match(new RegExp(`^const ${nom} = (\\{.*\\});$`, "m"))?.[1];
+const ligne = (nom) => appSrc.match(new RegExp(`^(?:export )?const ${nom} = (\\{.*\\});$`, "m"))?.[1];
 const PTZ_DEFAUT = new Function(`return ${ligne("PTZ_DEFAUT")};`)();
 const SUCCESSION_DEFAUT = new Function(`return ${ligne("SUCCESSION_DEFAUT")};`)();
 const brut = appSrc.match(/const PROFIL_EXEMPLE = (\{\n[\s\S]*?\n\});/)?.[1];

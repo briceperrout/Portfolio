@@ -28,11 +28,11 @@
 import { FICHES, VERIFIE_LE } from "./fiches.js";
 import { LEXIQUE, lierTermes } from "./lexique.js";
 import { eur, pct, endettementBancaire, seuilAchatBitcoin, revenuImposableDe } from "./moteur.js";
+import { echapper } from "./utilitaires.js";
 import { tauxMarginalEffectif } from "./fiscal.js";
 import { tauxEffectifs, consoliderEtrangers, expositionChange } from "./devises.js";
 
 // ---------------------------------------------------------------- outils texte
-const echapper = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const sansHtml = (s) => String(s).replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/[ \t]+/g, " ").trim();
 const norm = (s) => String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[’']/g, " ").replace(/[^a-z0-9%]+/g, " ").trim();
 const IDS_FICHES = new Set(FICHES.map((f) => f.id));
@@ -819,7 +819,7 @@ const lireReglages = () => { try { return { mode: null, ...JSON.parse(localStora
 const ecrireReglages = (r) => { try { localStorage.setItem(CLE_REGLAGES, JSON.stringify(r)); } catch { /* stockage indisponible */ } };
 
 const MESSAGES_ERREUR = {
-  no_key: "clé OpenAI absente côté serveur", reseau: "serveur injoignable", origine_refusee: "origine refusée", trop_de_requetes: "trop de requêtes, patiente une minute",
+  no_key: "clé OpenAI absente côté serveur", reseau: "serveur injoignable", origine_refusee: "origine refusée", turnstile: "vérification anti-robot refusée", trop_de_requetes: "trop de requêtes, patiente une minute",
   openai_401: "clé OpenAI refusée", openai_429: "quota OpenAI atteint", quota_journalier: "quota gratuit du jour préservé", vide: "réponse vide", flux: "flux interrompu", delai: "délai dépassé",
 };
 const TEXTE_WHATIF = "**Simulation What-If**\n- Voici le scénario que je peux appliquer à ton profil : un clic recalcule tes résultats et ta trajectoire.\n- Rien n'est enregistré, tu peux annuler à tout moment.";

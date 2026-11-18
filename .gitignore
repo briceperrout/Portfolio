@@ -44,10 +44,12 @@ package-lock.json
 
 # ── Exports & sauvegardes personnels des utilisateurs ─
 # Les JSON de sauvegarde (profil, scénarios) ne doivent jamais être versionnés.
-# Seule la donnée de référence DVF est conservée.
+# Seules les données de référence (DVF source et dvf/ généré) et la configuration IA sont conservées.
 *.json
 !prix-m2.json
 !manifest.json
+!config-ia.json
+!dvf/*.json
 !.claude/launch.json
 plan-patrimoine-*.csv
 plan-patrimoine-*.html

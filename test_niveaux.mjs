@@ -1,8 +1,8 @@
 // Tests des niveaux de lecture (niveaux.js) et de leur cohérence avec index.html — `node test_niveaux.mjs`
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { PLAN } from "./plan.js";
 import { analyser, GROUPES_PLACEMENTS, totalGroupe, repartirGroupe, repartirCapitalPrudent } from "./moteur.js";
-import { NIVEAUX, INFOS_NIVEAUX, MATRICE, LIBELLES_VUES, nomVue, libelleOnglet, suiteVue, rang, visible, reglagesAvancesActifs, niveauLePlusBas } from "./niveaux.js";
+import { NIVEAUX, INFOS_NIVEAUX, MATRICE, COMPTES_AUTRES, LIBELLES_VUES, nomVue, libelleOnglet, suiteVue, rang, visible, reglagesAvancesActifs, niveauLePlusBas } from "./niveaux.js";
 
 export const resultats = { ok: 0, echecs: [] };
 const verifier = (condition, message) => { if (condition) resultats.ok++; else resultats.echecs.push(message); };
@@ -29,7 +29,9 @@ for (const [cle, min] of Object.entries(MATRICE.profil)) {
   egal(dm(ligne), min, `data-min de « ${cle} » dans index.html`);
 }
 // Rééquilibrage : chaque clé de MATRICE.reequilibrage a son id et son data-min dans le gabarit de app.js
-const appJs = readFileSync(new URL("./app.js", import.meta.url), "utf8").split("\n");
+// Source des gabarits de rendu : app.js + ui/commun.js + vues/*.js (ordre trié), depuis le découpage en modules de vue
+const sourcesRendu = ["app.js", "ui/commun.js", ...readdirSync(new URL("./vues/", import.meta.url)).filter((f) => f.endsWith(".js")).sort().map((f) => `vues/${f}`)];
+const appJs = sourcesRendu.map((f) => readFileSync(new URL(`./${f}`, import.meta.url), "utf8")).join("\n").split("\n");
 for (const [cle, min] of Object.entries(MATRICE.reequilibrage)) {
   const ligne = appJs.find((l) => l.includes(`id="${cle}"`));
   egal(ligne?.match(/data-min="([a-z]+)"/)?.[1], min, `data-min de « ${cle} » dans app.js`);
@@ -128,8 +130,8 @@ const SUCCESSION_DEFAUT = { union: "mariage", regime: "communaute_legale", optio
 const PTZ_DEFAUT = { actif: false, zone: "B1", tranche: 2, typeOperation: "collectifNeuf", personnes: null, travauxPctCout: 0 };
 const PROFIL_EXEMPLE = {
   age: 32, salaireNetMensuel: 3200, epargneMensuelle: 1000, depensesMensuelles: 1800, tmi: "30",
-  pays: "FR", statutPro: "stable", eligibleLEP: false, creditsMensuels: 0,
-  comptesEtrangers: [], tauxChange: {},
+  pays: "FR", statutPro: "stable", eligibleLEP: false, creditsMensuels: 0, credits: [],
+  comptesEtrangers: [], tauxChange: {}, scpiDetail: { partEtrangere: 0, impotEtranger: 0, delaiJouissanceMois: null },
   futur: { actif: false, age: 40, capital: null, salaire: null, epargne: null },
   proprietaire: false, loyerMensuel: 900,
   placements: { livretA: 22950, ldds: 12000, livretBancaire: 5050, assuranceVie: 25000, assuranceVieUC: 0, pea: 30000, cto: 0, orPhysique: 0, plateformeCrypto: 5000, coldWallet: 0, scpi: 0, per: 0 },
@@ -137,7 +139,7 @@ const PROFIL_EXEMPLE = {
   assuranceVie: { ouverte: true, dateOuverture: "2019-06", type: "Banque traditionnelle" },
   projetRP: { actif: true, prix: 320000, type: "ancien", imperatif: false, horizonAnnees: 3, aideFamiliale: 0, ageChoisi: null, departement: "", commune: "", typeLogement: "appartement", surface: null, ptz: { ...PTZ_DEFAUT }, loyerEquivalent: null, chargesCoproMensuelles: null },
   salaireDans10Ans: null, rythmeReequilibrage: "", avPartEuros: 100,
-  logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
+  logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, tauxCredit: 1.3, assuranceCredit: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
   abondement: { acces: "?", actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false },
   independant: { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false },
   foyer: { actif: false, statut: "marie" },
@@ -146,13 +148,13 @@ const PROFIL_EXEMPLE = {
 };
 const PROFIL_VIDE = {
   age: 30, salaireNetMensuel: 0, epargneMensuelle: 0, depensesMensuelles: 0, proprietaire: false, loyerMensuel: 0,
-  pays: "FR", statutPro: "", eligibleLEP: false, creditsMensuels: 0,
-  comptesEtrangers: [], tauxChange: {},
+  pays: "FR", statutPro: "", eligibleLEP: false, creditsMensuels: 0, credits: [],
+  comptesEtrangers: [], tauxChange: {}, scpiDetail: { partEtrangere: 0, impotEtranger: 0, delaiJouissanceMois: null },
   futur: { actif: false, age: null, capital: null, salaire: null, epargne: null },
   placements: {}, pea: { ouvert: false, versements: 0, etablissement: "" }, assuranceVie: { ouverte: false, type: "" },
   projetRP: { actif: false, prix: 0, type: "ancien", imperatif: false, horizonAnnees: 0, aideFamiliale: 0, ageChoisi: null, departement: "", commune: "", typeLogement: "appartement", surface: null, ptz: { ...PTZ_DEFAUT }, loyerEquivalent: null, chargesCoproMensuelles: null },
   salaireDans10Ans: null, rythmeReequilibrage: "", avPartEuros: 100,
-  logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
+  logement: { usage: "rp", origine: "achat", part: 100, valeur: null, creditRestant: 0, tauxCredit: null, assuranceCredit: 0, finCredit: null, departement: "", commune: "", typeLogement: "appartement", surface: null },
   abondement: { acces: "?", actif: false, plan: "pereco", taux: null, plafond: null, interessement: null, placer: true, surInteressement: false },
   independant: { forme: "", ca: 0, resultat: 0, remunerationNette: 0, capital: 0, distribution: 100, vl: false },
   foyer: { actif: false, statut: "marie" },
@@ -160,7 +162,7 @@ const PROFIL_VIDE = {
   succession: clone(SUCCESSION_DEFAUT),
 };
 // Garde-fou : les copies suivent app.js (si un champ y est ajouté, ce test le rappelle)
-const appSrc = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+const appSrc = ["./app.js", "./ui/commun.js"].map((f) => readFileSync(new URL(f, import.meta.url), "utf8")).join("\n"); // les profils par défaut vivent dans ui/commun.js
 const litApp = (nom) => { const t = appSrc.match(new RegExp(`const ${nom} = (\\{\\n[\\s\\S]*?\\n\\});`))?.[1]; return t ? new Function("PTZ_DEFAUT", "clone", "SUCCESSION_DEFAUT", `return ${t};`)(PTZ_DEFAUT, clone, SUCCESSION_DEFAUT) : null; };
 egal(SUCCESSION_DEFAUT, new Function(`return ${appSrc.match(/const SUCCESSION_DEFAUT = (\{.*\});/)?.[1]};`)(), "copie de SUCCESSION_DEFAUT identique à celle d'app.js");
 egal(PROFIL_EXEMPLE, litApp("PROFIL_EXEMPLE"), "copie de PROFIL_EXEMPLE identique à celle d'app.js");
@@ -171,6 +173,13 @@ for (const n of NIVEAUX) egal(reglagesAvancesActifs(copie(PROFIL_VIDE), n, PROFI
 const exDeb = reglagesAvancesActifs(copie(PROFIL_EXEMPLE), "debutant", PROFIL_VIDE);
 const exInter = reglagesAvancesActifs(copie(PROFIL_EXEMPLE), "intermediaire", PROFIL_VIDE);
 const exAv = reglagesAvancesActifs(copie(PROFIL_EXEMPLE), "avance", PROFIL_VIDE);
+egal(reglagesAvancesActifs(copie(PROFIL_EXEMPLE), "debutant", PROFIL_EXEMPLE), [], "profil d'exemple comparé à lui-même : aucun réglage signalé");
+const exTmi = copie(PROFIL_EXEMPLE); exTmi.tmi = String(exTmi.tmi) === "11" ? "30" : "11";
+egal(reglagesAvancesActifs(exTmi, "debutant", PROFIL_EXEMPLE).map((r) => r.libelle), ["Tranche d'imposition saisie à la main"], "exemple modifié (tmi) : seule la tranche est signalée");
+const exAutres = copie(PROFIL_EXEMPLE), cptAutre = COMPTES_AUTRES[0];
+exAutres.placements = { ...exAutres.placements, [cptAutre]: (Number(exAutres.placements?.[cptAutre]) || 0) + 1234 };
+egal(reglagesAvancesActifs(exAutres, "debutant", PROFIL_EXEMPLE).map((r) => r.libelle), ["Placements détaillés dans des comptes « Autres »"], "exemple avec un compte « Autres » modifié : la règle « Autres » est signalée");
+egal(reglagesAvancesActifs({ ...copie(PROFIL_VIDE), placements: { [cptAutre]: 500 } }, "debutant", PROFIL_VIDE).map((r) => r.libelle), ["Placements détaillés dans des comptes « Autres »"], "profil vide avec un compte « Autres » > 0 : règle signalée (non-régression)");
 verifier(exDeb.length > 0, `profil Exemple : réglages avancés signalés en débutant (${exDeb.map((r) => r.libelle).join(" ; ")})`);
 verifier(exInter.length < exDeb.length, `profil Exemple : liste plus courte en intermédiaire (${exInter.length} < ${exDeb.length})`);
 egal(exAv, [], "profil Exemple : rien de signalé en avancé");
@@ -223,11 +232,13 @@ for (const groupe of ["livrets", "assuranceVie", "bourse"]) for (const montant o
   for (const f of shell.filter((x) => x !== "./")) verifier(existsSync(new URL(`./${f}`, import.meta.url)), `SHELL : ${f} existe sur le disque`);
   for (const f of shell.filter((x) => x.endsWith(".js") && x !== "service-worker.js")) {
     const src = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
-    for (const m of src.matchAll(/(?:from|import)\s*\(?\s*"\.\/([a-z0-9-]+(?:\/[a-z0-9-]+)*\.js)"/g)) verifier(shell.includes(m[1]), `SHELL : ${m[1]} (importé par ${f}) est pré-caché`);
+    // Imports relatifs (./ et ../) résolus depuis le dossier du fichier importeur (vues/*.js importent ../ui/commun.js et ./trajectoire.js)
+    for (const m of src.matchAll(/(?:from|import)\s*\(?\s*"(\.{1,2}\/[a-z0-9-]+(?:\/[a-z0-9-]+)*\.js)"/g)) {
+      const cible = new URL(m[1], `http://x/${f}`).pathname.slice(1);
+      verifier(shell.includes(cible), `SHELL : ${cible} (importé par ${f}) est pré-caché`);
+    }
   }
-  const cacheMatch = sw.match(/CACHE_VERSION = "plan-patrimoine-v(\d+)"/);
-  verifier(cacheMatch && Number(cacheMatch[1]) >= 16, `CACHE_VERSION incrémentée (v${cacheMatch?.[1]})`);
-  verifier(cacheMatch && Number(cacheMatch[1]) >= 21, `CACHE_VERSION ≥ v21 (polices locales dans le shell)`);
+  verifier(/CACHE_VERSION = "plan-patrimoine-[0-9a-f]{12}";/.test(sw), "CACHE_VERSION dérivée de l'empreinte du shell (outils/empreinte-shell.mjs ; polices locales dans le shell)");
 
   // Zéro CDN tiers (CLAUDE.md) : CSP sans hôte externe, index.html sans ressource externe, polices locales pré-cachées
   const entetes = readFileSync(new URL("./_headers", import.meta.url), "utf8");
