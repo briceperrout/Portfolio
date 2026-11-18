@@ -12,9 +12,9 @@ import { LEXIQUE, lierTermes } from "./lexique.js";
 import { DEPARTEMENTS, chargerPrix, prixCharges, estimer, estimerLoyer, libelleCommune, chercherCommunes, codeCommune } from "./immobilier.js";
 import { estimerPension, ageEnTexte } from "./pension.js";
 import { entreeDepuisProfil, simulerSuccession, comparerOptionsConjoint, simulerDonationNP, optionsPossibles, reserveAVTransmissible } from "./succession.js";
-import { decomposerSalaire, foyerFiscal, impotBareme, BAREME, exitTax, PRELEVEMENTS, PFU, PLAFONDS, ABATTEMENT_AV, SEUIL_PRIMES_AV, alerteMillesime } from "./fiscal.js";
+import { decomposerSalaire, foyerFiscal, impotBareme, tauxMarginalEffectif, BAREME, exitTax, PRELEVEMENTS, PFU, PLAFONDS, ABATTEMENT_AV, SEUIL_PRIMES_AV, alerteMillesime } from "./fiscal.js";
 import { ENTREPRISES, OFFRES_ACTIONS, PRIMES } from "./entreprises.js";
-import { plafondPEREstime, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER, etatReleve, comparerReleve } from "./moteur.js";
+import { plafondPEREstime, revenuImposableDe, economieInteressement, endettementBancaire, lepEstime, simulerIndependant, lireReleveColle, lireFichierReleve, releveDepuisImport, calculerPRU, COMPTES_PRU, TAILLE_MAX_FICHIER, etatReleve, comparerReleve } from "./moteur.js";
 import { monterAssistant } from "./assistant.js";
 import { NIVEAUX, INFOS_NIVEAUX, visible, reglagesAvancesActifs, niveauLePlusBas, nomVue, libelleOnglet, suiteVue } from "./niveaux.js";
 import { genererCode, extraireCode, formaterCode, creerLien, estCleSynchronisable, synchroniser, effacerDistant, oublierCles } from "./sync.js";
@@ -1938,9 +1938,11 @@ async function lancerPessimiste() {
   } catch (e) { if (e.message !== "annulé") console.error(e); }
 }
 // PER et PEA pour un même effort de 100 € par mois pendant n ans à 6 % par an, sortie en capital
-function comparerPERPEA(tmi, tret, n = 20) {
+// tauxEffectif : taux réel d'économie d'impôt du versement (économie exacte ÷ versement) ; à défaut, la tranche
+function comparerPERPEA(tmi, tret, n = 20, tauxEffectif = tmi) {
   const r = 0.06 / 12, F = (Math.pow(1 + r, 12 * n) - 1) / r;
-  const m = 100 / (1 - tmi / 100), cap = m * F, verse = m * 12 * n;
+  const taux = Number.isFinite(Number(tauxEffectif)) ? Math.min(Math.max(Number(tauxEffectif), 0), 90) : tmi;
+  const m = 100 / (1 - taux / 100), cap = m * F, verse = m * 12 * n;
   const per = cap - (verse * tret) / 100 - (cap - verse) * (PFU / 100);
   const capE = 100 * F, pea = capE - (capE - 1200 * n) * (PRELEVEMENTS.PS_CAPITAL / 100);
   return { per, pea, gain: 100 * (per / pea - 1) };
@@ -2431,11 +2433,11 @@ function rendreChoixProfil() {
     per: `PER d'entreprise : bloqué jusqu'à la retraite (sauf achat de la résidence principale), versements volontaires déductibles. <a class="lien-fiche" href="#fiche-epargne-salariale">Tout savoir</a>`,
     les2: `PEE (bloqué 5 ans) et PER d'entreprise (jusqu'à la retraite) : chacun peut avoir son propre abondement. Indique ci-dessous celui qui abonde le plus. <a class="lien-fiche" href="#fiche-epargne-salariale">Tout savoir</a>`,
   }[AB.acces ?? "?"] ?? "";
-  const interN = Number(AB.interessement) || 0, tmiI = Number(etat.profil.tmi) || 0;
+  const interN = Number(AB.interessement) || 0, tmiI = Number(etat.profil.tmi) || 0, eI = economieInteressement(etat.profil, interN), ecoI = eI.economie;
   $("#aide-interessement").textContent = interN > 0
     ? (AB.placer !== false
-      ? `Placés, ils échappent à l'impôt sur le revenu${tmiI ? ` (environ ${eur((interN * tmiI) / 100)} d'économie par an avec ta tranche à ${tmiI} %)` : ""} : seulement 9,7 % de CSG et CRDS. Le plan les ajoute à ta bourse chaque année. Ne les compte pas dans ton épargne mensuelle.`
-      : `Reçus directement, ils sont imposés comme ton salaire${tmiI ? ` (environ ${eur((interN * tmiI) / 100)} d'impôt par an)` : ""}. Le plan ne les compte pas.`)
+      ? `Placés, ils échappent à l'impôt sur le revenu${ecoI > 0.5 ? ` (environ ${eur(ecoI)} d'économie par an${eI.exact ? ", calculée sur ton revenu" : ` avec ta tranche à ${tmiI} %`})` : ""} : seulement 9,7 % de CSG et CRDS. Le plan les ajoute à ta bourse chaque année. Ne les compte pas dans ton épargne mensuelle.`
+      : `Reçus directement, ils sont imposés comme ton salaire${ecoI > 0.5 ? ` (environ ${eur(ecoI)} d'impôt par an${eI.exact ? "" : ` avec ta tranche à ${tmiI} %`})` : ""}. Le plan ne les compte pas.`)
     : "Primes versées par l'entreprise en plus du salaire, en général au printemps. Tu as 15 jours pour choisir de les placer.";
   $("#aide-interessement").insertAdjacentHTML("beforeend", ` Pour te faire une idée : de 0 € (Stellantis en 2026) à environ 10 000 € (TotalEnergies). <a class="lien-fiche" href="#fiche-epargne-salariale">Exemples d'entreprises</a>`);
   $("#ab-plafond").placeholder = `≤ ${Math.round(plafLegal).toLocaleString("fr-FR")}`;
@@ -2472,7 +2474,12 @@ function rendreChoixProfil() {
       else selon = ` <b>Avec la tranche de ${saisie} % que tu as indiquée</b>, le revenu imposable de ton foyer ne dépasse pas ${eur(haut)} (parts pour enfants, frais réels, pensions versées…). Ton impôt serait alors d'<b>au plus ${eur(impotBareme(haut, parts, ff.partsBase).impot)}</b> par an.`;
       selon += ` Le plan utilise ${saisie} % pour le PER : chaque 100 € versé y économise ${eur(saisie)}. Ton avis d'impôt fait foi.`;
     } else if (saisie == null) selon = " Cette tranche estimée est utilisée par le plan ; si ton avis d'impôt indique autre chose, choisis-la dans la liste.";
-    $("#aide-tmi").innerHTML = `${base}${selon}${foyerTxt}${perEco > 0.5 ? ` Avec le PER prévu par le plan : environ ${eur(perEco)} d'impôt en moins par an.` : ""} <a class="lien-fiche" href="#fiche-net-impot">Le détail</a>`;
+    // Taux marginal effectif (décote, quotient familial) : affiché seulement s'il s'écarte d'au moins 1 point de la tranche
+    const FT = revenuImposableDe(pN), tme = FT ? tauxMarginalEffectif(FT.revenu, FT.parts, FT.partsBase) : null;
+    const marginalTxt = tme != null && Math.abs(tme - d.tmi) >= 1
+      ? ` Taux marginal effectif : <b>${Math.round(tme)} %</b>. La décote fait que chaque euro de revenu en plus te coûte ${tme > d.tmi ? "plus" : "moins"} que ta tranche.`
+      : "";
+    $("#aide-tmi").innerHTML = `${base}${marginalTxt}${selon}${foyerTxt}${perEco > 0.5 ? ` Avec le PER prévu par le plan : environ ${eur(perEco)} d'impôt en moins par an.` : ""} <a class="lien-fiche" href="#fiche-net-impot">Le détail</a>`;
   } else {
     if (optEst) optEst.textContent = "À préciser";
     $("#aide-tmi").textContent = "Indique ton salaire pour estimer ta tranche et ton impôt.";
@@ -2485,7 +2492,7 @@ function rendreChoixProfil() {
   const tmiP = pN.tmi !== "" && pN.tmi != null ? Number(pN.tmi) : null;
   $("#aide-per").innerHTML = tmiP == null ? "Indique ta tranche d'imposition pour voir ce qu'un PER te rapporterait."
     : tmiP >= 30 ? `${etat.profil.refusPER ? "Tu y renonces, mais sache qu'a" : "A"}vec ta tranche à ${tmiP} %, chaque 100 € versé sur un PER te fait payer ${tmiP} € d'impôt en moins : c'est comme si l'État payait ${tmiP} % de ton épargne. Pour le même effort, un PER rapporte en général 10 à 45 % de plus qu'un PEA à la retraite, selon ta tranche à ce moment-là. <a class="lien-fiche" href="#fiche-per">Voir le calcul</a>`
-    : (() => { const c = comparerPERPEA(tmiP, plan.per?.tmiRetraite ?? 11); return `Avec ta tranche à ${tmiP} % : 100 € versés ne baissent l'impôt que de ${eur(tmiP)}, et ils seront imposés à la sortie. Sur 20 ans, pour 100 € par mois de ta poche, ${eur(c.per)} avec le PER contre ${eur(c.pea)} avec le PEA (${c.gain >= 0 ? "+" : "−"}${pct(Math.abs(c.gain))}) : le PEA, disponible, est préférable. <a class="lien-fiche" href="#fiche-per">Voir le calcul</a>`; })();
+    : (() => { const tE = etat.resultat?.per?.exact ? etat.resultat.per.tauxEffectif : tmiP, c = comparerPERPEA(tmiP, plan.per?.tmiRetraite ?? 11, 20, tE); return `Avec ta tranche à ${tmiP} % : 100 € versés ne baissent l'impôt que de ${eur(tE)}, et ils seront imposés à la sortie. Sur 20 ans, pour 100 € par mois de ta poche, ${eur(c.per)} avec le PER contre ${eur(c.pea)} avec le PEA (${c.gain >= 0 ? "+" : "−"}${pct(Math.abs(c.gain))}) : le PEA, disponible, est préférable. <a class="lien-fiche" href="#fiche-per">Voir le calcul</a>`; })();
   // Évolution de carrière : choix, et salaire estimé dans 10 ans et en fin de carrière (en euros d'aujourd'hui)
   const CR = plan.carrieres ?? {};
   const elC = $("#p-carriere");
@@ -4344,13 +4351,13 @@ function blocCalculPER(res) {
   if (tmi == null) return '<p class="small" style="margin:0">Indique ta tranche d\'imposition (TMI) dans « Mon profil » pour voir ce qu\'un PER te rapporterait.</p>';
   const n = Math.max(1, (plan.hypotheses.ageRetraite ?? 64) - (p.agePrincipal ?? p.age ?? 30));
   const tret = plan.per?.tmiRetraite ?? 11, r = 0.06 / 12, F = (Math.pow(1 + r, 12 * n) - 1) / r;
-  const effort = 100, mPER = effort / (1 - tmi / 100);
+  const effort = 100, tauxPER = per.exact ? per.tauxEffectif : tmi, mPER = effort / (1 - tauxPER / 100);
   const capPER = mPER * F, versePER = mPER * 12 * n, netPER = capPER - (versePER * tret) / 100 - (capPER - versePER) * (PFU / 100);
   const cap = effort * F, verse = effort * 12 * n, netPEA = cap - (cap - verse) * (PRELEVEMENTS.PS_CAPITAL / 100), netCTO = cap - (cap - verse) * (PFU / 100);
   const gain = (100 * (netPER / netPEA - 1));
   const ab = res.abondement;
   const ligneAb = ab?.mensuel > 0.5 ? `<p class="verdict ok" style="margin:0 0 8px"><b>Abondement :</b> en versant ${eur(ab.mensuel)} par mois sur ton ${ab.surPER ? "PER d'entreprise" : "PEE"}, ton employeur ajoute ${eur(ab.abondementAn)} par an. C'est la première chose à faire.</p>` : "";
-  return ligneAb + `<p class="small" style="margin:0 0 8px">Ta tranche : <b>${tmi} %</b>. Chaque 100 € versé sur un PER te fait économiser <b>${eur(tmi)}</b> d'impôt.${per.actif ? ` Le plan prévoit ${eur(per.mensuel)} par mois, soit environ <b>${eur(per.economie)} d'impôt en moins par an</b>.` : per.raison === "refus" && per.economiePossible > 0.5 ? ` Tu as refusé le PER : environ ${eur(per.economiePossible)} d'impôt par an laissés de côté.` : ""}</p>
+  return ligneAb + `<p class="small" style="margin:0 0 8px">Ta tranche : <b>${tmi} %</b>. Chaque 100 € versé sur un PER te fait économiser <b>${eur(tauxPER)}</b> d'impôt${per.exact ? " (taux réel de ton versement prévu, décote et changement de tranche compris)" : " (estimation à ta tranche)"}.${per.actif ? ` Le plan prévoit ${eur(per.mensuel)} par mois, soit <b>${eur(per.economie)} d'impôt en moins par an</b>${per.exact ? `, soit ${Math.round(per.tauxEffectif)} % du versement` : " (estimation à ta tranche)"}.` : per.raison === "refus" && per.economiePossible > 0.5 ? ` Tu as refusé le PER : environ ${eur(per.economiePossible)} d'impôt par an laissés de côté.` : ""}</p>
     <div class="table-wrap"><table><thead><tr><th>Pour 100 € par mois de ta poche pendant ${n} ans</th><th class="m">À la retraite, après impôts</th></tr></thead><tbody>
       <tr><td>PER (${eur(mPER)} placés par mois grâce à l'économie d'impôt)</td><td class="m"><b>${eur(netPER)}</b></td></tr>
       <tr><td>PEA</td><td class="m">${eur(netPEA)}</td></tr>
@@ -4477,15 +4484,15 @@ function produitsIdeaux(res) {
   // 4. Les cadeaux fiscaux
   const per = res.per;
   const tret = plan.per?.tmiRetraite ?? 11;
-  const cmp = tmi != null ? comparerPERPEA(tmi, tret) : null;
-  const calcul = cmp ? `100 € versés font baisser l'impôt de ${eur(tmi)}${p.tmiEstimee ? ` (tranche estimée à ${tmi} % d'après tes revenus)` : ""}, mais ces versements seront imposés à la sortie (environ ${tret} % à la retraite). Sur 20 ans, pour 100 € par mois de ta poche : ${eur(cmp.per)} avec le PER contre ${eur(cmp.pea)} avec le PEA, après impôts, soit ${cmp.gain >= 0 ? "+" : "−"}${pct(Math.abs(cmp.gain))}.` : "";
+  const tauxE = per?.exact ? per.tauxEffectif : tmi, cmp = tmi != null ? comparerPERPEA(tmi, tret, 20, tauxE) : null;
+  const calcul = cmp ? `100 € versés font baisser l'impôt de ${eur(tauxE)}${p.tmiEstimee ? ` (tranche estimée à ${tmi} % d'après tes revenus)` : ""}, mais ces versements seront imposés à la sortie (environ ${tret} % à la retraite). Sur 20 ans, pour 100 € par mois de ta poche : ${eur(cmp.per)} avec le PER contre ${eur(cmp.pea)} avec le PEA, après impôts, soit ${cmp.gain >= 0 ? "+" : "−"}${pct(Math.abs(cmp.gain))}.` : "";
   L.push({ etape: 4, id: "per", nom: "PER (plan d'épargne retraite)", fiche: "per", badge: "Si tu paies assez d'impôt",
     pourquoi: "L'État paie une partie de ton épargne : chaque versement baisse ton impôt de 30 à 45 %, et l'argent est investi en bourse jusqu'à la retraite (ou l'achat de ta résidence principale).",
     chips: ["−30 à −45 % d'impôt", "Investi en ETF", "Bloqué jusqu'à la retraite", "Plafond sur l'avis d'impôt"],
     ...(p.refusPER ? { statut: "non", texte: `Tu l'as écarté${per?.economiePossible > 0.5 ? ` : environ ${eur(per.economiePossible)} d'impôt par an laissés de côté` : ""}.` }
       : tmi == null ? { statut: "verifier", texte: "Indique ta tranche d'imposition dans « Mon profil » pour savoir s'il vaut le coup." }
-      : per?.actif ? ((P.per ?? 0) > 0 ? { statut: "fait", texte: `Ouvert. Le plan y verse ${eur(per.mensuel)} par mois : environ ${eur(per.economie)} d'impôt en moins par an.` }
-        : { statut: "afaire", texte: `À ouvrir : ${eur(per.mensuel)} par mois, environ ${eur(per.economie)} d'impôt en moins par an.` })
+      : per?.actif ? ((P.per ?? 0) > 0 ? { statut: "fait", texte: `Ouvert. Le plan y verse ${eur(per.mensuel)} par mois : environ ${eur(per.economie)} d'impôt en moins par an${per.exact ? "" : " (estimation à ta tranche)"}.` }
+        : { statut: "afaire", texte: `À ouvrir : ${eur(per.mensuel)} par mois, environ ${eur(per.economie)} d'impôt en moins par an${per.exact ? "" : " (estimation à ta tranche)"}.` })
       : per?.raison === "pas-de-flux-bourse" ? { statut: "plustard", texte: `Intéressant pour toi : ${calcul} Mais pour l'instant toute ton épargne va à la sécurité ou à l'apport ; le plan commencera le PER ensuite.` }
       : per?.raison === "age" ? { statut: "non", texte: "Depuis 2026, les versements faits après 70 ans ne sont plus déductibles." }
       : per?.raison === "non-resident" ? { statut: "non", texte: "Réservé aux résidents fiscaux français." }
@@ -4530,7 +4537,7 @@ function argentPerdu(res) {
   if (p.refusPER && res.per?.economiePossible > 0.5) out.push(["Impôt non économisé (PER écarté)", res.per.economiePossible, "per"]);
   if (p.eligibleLEP && (P.lep ?? 0) < 9999) out.push(["LEP pas rempli (2,5 % au lieu de 1,7 %)", ((PLAFONDS.lep - (P.lep ?? 0)) * 0.8) / 100, "lep"]);
   const inter = Number(A.interessement) || 0;
-  if (inter > 0 && A.placer === false && !["non", "?"].includes(A.acces) && tmi > 0) out.push(["Impôt payé sur l'intéressement reçu au lieu d'être placé", (inter * tmi) / 100, "epargne-salariale"]);
+  if (inter > 0 && A.placer === false && !["non", "?"].includes(A.acces) && tmi > 0) out.push(["Impôt payé sur l'intéressement reçu au lieu d'être placé", economieInteressement(p, inter).economie, "epargne-salariale"]);
   if ((P.livretBancaire ?? 0) > 1000 && (P.livretA ?? 0) + (P.ldds ?? 0) < 34900) out.push(["Super livret imposé alors que le Livret A et le LDDS ne sont pas pleins", null, "livret-bancaire"]);
   return out;
 }

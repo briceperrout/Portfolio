@@ -1,5 +1,6 @@
 // Tests de la fiscalité des indépendants et de la centralisation des taux — node test_fiscal.mjs
-import { alerteMillesime, FISCALITE, MILLESIME, PLAFONDS, BAREME, PFU, PRELEVEMENTS, DECOTE, PLAFOND_DEMI_PART, partsEnfants, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes, exitTax } from "./fiscal.js";
+import { alerteMillesime, FISCALITE, MILLESIME, PLAFONDS, BAREME, PFU, PRELEVEMENTS, DECOTE, PLAFOND_DEMI_PART, partsEnfants, impotBareme, impotBaremeIndexe, revenuImposablePension, margeTranche, impotRachatAV, impotRetraitPEA, impotRetraitPER, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant, impotSurLesSocietes, exitTax, economieDeduction, tauxMarginalEffectif } from "./fiscal.js";
+import { conseilPER, revenuImposableDe } from "./moteur.js";
 import { PLAN } from "./plan.js";
 import { estimerPension } from "./pension.js";
 
@@ -232,6 +233,51 @@ verifier("barème indexé 1,1", impotBaremeIndexe(33000, 2, 2, 1.1).impot, impot
   verifier("PLAN reprend les plafonds (PER)", PLAN.per.plafondMax, P.per.plafondMax, 0);
   verifier("PLAN reprend les plafonds (PASS)", PLAN.retraitePublique.pass, P.pass, 0);
   verifier("PLAN reprend l'abondement PEE", PLAN.abondement.plafondPEE, P.abondement.pee, 0);
+}
+
+// ---- Économie d'impôt exacte d'une déduction et taux marginal effectif ----
+{
+  verifier("tme : zone de décote (20 000)", tauxMarginalEffectif(20000), 15.98, 0.05);
+  verifier("tme : impôt nul (11 601)", tauxMarginalEffectif(11601), 0, 0.001);
+  verifier("tme : tranche à 30 % (40 000)", tauxMarginalEffectif(40000), 30, 0.001);
+  verifier("tme : QF plafonné, 3 parts dont base 2 (100 000)", tauxMarginalEffectif(100000, 3, 2), 30, 0.001);
+  verifier("tme : couple 2 parts, RNI 50 000", tauxMarginalEffectif(50000, 2), 15.98, 0.05);
+  verifier("tme : revenu nul", tauxMarginalEffectif(0), 0, 0);
+  verifier("tme : entrée NaN", tauxMarginalEffectif(NaN), 0, 0);
+  const e1 = economieDeduction(32000, 5000);
+  verifier("économie : 32 000 / 5 000", e1.economie, 1140.49, 1);
+  verifier("économie : taux effectif 32 000 / 5 000", e1.tauxEffectif, 22.81, 0.05);
+  verifier("économie : n'est pas montant × tmi", e1.economie < 5000 * 0.3, true);
+  verifier("économie : 20 000 / 5 000", economieDeduction(20000, 5000).economie, 445.11, 1);
+  verifier("économie : déduction nulle", economieDeduction(40000, 0).economie, 0, 0);
+  verifier("économie : déduction nulle, taux = marginal", economieDeduction(40000, 0).tauxEffectif, 30, 0.001);
+  const e2 = economieDeduction(10000, 50000);
+  verifier("économie : déduction bornée au revenu, pas de NaN", Number.isFinite(e2.economie) && Number.isFinite(e2.tauxEffectif), true);
+  verifier("économie : déduction bornée au revenu (impôt déjà nul)", e2.economie, impotBareme(10000).impot, 0.001);
+  const e3 = economieDeduction(NaN, undefined);
+  verifier("économie : entrées NaN/undefined", e3.economie === 0 && e3.tauxEffectif === 0, true);
+  verifier("économie : déduction négative ignorée", economieDeduction(32000, -500).economie, 0, 0);
+  verifier("non-régression : tmi de impotBareme(32 000)", impotBareme(32000).tmi, 30, 0);
+  verifier("non-régression : tmi de impotBareme(20 000)", impotBareme(20000).tmi, 11, 0);
+
+  // conseilPER : exact quand le revenu se déduit des salaires, sinon montant × tranche
+  const profil = { statutPro: "salarie", salaireNetMensuel: 2700, epargneMensuelle: 10000, plafondPER: 5000, age: 35, enfants: 0, tmi: 30, tmiEstimee: true };
+  const F = revenuImposableDe(profil);
+  verifier("revenuImposableDe : connu (salarié)", !!F && F.revenu > 30000 && F.revenu < 34000 && F.parts === 1, true);
+  const mouvements = [{ sens: "versement", enveloppe: "pea", montant: 2000 }];
+  const c = conseilPER(PLAN, profil, mouvements);
+  verifier("conseilPER exact : exact", c.exact, true);
+  verifier("conseilPER exact : versement annuel", c.annuel, 5000, 0.01);
+  verifier("conseilPER exact : économie = différence d'impôt", c.economie, economieDeduction(F.revenu, c.annuel, F.parts, F.partsBase).economie, 0.01);
+  verifier("conseilPER exact : taux effectif", c.tauxEffectif, 100 * c.economie / c.annuel, 0.001);
+  verifier("conseilPER exact : moins que montant × tmi", c.economie < (c.annuel * c.tmi) / 100, true);
+  verifier("conseilPER exact : tmi légale conservée", c.tmi, 30, 0);
+  const sans = conseilPER(PLAN, { ...profil, salaireNetMensuel: 0, tmiEstimee: false }, mouvements);
+  verifier("conseilPER tmi saisie sans revenu : exact faux", sans.exact, false);
+  verifier("conseilPER tmi saisie sans revenu : annuel × tmi / 100", sans.economie, (sans.annuel * 30) / 100, 0.001);
+  verifier("conseilPER tmi saisie sans revenu : taux = tmi", sans.tauxEffectif, 30, 0);
+  const incoherent = conseilPER(PLAN, { ...profil, tmi: 41, tmiEstimee: false }, mouvements);
+  verifier("conseilPER tmi saisie ≠ tranche des salaires : approximation", incoherent.exact, false);
 }
 
 // ---- Alerte de millésime ----

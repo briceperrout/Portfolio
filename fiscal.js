@@ -196,6 +196,29 @@ export function revenuImposableSalaires(profil) {
   return decomposerSalaire(base, { parts: ff.parts, partsBase: ff.partsBase }).netAvant * 12 * 0.9;
 }
 
+// Taux marginal EFFECTIF : ce que coûte réellement le dernier euro de revenu (impôt(R) − impôt(R − pas)) / pas, en %.
+// Il diffère de la tranche légale (`tmi`) : la décote le majore (≈ 1,4525 × le taux de tranche dans sa zone, soit ≈ 16 % en tranche à 11 %),
+// il peut être nul quand la tranche est à 11 % (impôt annulé par la décote), et le plafonnement du quotient familial le fait varier.
+export function tauxMarginalEffectif(revenuImposable, parts = 1, partsBase = parts, pas = 100) {
+  const R = Number(revenuImposable);
+  if (!Number.isFinite(R) || R <= 0) return 0;
+  const p = Number.isFinite(Number(pas)) && Number(pas) > 0 ? Number(pas) : 100;
+  const bas = Math.max(0, R - p);
+  return (100 * (impotBareme(R, parts, partsBase).impot - impotBareme(bas, parts, partsBase).impot)) / Math.min(p, R);
+}
+
+// Économie d'impôt exacte d'une déduction (versement PER, intéressement placé…) : impôt avant − impôt après.
+// Contrairement à « montant × tranche », elle tient compte du changement de tranche, de la décote et du plafond des demi-parts.
+// tauxEffectif = économie / déduction (en %) ; sans déduction, le taux marginal effectif du revenu.
+export function economieDeduction(revenuImposable, deduction, parts = 1, partsBase = parts) {
+  const R0 = Number(revenuImposable), D0 = Number(deduction);
+  const R = Number.isFinite(R0) ? Math.max(0, R0) : 0;
+  const d = Number.isFinite(D0) ? Math.min(Math.max(0, D0), R) : 0;
+  if (!(R > 0)) return { economie: 0, tauxEffectif: 0 };
+  const economie = impotBareme(R, parts, partsBase).impot - impotBareme(R - d, parts, partsBase).impot;
+  return { economie, tauxEffectif: d > 0 ? (100 * economie) / d : tauxMarginalEffectif(R, parts, partsBase) };
+}
+
 // Taux d'impôt réel sur un revenu en plus (loyers…) : impôt avec − impôt sans, divisé par ce revenu (en %).
 // Tient compte d'un changement de tranche, de la décote et du plafond des demi-parts.
 // Une tranche saisie à la main plus haute (autres revenus) l'emporte.

@@ -1,4 +1,4 @@
-import { PLAFONDS, decomposerSalaire, foyerFiscal, revenuImposableSalaires, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant } from "./fiscal.js";
+import { PLAFONDS, decomposerSalaire, foyerFiscal, revenuImposableSalaires, impotBareme, economieDeduction, microEntreprise, remunerationSociete, optimiserRemuneration, plafondPERIndependant } from "./fiscal.js";
 import { projetLocatifDe } from "./locatif.js";
 // =====================================================================
 //  MOTEUR — applique PLAN à un profil. Aucune valeur financière ici.
@@ -1011,6 +1011,25 @@ function plafondPERIndependantDe(plan, profil) {
 export function tmiDe(profil) {
   return profil.tmi === "" || profil.tmi == null ? null : Number(profil.tmi);
 }
+// Revenu imposable du foyer et parts, quand ils se déduisent des salaires saisis ; null sinon
+// (indépendant, pas de salaire, ou tranche saisie à la main différente de celle des salaires : d'autres revenus pèsent, on ne sait pas lesquels).
+export function revenuImposableDe(profil) {
+  if (!profil || profil.statutPro === "independant" || !(Number(profil.salaireNetMensuel) > 0)) return null;
+  const ff = foyerFiscal(profil), revenu = revenuImposableSalaires(profil);
+  if (!(revenu > 0)) return null;
+  const saisi = tmiDe(profil);
+  if (saisi != null && !profil.tmiEstimee && saisi !== impotBareme(revenu, ff.parts, ff.partsBase).tmi) return null;
+  return { revenu, parts: ff.parts, partsBase: ff.partsBase };
+}
+// Impôt évité en déduisant (ou plaçant) un montant : exact si le revenu est connu, sinon montant × tranche
+// supplement : revenu qui s'ajoute au revenu des salaires (intéressement perçu au lieu d'être placé)
+export function economieImpot(profil, montant, supplement = 0) {
+  const m = Math.max(0, Number(montant) || 0), tmi = tmiDe(profil) ?? 0, F = revenuImposableDe(profil);
+  if (F) { const e = economieDeduction(F.revenu + Math.max(0, supplement), m, F.parts, F.partsBase); return { economie: e.economie, tauxEffectif: m > 0 ? e.tauxEffectif : tmi, exact: true }; }
+  return { economie: (m * tmi) / 100, tauxEffectif: tmi, exact: false };
+}
+// Impôt évité en plaçant l'intéressement sur le PEE : perçu, il serait imposé comme un salaire, après l'abattement de 10 % (même convention × 0,9 que fiscal.js)
+export const economieInteressement = (profil, inter) => { const base = 0.9 * Math.max(0, Number(inter) || 0); return economieImpot(profil, base, base); };
 export function conseilPER(plan, profil, mouvements = []) {
   const R = plan.per;
   if (!R) return null;
@@ -1018,7 +1037,7 @@ export function conseilPER(plan, profil, mouvements = []) {
   const salaireAn = (profil.salaireNetMensuel ?? 0) * 12;
   const plafondEstime = !(profil.plafondPER > 0);
   const plafond = !plafondEstime ? profil.plafondPER : profil.plafondPEREstime ?? plafondPERIndependantDe(plan, profil) ?? plafondPEREstime(plan, profil.salaireNetMensuel);
-  const base = { tmi, plafond, plafondEstime, mensuel: 0, annuel: 0, economie: 0 };
+  const base = { tmi, plafond, plafondEstime, mensuel: 0, annuel: 0, economie: 0, tauxEffectif: tmi, exact: false };
   if (!resideEnFrance(profil)) return { ...base, actif: false, raison: "non-resident" };
   if (tmi == null) return { ...base, actif: false, raison: "tmi-inconnue" };
   if (tmi < R.tmiMin) return { ...base, actif: false, raison: "tmi-faible" };
@@ -1029,8 +1048,9 @@ export function conseilPER(plan, profil, mouvements = []) {
   const fluxLongTerme = mouvements.filter((m) => m.sens === "versement" && !LIVRETS.includes(m.enveloppe)).reduce((s2, m) => s2 + m.montant, 0);
   const mensuel = Math.min(((profil.epargneMensuelle ?? 0) * part) / 100, plafond / 12, fluxLongTerme);
   // PER refusé : on n'en verse pas, mais on indique ce qu'il aurait fait gagner
-  if (profil.refusPER) return { ...base, part, actif: false, raison: "refus", economiePossible: (mensuel * 12 * tmi) / 100 };
-  return { ...base, part, mensuel, annuel: mensuel * 12, economie: (mensuel * 12 * tmi) / 100, actif: mensuel > 0.5, raison: mensuel > 0.5 ? null : "pas-de-flux-bourse" };
+  const eco = economieImpot(profil, mensuel * 12);
+  if (profil.refusPER) return { ...base, part, actif: false, raison: "refus", economiePossible: eco.economie, tauxEffectif: eco.tauxEffectif, exact: eco.exact };
+  return { ...base, part, mensuel, annuel: mensuel * 12, economie: eco.economie, tauxEffectif: eco.tauxEffectif, exact: eco.exact, actif: mensuel > 0.5, raison: mensuel > 0.5 ? null : "pas-de-flux-bourse" };
 }
 // Épargne salariale : accès déclaré dans le profil (« ? » = pas encore renseigné)
 export const accesEpargneSalariale = (profil) => profil.abondement?.acces ?? (profil.abondement?.actif ? (profil.abondement.plan === "pee" ? "pee" : "per") : "?");
@@ -1087,7 +1107,7 @@ function appliquerPER(mouvements, per, plan) {
   const total = autres.reduce((s2, x) => s2 + x.montant, 0);
   if (reste > 0 && total > 0) { const k = Math.min(1, reste / total); for (const x of autres) x.montant -= x.montant * k; }
   const out = mouvements.filter((m) => m.montant > 0.5);
-  out.push({ sens: "versement", enveloppe: "per", montant: per.mensuel, note: `Déductible : environ ${eur(per.economie)} d'impôt en moins par an (tranche à ${per.tmi} %)` });
+  out.push({ sens: "versement", enveloppe: "per", montant: per.mensuel, note: `Déductible : environ ${eur(per.economie)} d'impôt en moins par an (${per.exact ? `soit ${Math.round(per.tauxEffectif)} % du versement` : `tranche à ${per.tmi} %`})` });
   return out;
 }
 
@@ -1110,9 +1130,9 @@ export function consignes(plan, profil, { alloc, lignes, reeq, achat, per, abond
   if (acces === "?" && !["independant", "etudiant", "retraite"].includes(profil.statutPro)) {
     out.push({ niveau: "action", fiche: "epargne-salariale", texte: "Épargne salariale : vérifie si ton entreprise propose un PEE ou un PER d'entreprise (ex-PERCO), et si elle ajoute de l'argent à tes versements (abondement). C'est souvent le meilleur placement auquel tu as droit, et c'est obligatoire dans les entreprises d'au moins 50 salariés. Regarde ton livret d'épargne salariale, ta fiche de paie ou demande aux RH, puis indique-le dans « Mon profil », bloc « Ton employeur »." });
   } else if (acces !== "non" && acces !== "?" && inter > 0) {
-    const gain = (inter * tmiN) / 100;
+    const gainI = economieInteressement(profil, inter), gain = gainI.economie;
     out.push(A.placer !== false
-      ? { niveau: "action", fiche: "epargne-salariale", texte: `Intéressement et participation (environ ${eur(inter)} par an) : à chaque avis, tu as 15 jours pour choisir. Place-les sur ${abondement?.interessement > 0 ? (abondement.surPER ? "ton PER d'entreprise" : "ton PEE") : lieuES}${gain > 0.5 ? ` : environ ${eur(gain)} d'impôt sur le revenu en moins chaque année (tranche à ${tmiN} %)` : " : pas d'impôt sur le revenu"}, seulement 9,7 % de CSG et CRDS. Sans réponse, l'intéressement part sur le PEE et la moitié de la participation sur le PER d'entreprise.` }
+      ? { niveau: "action", fiche: "epargne-salariale", texte: `Intéressement et participation (environ ${eur(inter)} par an) : à chaque avis, tu as 15 jours pour choisir. Place-les sur ${abondement?.interessement > 0 ? (abondement.surPER ? "ton PER d'entreprise" : "ton PEE") : lieuES}${gain > 0.5 ? ` : environ ${eur(gain)} d'impôt sur le revenu en moins chaque année (${gainI.exact ? `soit ${Math.round(gainI.tauxEffectif)} % de ce montant` : `estimation à ta tranche de ${tmiN} %`})` : " : pas d'impôt sur le revenu"}, seulement 9,7 % de CSG et CRDS. Sans réponse, l'intéressement part sur le PEE et la moitié de la participation sur le PER d'entreprise.` }
       : { niveau: "info", fiche: "epargne-salariale", texte: `Tu reçois ton intéressement et ta participation (environ ${eur(inter)} par an) : ils sont imposés comme ton salaire.${gain > 0.5 ? ` Les placer sur ${lieuES} t'éviterait environ ${eur(gain)} d'impôt par an.` : ""} Le plan ne les compte pas dans ton épargne.` });
   }
   if ((acces === "per" || acces === "les2") && per?.actif) {
@@ -1293,7 +1313,7 @@ export function consignes(plan, profil, { alloc, lignes, reeq, achat, per, abond
     else if (per.raison === "refus") out.push({ niveau: "info", fiche: "per", texte: `Pas de PER, comme tu l'as choisi : l'épargne qui y serait allée reste en bourse (PEA, compte-titres, assurance-vie), disponible.${per.economiePossible > 0.5 ? ` Pour information, avec ta tranche à ${per.tmi} %, un PER ferait économiser environ ${eur(per.economiePossible)} d'impôt par an, en échange d'un argent bloqué jusqu'à la retraite (sauf achat de la résidence principale).` : ""}${aUnPER ? " Ton PER actuel est conservé, sans nouveaux versements." : ""}` });
     else if (per.raison === "tmi-faible") out.push({ niveau: "info", fiche: "per", texte: `Tranche d'imposition à ${per.tmi} % : l'avantage du PER est faible${aUnPER ? ", ne pas l'alimenter en priorité" : ", pas de PER pour l'instant"}.` });
     else if (per.raison === "age") out.push({ niveau: "info", fiche: "per", texte: "À partir de 70 ans, les versements sur un PER ne sont plus déductibles." });
-    else if (per.actif) out.push({ niveau: "action", fiche: "per", texte: `${aUnPER ? "Verser" : `Ouvrir un PER${reco ? ` (par exemple ${reco})` : ""} et verser`} ${eur(per.mensuel)} par mois, soit ${eur(per.annuel)} par an : environ ${eur(per.economie)} d'impôt en moins chaque année. Plafond de déduction${per.plafondEstime ? " estimé" : ""}${profil.couple && profil.marie ? " du foyer" : ""} : ${eur(per.plafond)} par an. C'est comme si l'État payait ${per.tmi} % de chaque versement.` });
+    else if (per.actif) out.push({ niveau: "action", fiche: "per", texte: `${aUnPER ? "Verser" : `Ouvrir un PER${reco ? ` (par exemple ${reco})` : ""} et verser`} ${eur(per.mensuel)} par mois, soit ${eur(per.annuel)} par an : environ ${eur(per.economie)} d'impôt en moins chaque année. Plafond de déduction${per.plafondEstime ? " estimé" : ""}${profil.couple && profil.marie ? " du foyer" : ""} : ${eur(per.plafond)} par an. C'est comme si l'État payait ${Math.round(per.tauxEffectif ?? per.tmi)} % de chaque versement${per.exact ? "" : " (estimation à ta tranche)"}.` });
     else if (per.raison === "pas-de-flux-bourse") out.push({ niveau: "info", fiche: "per", texte: "PER intéressant pour ta tranche d'imposition, mais ce mois-ci l'épargne va d'abord à la sécurité et à l'apport : on commencera ensuite." });
   }
 

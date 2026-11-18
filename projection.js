@@ -487,7 +487,7 @@ function simuler(plan, profil, { achat, gauss, detail, per, retraite = null, cho
     if (per?.actif && age < Math.min(H.ageRetraite ?? 64, 70)) {
       const versePER = per.annuel * facteurEp;
       cumulPER += versePER;
-      if (plan.per?.reinvestirEconomie) ep += ((versePER * per.tmi) / 100) * (apres(y) ? fiscF.perDeduction ?? 1 : 1);
+      if (plan.per?.reinvestirEconomie) ep += ((versePER * (per.tauxEffectif ?? per.tmi)) / 100) * (apres(y) ? fiscF.perDeduction ?? 1 : 1);
     }
     // Bien loué : loyers − charges − impôt − crédit (tant qu'il court), relevés de l'inflation ; continue à la retraite
     // (échéancier réel : les intérêts baissent chaque année, l'impôt au régime réel monte, le crédit s'arrête à sa date)

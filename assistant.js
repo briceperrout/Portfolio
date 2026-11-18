@@ -27,7 +27,8 @@
 
 import { FICHES, VERIFIE_LE } from "./fiches.js";
 import { LEXIQUE, lierTermes } from "./lexique.js";
-import { eur, pct, endettementBancaire, seuilAchatBitcoin } from "./moteur.js";
+import { eur, pct, endettementBancaire, seuilAchatBitcoin, revenuImposableDe } from "./moteur.js";
+import { tauxMarginalEffectif } from "./fiscal.js";
 import { tauxEffectifs, consoliderEtrangers, expositionChange } from "./devises.js";
 
 // ---------------------------------------------------------------- outils texte
@@ -226,6 +227,8 @@ export function resumerProfilPourLLM(ctx) {
   const couple = !!P.couple || !!P.foyer?.actif;
   L.push(`- Âge : ${P.agePrincipal ?? P.age} ans. Foyer : ${couple ? `en couple (${P.marie === false ? "concubinage" : "marié ou pacsé"})` : "seul"}. Enfants à charge : ${Number(P.enfants) || 0}. Propriétaire de sa résidence principale : ${P.proprietaire ? "oui" : "non"}.`);
   L.push(`- Pays de résidence fiscale : ${P.pays || "FR"}. Statut professionnel : ${P.statutPro || "non précisé"}. Profil de risque : ${P.profilRisque || "par défaut"}. Tranche marginale d'impôt : ${P.tmi === "" || P.tmi == null ? "inconnue" : `${P.tmi} %${P.tmiEstimee ? " (estimée)" : ""}`}.`);
+  const FT = revenuImposableDe(P);
+  if (FT) L.push(`- Taux marginal effectif (décote et quotient familial compris) : ${fr(tauxMarginalEffectif(FT.revenu, FT.parts, FT.partsBase), 0)} %.`);
   if (sal > 0) L.push(`- Budget (en % du salaire net) : épargne mensuelle ${fr((100 * ep) / sal)} %, dépenses ${fr((100 * dep) / sal)} %, crédits en cours ${fr((100 * cred) / sal)} %.`);
   if (sal > 0 && cap > 0) L.push(`- Capital total ≈ ${fr(cap / (sal * 12), 1)} fois le salaire net annuel.`);
   const liquide = somme(pl, ["livretA", "ldds", "livretBancaire", "lep", "livretJeune"]);

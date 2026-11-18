@@ -633,6 +633,7 @@ export const FICHES = [
         "Le barème 2026 (revenus 2025), par part : 0 % jusqu'à 11 600 €, 11 % de 11 600 € à 29 579 €, 30 % jusqu'à 84 577 €, 41 % jusqu'à 181 917 €, 45 % au-delà.",
         "Chaque taux ne s'applique qu'à la part du revenu dans sa tranche : passer dans la tranche à 30 % ne fait pas payer 30 % sur tout, seulement sur les euros au-dessus de 29 579 €. Une augmentation ne fait jamais baisser le net après impôt.",
         "La tranche marginale (TMI) est le taux de ton dernier euro gagné. Elle sert à savoir ce que rapporte un PER : chaque euro versé est retiré du haut de tes revenus, donc il économise ta TMI (30 € pour 100 € à 30 %).",
+        "Le taux marginal effectif est ce que coûte réellement le dernier euro, décote comprise : il peut être plus haut que la tranche (zone de décote) ou nul. Quand un versement fait changer de tranche, l'économie réelle est la différence d'impôt avant et après : seul, avec 32 000 € de revenu imposable, un versement PER de 5 000 € économise 1 140 € (impôt de 2 704 € ramené à 1 564 €) et non 1 500 € (5 000 € × 30 %). Le site fait ce calcul exact quand il connaît ton revenu.",
         "Le taux moyen est la part de tes revenus réellement payée en impôt. C'est le taux du prélèvement à la source affiché sur ta fiche de paie.",
         "Ta TMI est écrite sur ton avis d'impôt (« taux marginal d'imposition ») ; dans « Mon profil », c'est le champ « Tranche d'imposition ».",
       ] },
